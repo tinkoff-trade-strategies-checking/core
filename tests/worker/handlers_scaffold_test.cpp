@@ -50,11 +50,6 @@ class HandlersScaffold : public ::testing::Test {
 TEST_F(HandlersScaffold, AllRpcsReachable) {
   {
     grpc::ClientContext context;
-    pb::CheckStrategyResponse response;
-    expectUnimplemented(stub_->CheckStrategy(&context, {}, &response), "CheckStrategy");
-  }
-  {
-    grpc::ClientContext context;
     pb::ReplaySessionResponse response;
     expectUnimplemented(stub_->ReplaySession(&context, {}, &response), "ReplaySession");
   }
