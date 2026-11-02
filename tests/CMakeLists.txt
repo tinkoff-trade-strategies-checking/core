@@ -11,3 +11,5 @@ if(CORE_BUILD_WORKER)
   target_link_libraries(worker_tests PRIVATE simulation_worker_lib core::simulation_core GTest::gtest_main core_warnings)
   gtest_discover_tests(worker_tests)
 endif()
+
+add_subdirectory(money)

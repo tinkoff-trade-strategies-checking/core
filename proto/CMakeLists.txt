@@ -14,7 +14,7 @@ endif()
 set(_gen_dir ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${_gen_dir})
 
-set(_proto_files simulation)
+set(_proto_files simulation common)
 set(_gen_sources)
 foreach(_name IN LISTS _proto_files)
   set(_out
