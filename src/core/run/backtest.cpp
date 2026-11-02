@@ -25,13 +25,14 @@ class Runner {
  public:
   Runner(const SessionSpec& spec, std::shared_ptr<const Timeline> timeline, const dsl::Program& program,
          const std::vector<dsl::ResolvedParam>& params, const dsl::ParamValues& overrides, const Progress& progress,
-         const detail::StepHook& hook)
+         const detail::StepHook& hook, std::int64_t lastStep)
       : spec_(spec),
         timeline_(timeline),
         engine_(spec, std::move(timeline)),
         strategy_(program, params, overrides, spec.instruments.size()),
         progress_(progress),
         hook_(hook),
+        lastStep_(lastStep),
         barsInPosition_(spec.instruments.size()) {}
 
   RunOutput run(dsl::Level staticLevel) {
@@ -66,7 +67,8 @@ class Runner {
         cancelFlatSells(k);
         decide(k);
       }
-      const bool stop = engine_.status() != SessionStatus::Running;
+      // Прогон до lastStep: на нём стратегия ещё решает (заявка не исполнится), дальше шаги не обрабатываются.
+      const bool stop = engine_.status() != SessionStatus::Running || k >= lastStep_;
       if (!stop && (k + 1) % kProgressEvery == 0) reportProgress(k + 1);
       if (stop) break;
       engine_.advance();
@@ -211,6 +213,7 @@ class Runner {
   dsl::StrategyInstance strategy_;
   const Progress& progress_;
   const detail::StepHook& hook_;
+  std::int64_t lastStep_;
   std::map<std::pair<std::string, int>, std::int64_t> book_;  // (правило, бумага) -> id активной заявки
   std::vector<std::optional<std::int64_t>> barsInPosition_;
   std::vector<JournalEntry> journal_;
@@ -227,7 +230,21 @@ RunOutput runBacktestWithHook(const SessionSpec& spec, std::shared_ptr<const Tim
                               const dsl::ParamValues& overrides, dsl::Level staticLevel, const Progress& progress,
                               const StepHook& hook) {
   if (!timeline) throw std::invalid_argument("runBacktest: нет шкалы времени");
-  Runner runner(spec, std::move(timeline), program, params, overrides, progress, hook);
+  const std::int64_t lastStep = timeline->totalSteps() - 1;
+  Runner runner(spec, std::move(timeline), program, params, overrides, progress, hook, lastStep);
+  return runner.run(staticLevel);
+}
+
+RunOutput runBacktestToStep(const SessionSpec& spec, std::shared_ptr<const Timeline> timeline,
+                            const dsl::Program& program, const std::vector<dsl::ResolvedParam>& params,
+                            const dsl::ParamValues& overrides, dsl::Level staticLevel, std::int64_t lastStep) {
+  if (!timeline) throw std::invalid_argument("runBacktestToStep: нет шкалы времени");
+  if (lastStep < 0 || lastStep >= timeline->totalSteps()) {
+    throw std::invalid_argument("runBacktestToStep: lastStep вне шкалы времени");
+  }
+  const Progress noProgress;
+  const StepHook noHook;
+  Runner runner(spec, std::move(timeline), program, params, overrides, noProgress, noHook, lastStep);
   return runner.run(staticLevel);
 }
 

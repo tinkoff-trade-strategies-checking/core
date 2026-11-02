@@ -55,11 +55,6 @@ TEST_F(HandlersScaffold, AllRpcsReachable) {
     EXPECT_FALSE(reader->Read(&update));
     expectUnimplemented(reader->Finish(), "RunBacktest");
   }
-  {
-    grpc::ClientContext context;
-    pb::DivergenceResponse response;
-    expectUnimplemented(stub_->AnalyzeDivergences(&context, {}, &response), "AnalyzeDivergences");
-  }
 }
 
 TEST_F(HandlersScaffold, PingReturnsCoreVersion) {

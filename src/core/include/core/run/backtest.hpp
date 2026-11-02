@@ -73,6 +73,13 @@ RunOutput runBacktestWithHook(const SessionSpec& spec, std::shared_ptr<const Tim
                               const dsl::ParamValues& overrides, dsl::Level staticLevel, const Progress& progress,
                               const StepHook& hook);
 
+// Прогон по шагам 0…lastStep (разбор расхождений по сессии, остановленной раньше конца шкалы): на lastStep стратегия
+// ещё решает, но заявки не исполняются, бары позже lastStep не используются (INV-1). lastStep вне шкалы -
+// std::invalid_argument. Остальное - как у runBacktest.
+RunOutput runBacktestToStep(const SessionSpec& spec, std::shared_ptr<const Timeline> timeline,
+                            const dsl::Program& program, const std::vector<dsl::ResolvedParam>& params,
+                            const dsl::ParamValues& overrides, dsl::Level staticLevel, std::int64_t lastStep);
+
 // Проверки «странных действий» по итогам прогона (dsl.md, «Чтение будущего»): W-RT01, W-RT02.
 // orders - все заявки прогона по возрастанию id (индекс не используется, поиск по id).
 std::vector<Finding> runtimeFindings(const Timeline& timeline, const std::vector<Order>& orders,
