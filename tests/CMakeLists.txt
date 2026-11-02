@@ -4,7 +4,6 @@ include(GoogleTest)
 file(GLOB support_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/support/*.cpp)
 
 add_executable(core_tests
-  determinism_test.cpp
   version_test.cpp
   build/flags_test.cpp
   ${support_sources})

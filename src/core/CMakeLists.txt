@@ -1,7 +1,6 @@
 # Чистый C++20, без gRPC и protobuf: ядро не знает про транспорт.
 add_library(simulation_core
-  version.cpp
-  deterministic_run.cpp)
+  version.cpp)
 add_library(core::simulation_core ALIAS simulation_core)
 
 target_include_directories(simulation_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

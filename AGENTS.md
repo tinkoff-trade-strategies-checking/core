@@ -82,7 +82,7 @@ docker compose -p chit -f backend/deploy/docker-compose.yml -f backend/tools/mar
 
 ```bash
 src/worker/simulation_worker --listen 0.0.0.0:50051   # воркер (или WORKER_ADDRESS=...), останавливается по SIGTERM/SIGINT
-src/cli/sim_cli replay --seed 42 --steps 1000         # replay-заглушка, печатает контрольную сумму
+src/cli/sim_cli replay                                 # пока не реализован (прогоны идут через воркер)
 src/cli/sim_cli version
 ```
 
