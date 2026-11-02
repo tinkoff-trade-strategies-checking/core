@@ -1,7 +1,6 @@
 // simulation_worker — gRPC-сервер Simulation Worker.
 // Адрес: --listen host:port, иначе $WORKER_ADDRESS, иначе 0.0.0.0:50051.
-// Бары: ClickHouse по $CLICKHOUSE_URL (http://user:password@host:8123/база); календарь пока пустой
-// (его подключает задача 62).
+// Бары и календарь: ClickHouse по $CLICKHOUSE_URL (http://user:password@host:8123/база).
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -15,7 +14,7 @@
 #include <grpcpp/grpcpp.h>
 
 #include "clickhouse/clickhouse_bar_source.hpp"
-#include "core/market/calendar_source.hpp"
+#include "clickhouse/clickhouse_calendar_source.hpp"
 #include "worker_service.hpp"
 
 namespace {
@@ -49,11 +48,11 @@ int main(int argc, char** argv) {
       return 2;
     }
   } else {
-    std::cerr << "ВНИМАНИЕ: CLICKHOUSE_URL не задан, бары читаются с "
+    std::cerr << "ВНИМАНИЕ: CLICKHOUSE_URL не задан, бары и календарь читаются с "
               << clickhouse.baseUrl << " (база " << clickhouse.database << ", без учётных данных)" << '\n';
   }
   worker::ClickHouseBarSource bars(clickhouse);
-  core::InMemoryCalendarSource calendar;
+  worker::ClickHouseCalendarSource calendar(clickhouse);
   worker::WorkerService service(worker::Context{bars, calendar});
   grpc::ServerBuilder builder;
   builder.AddListeningPort(address, grpc::InsecureServerCredentials());
