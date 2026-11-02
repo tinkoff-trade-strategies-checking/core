@@ -8,21 +8,15 @@
 #include <vector>
 
 #include "convert/market.hpp"
+#include "convert/progress.hpp"
 #include "convert/run.hpp"
+#include "convert/strategy.hpp"
 #include "core/analysis/walk_forward.hpp"
-#include "core/dsl/checker.hpp"
-#include "core/dsl/parser.hpp"
 #include "handlers.hpp"
 
 namespace worker {
 
 namespace {
-
-// Клиент закрыл поток: прогресс не уходит, считать дальше незачем.
-struct StreamClosed {};
-
-// Не чаще одного сообщения на 0,1 % работы: прогонов подбора много, а шагов в каждом - до сотен тысяч.
-constexpr std::int64_t kProgressSlices = 1000;
 
 // Значения из запроса: 0 (поле не задано в proto3) - значение по умолчанию ядра; отрицательное - отказ.
 std::int32_t orDefault(std::int32_t value, std::int32_t fallback, const char* name) {
@@ -38,32 +32,6 @@ core::WalkForwardConfig configOf(const pb::WalkForwardRequest& request) {
   config.shiftDays = orDefault(request.shift_days(), defaults.shiftDays, "shift_days");
   config.maxGrid = orDefault(request.max_grid(), defaults.maxGrid, "max_grid");
   return config;
-}
-
-// Ошибки DSL - INVALID_ARGUMENT, коды диагностик через ';' (контракт simulation.proto).
-std::string errorCodes(const std::vector<core::dsl::Diagnostic>& diagnostics) {
-  std::string codes;
-  for (const core::dsl::Diagnostic& d : diagnostics) {
-    if (d.level != core::dsl::Level::Error) continue;
-    if (!codes.empty()) codes += ';';
-    codes += d.code;
-  }
-  return codes;
-}
-
-struct Strategy {
-  core::dsl::Program program;
-  std::vector<core::dsl::ResolvedParam> params;
-};
-
-Strategy loadStrategy(const std::string& source) {
-  core::dsl::ParseResult parsed = core::dsl::parse(source);
-  if (!parsed.program) throw std::invalid_argument("стратегия не разобрана: " + errorCodes(parsed.diagnostics));
-  core::dsl::CheckResult checked = core::dsl::check(*parsed.program);
-  if (checked.level == core::dsl::Level::Error) {
-    throw std::invalid_argument("стратегия не проходит проверку: " + errorCodes(checked.diagnostics));
-  }
-  return Strategy{std::move(*parsed.program), std::move(checked.params)};
 }
 
 // Московская дата каждого торгового дня шкалы (индекс - номер дня с 1).
@@ -97,19 +65,6 @@ void fillResult(const core::WalkForwardResult& result, const Strategy& strategy,
     toProto(s.test, s.testReport, std::nullopt, testTimeline, segment->mutable_test_result());
   }
   out->set_chained_return(result.chainedReturn);
-}
-
-core::Progress progressWriter(grpc::ServerWriterInterface<pb::WalkForwardUpdate>* writer) {
-  auto lastSlice = std::make_shared<std::int64_t>(-1);
-  return [writer, lastSlice](std::int64_t done, std::int64_t total) {
-    const std::int64_t slice = total > 0 ? done * kProgressSlices / total : kProgressSlices;
-    if (slice == *lastSlice) return;
-    *lastSlice = slice;
-    pb::WalkForwardUpdate update;
-    update.mutable_progress()->set_done_steps(done);
-    update.mutable_progress()->set_total_steps(total);
-    if (!writer->Write(update)) throw StreamClosed{};
-  };
 }
 
 }  // namespace

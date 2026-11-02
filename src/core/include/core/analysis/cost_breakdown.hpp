@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -36,9 +37,13 @@ struct CostStageRun {
 // Издержки берутся из honest.costs; honest.naive = true - std::invalid_argument. netResult = finalEquity - initialCash,
 // netReturn = netResult / initialCash. Ошибки runBacktest (std::invalid_argument) не перехватываются.
 // honestSharpe - Sharpe честного прогона из отчёта (нет значения - флаг SharpeOver3 не ставится).
+// afterStage - вызывается после каждого из шести этапов (может быть пустым): по нему вызывающий отдаёт прогресс и
+// замечает закрытый поток; исключение оттуда прерывает цепочку.
+using StageDone = std::function<void()>;
 CostBreakdown costBreakdown(const SessionSpec& honest, std::shared_ptr<const Timeline> timeline,
                             const dsl::Program& program, const std::vector<dsl::ResolvedParam>& params,
-                            const dsl::ParamValues& overrides, std::optional<double> honestSharpe);
+                            const dsl::ParamValues& overrides, std::optional<double> honestSharpe,
+                            const StageDone& afterStage = {});
 
 // То же, что costBreakdown, плюс итог прогона каждого этапа (stages[i] соответствует breakdown.steps[i]).
 struct CostBreakdownDetail {
@@ -47,7 +52,8 @@ struct CostBreakdownDetail {
 };
 CostBreakdownDetail costBreakdownDetailed(const SessionSpec& honest, std::shared_ptr<const Timeline> timeline,
                                           const dsl::Program& program, const std::vector<dsl::ResolvedParam>& params,
-                                          const dsl::ParamValues& overrides, std::optional<double> honestSharpe);
+                                          const dsl::ParamValues& overrides, std::optional<double> honestSharpe,
+                                          const StageDone& afterStage = {});
 
 // Флаги ФТ-24 по net-результатам в рублях (R) и Sharpe честного прогона. Порядок в результате: CostsOverHalfProfit,
 // SignChange, SharpeOver3.

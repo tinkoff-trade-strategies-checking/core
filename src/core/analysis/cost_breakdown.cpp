@@ -34,13 +34,16 @@ std::vector<CostFlag> costFlags(const Decimal& naiveNet, const Decimal& honestNe
 
 CostBreakdown costBreakdown(const SessionSpec& honest, std::shared_ptr<const Timeline> timeline,
                             const dsl::Program& program, const std::vector<dsl::ResolvedParam>& params,
-                            const dsl::ParamValues& overrides, std::optional<double> honestSharpe) {
-  return costBreakdownDetailed(honest, std::move(timeline), program, params, overrides, honestSharpe).breakdown;
+                            const dsl::ParamValues& overrides, std::optional<double> honestSharpe,
+                            const StageDone& afterStage) {
+  return costBreakdownDetailed(honest, std::move(timeline), program, params, overrides, honestSharpe, afterStage)
+      .breakdown;
 }
 
 CostBreakdownDetail costBreakdownDetailed(const SessionSpec& honest, std::shared_ptr<const Timeline> timeline,
                                           const dsl::Program& program, const std::vector<dsl::ResolvedParam>& params,
-                                          const dsl::ParamValues& overrides, std::optional<double> honestSharpe) {
+                                          const dsl::ParamValues& overrides, std::optional<double> honestSharpe,
+                                          const StageDone& afterStage) {
   if (honest.naive) throw std::invalid_argument("costBreakdown: честный прогон не может быть наивным (ФТ-24)");
 
   SessionSpec spec = honest;
@@ -50,6 +53,7 @@ CostBreakdownDetail costBreakdownDetailed(const SessionSpec& honest, std::shared
     CostStageRun stage;
     result.steps.push_back(stepOf(factor, stage, spec, timeline, program, params, overrides));
     detail.stages.push_back(std::move(stage));
+    if (afterStage) afterStage();
   };
 
   spec.naive = true;

@@ -34,10 +34,6 @@ class HandlersScaffold : public ::testing::Test {
     if (server_) server_->Shutdown();
   }
 
-  static void expectUnimplemented(const grpc::Status& status, const std::string& rpc) {
-    EXPECT_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED) << rpc;
-  }
-
   core::InMemoryBarSource bars_;
   core::InMemoryCalendarSource calendar_;
   std::unique_ptr<worker::WorkerService> service_;
@@ -46,16 +42,6 @@ class HandlersScaffold : public ::testing::Test {
 };
 
 }  // namespace
-
-TEST_F(HandlersScaffold, AllRpcsReachable) {
-  {
-    grpc::ClientContext context;
-    auto reader = stub_->RunBacktest(&context, {});
-    pb::RunBacktestUpdate update;
-    EXPECT_FALSE(reader->Read(&update));
-    expectUnimplemented(reader->Finish(), "RunBacktest");
-  }
-}
 
 TEST_F(HandlersScaffold, PingReturnsCoreVersion) {
   grpc::ClientContext context;
