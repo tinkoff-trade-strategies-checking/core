@@ -1,12 +1,37 @@
 // Контракт gRPC между Java (simulation) и C++ (Simulation Worker).
-// Источник правды для обеих сторон. Сейчас — только заглушка Ping.
+// Источник правды для обеих сторон. Меняя файл, обнови architecture.md и уведоми backend.
+//
+// Деньги и цены — Decimal из common.proto (ADR-0008); double только в метриках (INV-6).
+// Количество — целые лоты. Объём бара — в лотах.
+//
+// Ошибки RPC:
+//   INVALID_ARGUMENT    — неверная спецификация, ошибки DSL (в описании — коды диагностик через ';');
+//   FAILED_PRECONDITION — нет данных снапшота на период;
+//   INTERNAL            — нарушение целостности движка.
 syntax = "proto3";
 
 package pac.simulation.v1;
 
+option java_package = "pac.simulation.v1";
+option java_multiple_files = true;
+
+import "common.proto";  // Decimal
+
 service SimulationWorker {
   // Проверка доступности воркера и версии ядра.
   rpc Ping(PingRequest) returns (PingResponse);
+  // Проверка исходника стратегии: диагностики, исправления, объявленные параметры.
+  rpc CheckStrategy(CheckStrategyRequest) returns (CheckStrategyResponse);
+  // Воспроизведение сессии по журналу команд до курсора (INV-8).
+  rpc ReplaySession(ReplaySessionRequest) returns (ReplaySessionResponse);
+  // Бары по диапазону шагов общей шкалы времени сессии.
+  rpc GetBars(GetBarsRequest) returns (GetBarsResponse);
+  // Прогон стратегии на истории: поток прогресса и итоговый результат.
+  rpc RunBacktest(RunBacktestRequest) returns (stream RunBacktestUpdate);
+  // Walk-forward: поток прогресса и итоговый результат по сегментам.
+  rpc RunWalkForward(WalkForwardRequest) returns (stream WalkForwardUpdate);
+  // Разбор расхождений между действиями человека и алгоритмов (ФТ-18…20).
+  rpc AnalyzeDivergences(DivergenceRequest) returns (DivergenceResponse);
 }
 
 message PingRequest {}
@@ -14,4 +39,549 @@ message PingRequest {}
 message PingResponse {
   // Версия Simulation Core, с которой собран воркер.
   string core_version = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Перечисления
+// ---------------------------------------------------------------------------
+
+enum Timeframe {
+  TIMEFRAME_UNSPECIFIED = 0;
+  S1 = 1;
+  S10 = 2;
+  M1 = 3;
+  M5 = 4;
+  M10 = 5;
+  M15 = 6;
+  H1 = 7;
+  D1 = 8;
+}
+
+// Уровень диагностики или отчёта.
+enum Level {
+  LEVEL_UNSPECIFIED = 0;
+  OK = 1;
+  WARNING = 2;
+  ERROR = 3;
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  MARKET = 1;
+  LIMIT = 2;
+  STOP = 3;
+  STOP_LIMIT = 4;
+  TAKE_PROFIT = 5;
+  TRAILING_STOP = 6;
+}
+
+enum TimeInForce {
+  TIME_IN_FORCE_UNSPECIFIED = 0;
+  DAY = 1;
+  GTC = 2;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ACTIVE = 1;
+  PARTIALLY_FILLED = 2;
+  FILLED = 3;
+  CANCELLED = 4;
+  EXPIRED = 5;
+  REJECTED = 6;
+}
+
+// Причина отказа в заявке или снятия заявки.
+enum Reason {
+  REASON_UNSPECIFIED = 0;
+  INVALID_PARAMS = 1;
+  INSUFFICIENT_CASH = 2;
+  INSUFFICIENT_POSITION = 3;
+  SESSION_NOT_ACTIVE = 4;
+  ORDER_NOT_ACTIVE = 5;
+  LIQUIDITY_LIMIT = 6;
+  OCO_SIBLING_FILLED = 7;
+  POSITION_CLOSED = 8;
+  REPLACED = 9;
+  SESSION_END = 10;
+  CANCELLED_BY_USER = 11;
+  RULE_REPLACED = 12;
+  DAY_EXPIRED = 13;
+}
+
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  RUNNING = 1;
+  FINISHED_END = 2;
+  BANKRUPT = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Данные и условия: снапшот, бумаги, период, шаг, издержки, капитал
+// ---------------------------------------------------------------------------
+
+message Instrument {
+  string key = 1;       // ключ бумаги в сессии
+  string ticker = 2;
+  int64 lot_size = 3;   // штук в одном лоте
+  Decimal price_step = 4;
+}
+
+message CostConfig {
+  Decimal commission_rate = 1;
+  Decimal exchange_fee_rate = 2;
+  Decimal spread = 3;
+  Decimal slippage_kappa = 4;
+  Decimal liquidity_share = 5;
+}
+
+message MarketSpec {
+  string snapshot_id = 1;               // UUID снапшота ClickHouse
+  repeated Instrument instruments = 2;  // порядок = порядок обработки (dsl.md)
+  Timeframe timeframe = 3;
+  string from_date = 4;                 // ISO yyyy-mm-dd, включительно, московская дата
+  string to_date = 5;
+  CostConfig costs = 6;
+  Decimal initial_cash = 7;
+  string benchmark_ticker = 8;          // "IMOEX" или пусто
+  bool naive = 9;                       // наивный прогон ФТ-24: нулевые издержки, исполнение по close бара решения
+}
+
+message Bar {
+  int64 step = 1;               // номер в общей шкале времени сессии
+  string instrument_key = 2;
+  int64 time_unix_ms = 3;       // начало бара
+  int32 trading_day = 4;
+  Decimal open = 5;
+  Decimal high = 6;
+  Decimal low = 7;
+  Decimal close = 8;
+  int64 volume_lots = 9;
+  bool after_halt = 10;         // первый бар после разрыва торгов
+}
+
+// ---------------------------------------------------------------------------
+// Журнал команд (INV-8)
+// ---------------------------------------------------------------------------
+
+message OrderSpec {
+  string instrument_key = 1;
+  Side side = 2;
+  OrderType type = 3;
+  int64 lots = 4;
+  Decimal limit_price = 5;
+  Decimal stop_price = 6;
+  Decimal trailing_percent = 7;
+  TimeInForce time_in_force = 8;
+}
+
+message PlaceOrder {
+  OrderSpec order = 1;
+  OrderSpec oco_with = 2;   // пустой (lots = 0) — без OCO
+}
+
+message CancelOrder {
+  int64 order_id = 1;
+}
+
+message ReplaceOrder {
+  int64 order_id = 1;
+  PlaceOrder replacement = 2;
+}
+
+message JournalEntry {
+  int64 seq = 1;
+  int64 step = 2;   // команда действует с шага step + 1 (INV-2)
+  oneof command {
+    PlaceOrder place = 3;
+    CancelOrder cancel = 4;
+    ReplaceOrder replace = 5;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Состояние
+// ---------------------------------------------------------------------------
+
+message Order {
+  int64 id = 1;                   // seq * 2 + leg
+  OrderSpec spec = 2;
+  int64 placed_step = 3;
+  OrderStatus status = 4;
+  Reason reason = 5;
+  string invalid_field = 6;
+  int64 filled_lots = 7;
+  int64 oco_sibling_id = 8;
+  string rule_name = 9;           // правило DSL, выставившее заявку; пусто — заявка человека
+  string because = 10;
+  Decimal trailing_stop_level = 11;
+  int64 closed_step = 12;
+}
+
+message Fill {
+  int64 order_id = 1;
+  int64 step = 2;
+  string instrument_key = 3;
+  Side side = 4;
+  int64 lots = 5;
+  Decimal price = 6;
+  Decimal base_price = 7;
+  Decimal value = 8;
+  Decimal commission = 9;
+  Decimal exchange_fee = 10;
+  bool stop_and_take_same_bar = 11;   // стоп и тейк в одной свече: сработал стоп, сделка помечена
+  Decimal spread_cost = 12;
+  Decimal slippage_cost = 13;
+}
+
+message Position {
+  string instrument_key = 1;
+  int64 lots = 2;
+  Decimal avg_price = 3;
+  Decimal market_value = 4;
+}
+
+message Portfolio {
+  Decimal cash = 1;
+  Decimal equity = 2;
+  repeated Position positions = 3;
+}
+
+message CommandResult {
+  int64 seq = 1;
+  bool accepted = 2;
+  Reason reason = 3;
+  string invalid_field = 4;
+  repeated int64 order_ids = 5;
+}
+
+message StepEvents {
+  int64 step = 1;
+  repeated Bar bars = 2;
+  repeated Fill fills = 3;
+  repeated Order changed_orders = 4;
+  Portfolio portfolio = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Отчёт (ФТ-17). optional — значение может отсутствовать (мало данных).
+// ---------------------------------------------------------------------------
+
+message Metrics {
+  double total_return = 1;
+  double gross_return = 2;
+  optional double cagr = 3;
+  double max_drawdown = 4;
+  int64 max_drawdown_steps = 5;
+  optional double volatility = 6;
+  optional double sharpe = 7;
+  optional double sortino = 8;
+  double turnover = 9;
+  int64 fills = 10;
+  int64 round_trips = 11;
+  optional double win_rate = 12;
+  int64 rejections = 13;
+  int64 partial_fills = 14;
+  double hhi_avg = 15;
+  double max_position_share = 16;
+  optional double benchmark_return = 17;
+  int32 trading_days = 18;
+}
+
+message CostTotals {
+  Decimal commission = 1;
+  Decimal exchange_fee = 2;
+  Decimal spread = 3;
+  Decimal slippage = 4;
+}
+
+message EquityPoint {
+  int64 step = 1;
+  Decimal equity = 2;
+}
+
+message Finding {
+  string code = 1;
+  Level level = 2;
+  string message = 3;
+  int64 step = 4;
+}
+
+message Report {
+  Metrics metrics = 1;
+  CostTotals costs = 2;
+  repeated EquityPoint equity = 3;
+  repeated Finding findings = 4;
+  Level level = 5;
+  Decimal final_equity = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Сессия
+// ---------------------------------------------------------------------------
+
+message ReplaySessionRequest {
+  MarketSpec market = 1;
+  repeated JournalEntry journal = 2;
+  int64 up_to_step = 3;          // курсор
+  int64 events_from_step = 4;    // события шагов (events_from_step; up_to_step]; -1 — не нужны
+  bool include_history = 5;      // все бары шагов [0; last_step]
+  bool include_report = 6;
+}
+
+message ReplaySessionResponse {
+  int64 total_steps = 1;
+  SessionStatus status = 2;
+  int64 last_step = 3;
+  repeated StepEvents events = 4;
+  repeated Bar history = 5;
+  Portfolio portfolio = 6;
+  repeated Order orders = 7;
+  repeated Fill fills = 8;
+  repeated CommandResult command_results = 9;
+  Report report = 10;
+}
+
+message GetBarsRequest {
+  MarketSpec market = 1;
+  int64 from_step = 2;
+  int64 to_step = 3;
+}
+
+message GetBarsResponse {
+  int64 total_steps = 1;
+  repeated Bar bars = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Стратегии (dsl.md)
+// ---------------------------------------------------------------------------
+
+message ParamValue {
+  string name = 1;
+  double value = 2;
+}
+
+message StrategySource {
+  string source = 1;
+  repeated ParamValue params = 2;
+}
+
+message TextEdit {
+  int32 start_line = 1;
+  int32 start_column = 2;
+  int32 end_line = 3;
+  int32 end_column = 4;
+  string text = 5;
+}
+
+message Diagnostic {
+  string code = 1;
+  Level level = 2;
+  int32 start_line = 3;
+  int32 start_column = 4;
+  int32 end_line = 5;
+  int32 end_column = 6;
+  string message = 7;
+  repeated TextEdit fix = 8;
+}
+
+message ParamDecl {
+  string name = 1;
+  double default_value = 2;
+  bool has_range = 3;
+  double min = 4;
+  double max = 5;
+  double step = 6;
+  bool integer = 7;
+}
+
+message CheckStrategyRequest {
+  string source = 1;
+}
+
+message CheckStrategyResponse {
+  Level level = 1;
+  repeated Diagnostic diagnostics = 2;
+  repeated ParamDecl params = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Прогоны (ФТ-14, 22, 23, 24)
+// ---------------------------------------------------------------------------
+
+message StressScenario {
+  int64 start_step = 1;   // < 0 — середина периода
+  Decimal gap_percent = 2;
+  Decimal vol_multiplier = 3;
+  int32 vol_bars = 4;
+  Decimal volume_share = 5;
+}
+
+enum CostFactor {
+  COST_FACTOR_UNSPECIFIED = 0;
+  NAIVE = 1;
+  DELAY = 2;
+  FEES = 3;
+  SPREAD = 4;
+  SLIPPAGE = 5;
+  LIQUIDITY = 6;
+}
+
+enum CostFlag {
+  COST_FLAG_UNSPECIFIED = 0;
+  COSTS_OVER_HALF_PROFIT = 1;
+  SIGN_CHANGE = 2;
+  SHARPE_OVER_3 = 3;
+}
+
+message CostBreakdownStep {
+  CostFactor factor = 1;
+  Decimal net_result = 2;
+  double net_return = 3;
+}
+
+message CostBreakdown {
+  repeated CostBreakdownStep steps = 1;
+  repeated CostFlag flags = 2;
+}
+
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  COMPLETED = 1;
+  BANKRUPT_STOP = 2;
+  INVALID = 3;
+}
+
+message RunResult {
+  RunStatus status = 1;
+  Level level = 2;
+  Report report = 3;
+  repeated Fill fills = 4;
+  repeated Order orders = 5;
+  CostBreakdown cost_breakdown = 6;
+  fixed64 digest = 7;
+  int64 last_step = 8;
+  int64 total_steps = 9;
+}
+
+message RunProgress {
+  int64 done_steps = 1;
+  int64 total_steps = 2;
+}
+
+message RunBacktestRequest {
+  MarketSpec market = 1;
+  StrategySource strategy = 2;
+  StressScenario stress = 3;
+  bool with_cost_breakdown = 4;
+}
+
+message RunBacktestUpdate {
+  oneof update {
+    RunProgress progress = 1;
+    RunResult result = 2;
+  }
+}
+
+message WalkForwardRequest {
+  MarketSpec market = 1;
+  string source = 2;
+  int32 fit_days = 3;
+  int32 test_days = 4;
+  int32 shift_days = 5;
+  int32 max_grid = 6;
+}
+
+message WalkForwardSegment {
+  int32 index = 1;
+  string fit_from = 2;
+  string fit_to = 3;
+  string test_from = 4;
+  string test_to = 5;
+  repeated ParamValue chosen = 6;
+  double fit_net_return = 7;
+  RunResult test_result = 8;
+}
+
+message WalkForwardResult {
+  repeated WalkForwardSegment segments = 1;
+  double chained_return = 2;
+}
+
+message WalkForwardUpdate {
+  oneof update {
+    RunProgress progress = 1;
+    WalkForwardResult result = 2;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Разбор расхождений (ФТ-18…20)
+// ---------------------------------------------------------------------------
+
+message AlgorithmRef {
+  string id = 1;
+  StrategySource strategy = 2;
+}
+
+message DivergenceRequest {
+  MarketSpec market = 1;
+  repeated JournalEntry journal = 2;
+  int64 last_step = 3;
+  repeated AlgorithmRef algorithms = 4;
+}
+
+enum DivergenceType {
+  DIVERGENCE_TYPE_UNSPECIFIED = 0;
+  EXCESS = 1;
+  MISSED = 2;
+  SIZE = 3;
+  TIMING = 4;
+}
+
+message Divergence {
+  string algorithm_id = 1;
+  string instrument_key = 2;
+  DivergenceType type = 3;
+  int64 human_step = 4;    // -1 — нет действия
+  int64 algo_step = 5;     // -1 — нет действия
+  int64 human_lots = 6;    // со знаком: + покупка, − продажа
+  int64 algo_lots = 7;     // со знаком: + покупка, − продажа
+  int64 horizon_step = 8;
+  Decimal cost = 9;
+  double cost_percent = 10;
+  string reason = 11;
+}
+
+message MissedProfitableTrade {
+  string instrument_key = 1;
+  int64 entry_step = 2;
+  int64 exit_step = 3;
+  int64 lots = 4;
+  Decimal net_pnl = 5;
+  repeated string algorithm_ids = 6;
+}
+
+message ConsensusItem {
+  string instrument_key = 1;
+  int64 step = 2;
+  Side side = 3;
+  bool human_action = 4;
+  int32 agreeing = 5;
+  int32 total = 6;
+  Decimal median_cost = 7;
+}
+
+message DivergenceResponse {
+  repeated Divergence divergences = 1;
+  repeated MissedProfitableTrade missed_profitable = 2;
+  repeated ConsensusItem consensus = 3;
+  repeated RunResult algorithm_portfolios = 4;
 }
