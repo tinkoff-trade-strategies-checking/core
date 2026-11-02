@@ -42,6 +42,9 @@ void Portfolio::applyFill(int instrument, Side side, std::int64_t lots, const De
                           const Decimal& commission, const Decimal& fee, std::int64_t step, std::int64_t orderId) {
   Position& pos = position(instrument);
   if (lots <= 0) throw std::invalid_argument("Portfolio: число лотов должно быть положительным");
+  if (price.sign() < 0 || value.sign() < 0 || commission.sign() < 0 || fee.sign() < 0) {
+    throw std::invalid_argument("Portfolio: цена, сумма, комиссия и сбор не могут быть отрицательными");
+  }
 
   if (side == Side::Buy) {
     // (старые лоты * старая средняя + новые лоты * цена) / все лоты, один шаг округления.

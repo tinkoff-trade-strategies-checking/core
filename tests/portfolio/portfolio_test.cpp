@@ -132,6 +132,27 @@ TEST(Portfolio, InstrumentsAreIndependent) {
   EXPECT_THROW(p.lots(-1), std::out_of_range);
 }
 
+TEST(Portfolio, ApplyFillRejectsInvalidInput) {
+  Portfolio p(D("1000"), 1);
+  buy(p, 2, "100", "200.00", "0.10", "0.02");
+  const Decimal cash = p.cash();
+  // Лоты <= 0.
+  EXPECT_THROW(buy(p, 0, "100", "0.00", "0", "0"), std::invalid_argument);
+  EXPECT_THROW(buy(p, -1, "100", "100.00", "0.05", "0.01"), std::invalid_argument);
+  EXPECT_THROW(sell(p, 0, "100", "0.00", "0", "0"), std::invalid_argument);
+  EXPECT_THROW(sell(p, -1, "100", "100.00", "0.05", "0.01"), std::invalid_argument);
+  // Отрицательные цена, сумма, комиссия, сбор.
+  EXPECT_THROW(buy(p, 1, "-100", "100.00", "0.05", "0.01"), std::invalid_argument);
+  EXPECT_THROW(sell(p, 1, "-100", "100.00", "0.05", "0.01"), std::invalid_argument);
+  EXPECT_THROW(buy(p, 1, "100", "-100.00", "0.05", "0.01"), std::invalid_argument);
+  EXPECT_THROW(buy(p, 1, "100", "100.00", "-0.05", "0.01"), std::invalid_argument);
+  EXPECT_THROW(sell(p, 1, "100", "100.00", "0.05", "-0.01"), std::invalid_argument);
+  // Состояние не изменилось.
+  EXPECT_EQ(p.cash(), cash);
+  EXPECT_EQ(p.lots(0), 2);
+  EXPECT_TRUE(p.roundTrips().empty());
+}
+
 TEST(Portfolio, EquityIsCashPlusPositions) {
   Portfolio p(D("1000000"), 2);
   EXPECT_EQ(p.equity({std::nullopt, std::nullopt}, {10, 1}), D("1000000"));  // позиций нет - цены не нужны
