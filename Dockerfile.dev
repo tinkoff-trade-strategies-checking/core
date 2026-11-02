@@ -1,0 +1,14 @@
+# Образ для сборки и тестов ядра: быстрый путь для разработки и CI (зависимости из apt, без vcpkg).
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential g++-13 cmake ninja-build pkg-config ca-certificates git \
+        libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CC=gcc-13 CXX=g++-13
+
+WORKDIR /src

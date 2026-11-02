@@ -36,5 +36,44 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 - выбор десятичного типа для денег, библиотеки, формата чтения ClickHouse → ADR;
 - тест детерминизма или чтения будущего добавлен в CI → колонка «Проверка» в `invariants.md`.
 
+## Структура
+- `proto/` — источник правды для gRPC-контрактов (`simulation.proto`); меняя его, обнови `architecture.md` и уведоми `backend`.
+- `src/core/` — библиотека `simulation_core`: чистый C++20, без gRPC и protobuf; публичные заголовки в `src/core/include/core/`.
+- `src/worker/` — `simulation_worker`: gRPC-сервер (сейчас только `Ping`); сервис вынесен в `simulation_worker_lib` для тестов.
+- `src/cli/` — `sim_cli`: CLI для replay (сейчас заглушка).
+- `tests/` — GoogleTest: `core_tests` (в том числе тест детерминизма, INV-4) и `worker_tests` (Ping через gRPC в процессе).
+- `Dockerfile.dev` — образ для сборки и тестов (зависимости из apt); `Dockerfile` — runtime-образ воркера (multi-stage).
+- CMake использует только `find_package`, поэтому зависимости можно брать из apt или из vcpkg (`vcpkg.json`).
+
 ## Команды
-Заполнить, когда появится проект: конфигурация CMake, сборка, тесты, запуск воркера, CLI replay.
+На хосте может не быть компилятора с C++20 — основной путь это Docker. Сборка всегда с `-j2` (мало RAM).
+
+```bash
+scripts/dev.sh image   # собрать образ pac-core-dev (один раз)
+scripts/dev.sh build   # конфигурация и сборка (пресет debug)
+scripts/dev.sh test    # сборка и ctest
+scripts/dev.sh shell   # оболочка в контейнере
+PRESET=release scripts/dev.sh test   # другой пресет; JOBS=4 — другое число потоков
+```
+
+Без Docker (Linux с g++ ≥ 11, cmake ≥ 3.25, ninja и `libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev`):
+
+```bash
+cmake --preset debug && cmake --build --preset debug -j2 && ctest --preset debug
+```
+
+Через vcpkg (нужен `VCPKG_ROOT`): те же команды с пресетами `vcpkg-debug` / `vcpkg-release`.
+
+Без gRPC (только ядро, CLI и тесты ядра): `cmake --preset debug -DCORE_BUILD_WORKER=OFF`.
+
+Запуск (из каталога сборки `build/<пресет>/`; в Docker — через `scripts/dev.sh shell`):
+
+```bash
+src/worker/simulation_worker --listen 0.0.0.0:50051   # воркер, останавливается по SIGTERM/SIGINT
+src/cli/sim_cli replay --seed 42 --steps 1000         # replay-заглушка, печатает контрольную сумму
+src/cli/sim_cli version
+```
+
+Runtime-образ воркера: `docker build -t simulation-worker .` (порт 50051).
+
+CI (`.github/workflows/ci.yml`): сборка с `-Wall -Wextra -Wpedantic -Werror`, `ctest`, сборка runtime-образа.

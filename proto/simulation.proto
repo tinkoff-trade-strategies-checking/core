@@ -1,0 +1,17 @@
+// Контракт gRPC между Java (simulation) и C++ (Simulation Worker).
+// Источник правды для обеих сторон. Сейчас — только заглушка Ping.
+syntax = "proto3";
+
+package pac.simulation.v1;
+
+service SimulationWorker {
+  // Проверка доступности воркера и версии ядра.
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {}
+
+message PingResponse {
+  // Версия Simulation Core, с которой собран воркер.
+  string core_version = 1;
+}
