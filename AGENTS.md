@@ -38,10 +38,10 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 
 ## Структура
 - `proto/` — источник правды для gRPC-контрактов (`simulation.proto`); меняя его, обнови `architecture.md` и уведоми `backend`.
-- `src/core/` — библиотека `simulation_core`: чистый C++20, без gRPC и protobuf; публичные заголовки в `src/core/include/core/`.
-- `src/worker/` — `simulation_worker`: gRPC-сервер (сейчас только `Ping`); сервис вынесен в `simulation_worker_lib` для тестов.
+- `src/core/` — библиотека `simulation_core`: чистый C++20, без gRPC и protobuf; публичные заголовки в `src/core/include/core/`. `market/` — рыночные данные: `Bar`, `BarSource`, `InMemoryBarSource`, `BarCursor` (INV-1: наружу только бары с `index <= current`).
+- `src/worker/` — `simulation_worker`: gRPC-сервер (сейчас только `Ping`); сервис вынесен в `simulation_worker_lib` для тестов. `clickhouse/` — `simulation_clickhouse`: `ClickHouseBarSource` читает свечи по HTTP-интерфейсу ClickHouse (libcurl, только `snapshots_ready`, свечи из сделок — через `candles_from_trades`).
 - `src/cli/` — `sim_cli`: CLI для replay (сейчас заглушка).
-- `tests/` — GoogleTest: `core_tests` (в том числе тест детерминизма, INV-4) и `worker_tests` (Ping через gRPC в процессе).
+- `tests/` — GoogleTest: `core_tests` (в том числе тест детерминизма, INV-4) и `worker_tests` (Ping через gRPC в процессе; тесты `ClickHouseBarSource`, интеграционные пропускаются без `CLICKHOUSE_URL`).
 - `Dockerfile.dev` — образ для сборки и тестов (зависимости из apt); `Dockerfile` — runtime-образ воркера (multi-stage).
 - CMake использует только `find_package`, поэтому зависимости можно брать из apt или из vcpkg (`vcpkg.json`).
 
@@ -63,6 +63,17 @@ cmake --preset debug && cmake --build --preset debug -j2 && ctest --preset debug
 ```
 
 Через vcpkg (нужен `VCPKG_ROOT`): те же команды с пресетами `vcpkg-debug` / `vcpkg-release`.
+
+Интеграционный тест `ClickHouseBarSource` (`ClickHouseIntegration.*`) идёт на настоящем ClickHouse с фикстурой-снапшотом и пропускается без `CLICKHOUSE_URL` (формат `http://user:password@host:8123/база`). Запуск (из корня рабочего пространства; пароли любые):
+
+```bash
+export POSTGRES_PASSWORD=x CLICKHOUSE_PASSWORD=secret
+docker compose -p chit -f backend/deploy/docker-compose.yml -f backend/tools/marketdata-import/compose.test.yml up -d clickhouse
+CLICKHOUSE_URL=http://ttsc:secret@127.0.0.1:8123/ttsc marketdata-import fixture   # backend/tools/marketdata-import/README.md
+# тест внутри Docker-образа, в сети compose (после `scripts/dev.sh build`):
+docker run --rm --network chit_default -e CLICKHOUSE_URL=http://ttsc:secret@clickhouse:8123/ttsc   -v "$PWD/core:/src" -v pac-core-build:/src/build -w /src pac-core-dev   build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration*'
+docker compose -p chit -f backend/deploy/docker-compose.yml -f backend/tools/marketdata-import/compose.test.yml down -v
+```
 
 Без gRPC (только ядро, CLI и тесты ядра): `cmake --preset debug -DCORE_BUILD_WORKER=OFF`.
 

@@ -6,6 +6,7 @@
   "dependencies": [
     "grpc",
     "protobuf",
-    "gtest"
+    "gtest",
+    "curl"
   ]
 }

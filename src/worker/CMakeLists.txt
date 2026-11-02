@@ -8,3 +8,6 @@ target_link_libraries(simulation_worker_lib
 
 add_executable(simulation_worker main.cpp)
 target_link_libraries(simulation_worker PRIVATE simulation_worker_lib core_warnings)
+
+add_subdirectory(clickhouse)
+target_link_libraries(simulation_worker_lib PUBLIC core::simulation_clickhouse)

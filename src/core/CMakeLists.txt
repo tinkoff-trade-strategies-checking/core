@@ -9,3 +9,5 @@ target_compile_features(simulation_core PUBLIC cxx_std_20)
 target_link_libraries(simulation_core PRIVATE core_warnings)
 
 add_subdirectory(money)
+
+add_subdirectory(market)
