@@ -17,6 +17,14 @@ class ClickHouseError : public core::MarketDataError {
   using core::MarketDataError::MarketDataError;
 };
 
+// Запрошенный интервал свечей в версии данных недоступен (не хранится и не агрегируется из сделок). Единственная
+// ошибка данных, которую пользователь исправляет сам (другой таймфрейм): воркер отвечает NOT_FOUND. Остальные
+// MarketDataError - повреждённые или неожиданные данные хранилища (INTERNAL).
+class IntervalUnavailable : public core::MarketDataError {
+ public:
+  using core::MarketDataError::MarketDataError;
+};
+
 struct ClickHouseConfig {
   std::string baseUrl = "http://127.0.0.1:8123";  // без пути и учётных данных
   std::string database = "default";

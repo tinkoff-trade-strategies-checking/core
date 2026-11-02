@@ -154,7 +154,7 @@ std::vector<core::Bar> ClickHouseBarSource::load(const core::BarRequest& request
   const bool fromCandles = parseInt64(stored[0][0], "count") > 0;
 
   if (!fromCandles && request.intervalSec > kMaxTradeAggregationSec) {
-    throw core::MarketDataError("интервал " + std::to_string(request.intervalSec) +
+    throw IntervalUnavailable("интервал " + std::to_string(request.intervalSec) +
                                 " с не хранится как свечи и не агрегируется из сделок (максимум 86400)");
   }
 

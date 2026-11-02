@@ -50,16 +50,6 @@ class HandlersScaffold : public ::testing::Test {
 TEST_F(HandlersScaffold, AllRpcsReachable) {
   {
     grpc::ClientContext context;
-    pb::ReplaySessionResponse response;
-    expectUnimplemented(stub_->ReplaySession(&context, {}, &response), "ReplaySession");
-  }
-  {
-    grpc::ClientContext context;
-    pb::GetBarsResponse response;
-    expectUnimplemented(stub_->GetBars(&context, {}, &response), "GetBars");
-  }
-  {
-    grpc::ClientContext context;
     auto reader = stub_->RunBacktest(&context, {});
     pb::RunBacktestUpdate update;
     EXPECT_FALSE(reader->Read(&update));
