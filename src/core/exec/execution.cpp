@@ -10,10 +10,11 @@ ExecutionEngine::ExecutionEngine(std::vector<Instrument> instruments, CostConfig
 void ExecutionEngine::processStep(std::int64_t step, const Timeline& timeline, std::vector<Order>& orders,
                                   Portfolio& portfolio, std::vector<Fill>& fills,
                                   std::vector<std::int64_t>& changed) const {
-  // Порядок на шаге: рыночные -> стоп-типы -> лимитные и тейк-профит (последние две группы - задача 14).
+  // Порядок на шаге: рыночные -> стоп-типы -> лимитные и тейк-профит; затем снятие заявок «день» (всё - в processConditional).
   // Бюджет ликвидности один на шаг: условные заявки видят то, что уже израсходовали рыночные.
   LiquidityBudget budget(instruments_.size());
   processMarket(step, timeline, budget, orders, portfolio, fills, changed);
+  processConditional(step, timeline, budget, orders, portfolio, fills, changed);
 }
 
 std::optional<std::int64_t> LiquidityBudget::remaining(int instrument, const StepBar& bar, const CostConfig& costs) {

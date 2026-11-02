@@ -277,14 +277,14 @@ TEST(MarketOrders, SellWithoutPositionIsCancelled) {
   EXPECT_EQ(r.orders[0].reason, Reason::InsufficientPosition);
 }
 
-TEST(MarketOrders, OtherTypesAndClosedOrdersAreUntouched) {
+TEST(MarketOrders, ClosedAndUnreachedConditionalOrdersAreUntouched) {
   const Timeline t = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
   const ExecutionEngine engine({kA}, CostConfig::defaults(), false);
   Portfolio pf(D("1000000"), 1);
   Book r;
   r.orders.push_back(market(0, 0, Side::Buy, 1, 0));
   r.orders[0].spec.type = OrderType::Limit;
-  r.orders[0].spec.limitPrice = D("200");
+  r.orders[0].spec.limitPrice = D("50");  // бар шага 1 (low 101) до уровня не доходит - лимитная остаётся активной
   r.orders.push_back(market(1, 0, Side::Buy, 1, 0));
   r.orders[1].status = OrderStatus::Cancelled;
   engine.processStep(1, t, r.orders, pf, r.fills, r.changed);
