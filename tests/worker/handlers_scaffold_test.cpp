@@ -57,13 +57,6 @@ TEST_F(HandlersScaffold, AllRpcsReachable) {
   }
   {
     grpc::ClientContext context;
-    auto reader = stub_->RunWalkForward(&context, {});
-    pb::WalkForwardUpdate update;
-    EXPECT_FALSE(reader->Read(&update));
-    expectUnimplemented(reader->Finish(), "RunWalkForward");
-  }
-  {
-    grpc::ClientContext context;
     pb::DivergenceResponse response;
     expectUnimplemented(stub_->AnalyzeDivergences(&context, {}, &response), "AnalyzeDivergences");
   }
