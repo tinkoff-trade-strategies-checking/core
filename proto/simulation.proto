@@ -6,8 +6,12 @@
 //
 // Ошибки RPC:
 //   INVALID_ARGUMENT    — неверная спецификация, ошибки DSL (в описании — коды диагностик через ';');
-//   FAILED_PRECONDITION — нет данных снапшота на период;
+//   FAILED_PRECONDITION — нет данных снапшота на период; walk-forward: ни один набор параметров не дал засчитываемого
+//                         прогона (доменный исход для стратегии, повтор бессмыслен);
 //   INTERNAL            — нарушение целостности движка.
+//
+// Сентинелы: в полях-идентификаторах и шагах «нет» кодируется -1 (значение по умолчанию 0 — валидное: заявка с
+// id 0, шаг 0). Так в Order.oco_sibling_id и Order.closed_step; получатель считает «есть» только значение >= 0.
 syntax = "proto3";
 
 package pac.simulation.v1;
@@ -217,11 +221,11 @@ message Order {
   Reason reason = 5;
   string invalid_field = 6;
   int64 filled_lots = 7;
-  int64 oco_sibling_id = 8;
+  int64 oco_sibling_id = 8;       // -1 — нет связанной заявки
   string rule_name = 9;           // правило DSL, выставившее заявку; пусто — заявка человека
   string because = 10;
   Decimal trailing_stop_level = 11;
-  int64 closed_step = 12;
+  int64 closed_step = 12;         // -1 — заявка ещё открыта
 }
 
 message Fill {
@@ -330,7 +334,7 @@ message ReplaySessionRequest {
   MarketSpec market = 1;
   repeated JournalEntry journal = 2;
   int64 up_to_step = 3;          // курсор
-  int64 events_from_step = 4;    // события шагов (events_from_step; up_to_step]; -1 — не нужны
+  int64 events_from_step = 4;    // события шагов (events_from_step; up_to_step]; < 0 — не нужны (события шага 0 не отдаются)
   bool include_history = 5;      // все бары шагов [0; last_step]
   bool include_report = 6;
 }
@@ -352,6 +356,9 @@ message GetBarsRequest {
   MarketSpec market = 1;
   int64 from_step = 2;
   int64 to_step = 3;
+  // Стресс прогона (ФТ-23): бары отдаются так, как их видел стрессовый RunBacktest (тот же applyStress). Не задан —
+  // бары снапшота без изменений.
+  StressScenario stress = 4;
 }
 
 message GetBarsResponse {

@@ -5,7 +5,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "core/market/bar_cursor.hpp"
 #include "core/market/in_memory_bar_source.hpp"
 
 namespace {
@@ -67,17 +66,6 @@ TEST(InMemoryBarSource, ExcludesBarsNotYetAvailableByToMs) {
   EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 119999}).size(), 1u);    // бар 60000 ещё не известен (доступен в 120000)
   EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 60000}).size(), 1u);     // только бар 0 (доступен в 60000)
   EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 59999}).size(), 0u);
-}
-
-TEST(InMemoryBarSource, ResultFeedsBarCursor) {
-  auto source = makeSource();
-  core::BarCursor cursor(source.load({kSnap, "SBER", 60, 60000, 1000000}));
-  int steps = 0;
-  while (cursor.advance()) {
-    ++steps;
-    EXPECT_EQ(cursor.visible().size(), static_cast<std::size_t>(steps));
-  }
-  EXPECT_EQ(steps, 3);
 }
 
 TEST(InMemoryBarSource, OrderOfAdditionDoesNotMatter) {

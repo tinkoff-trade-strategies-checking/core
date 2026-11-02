@@ -26,6 +26,13 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec& market);
 // core::SnapshotNotFound / core::SecurityNotFound (statusFromCurrentException переводит в FAILED_PRECONDITION).
 std::shared_ptr<const core::Timeline> loadTimeline(Context& context, const pb::MarketSpec& market);
 
+// Шкала времени со стрессом (ФТ-23): loadTimeline и, если hasStress и задано хотя бы одно событие (гэп, окно
+// волатильности или объёма), applyStress. Все нули - без стресса. start_step < 0 - середина периода (то же правило, что
+// у backend, задача 36). Общий код RunBacktest и GetBars: бары воспроизведения совпадают с ценами, на которых посчитан
+// прогон. Ненулевые отрицательные значения и start_step за шкалой - std::invalid_argument.
+std::shared_ptr<const core::Timeline> loadStressedTimeline(Context& context, const pb::MarketSpec& market,
+                                                           const pb::StressScenario& stress, bool hasStress);
+
 // Бенчмарк: (open первого дневного бара, close последнего) бумаги benchmark_ticker за период [from_date; to_date] по D1.
 // Нет тикера, нет бумаги в снапшоте или нет баров за период - nullopt.
 std::optional<std::pair<core::Decimal, core::Decimal>> loadBenchmark(Context& context, const pb::MarketSpec& market);
@@ -39,7 +46,8 @@ std::string formatIsoDate(std::int32_t yyyymmdd);
 void toProto(const core::StepBar& bar, const core::Timeline& timeline, pb::Bar* out);
 
 // Перевод исключения, пойманного в обработчике, в статус gRPC. Вызывать только из catch (...):
-// ClickHouseError -> UNAVAILABLE; SnapshotNotFound, SecurityNotFound -> FAILED_PRECONDITION (контракт simulation.proto);
+// ClickHouseError -> UNAVAILABLE; SnapshotNotFound, SecurityNotFound, NoValidFitRun (walk-forward без засчитываемого набора) ->
+// FAILED_PRECONDITION (контракт simulation.proto);
 // IntervalUnavailable (интервал недоступен) -> NOT_FOUND; прочее MarketDataError (повреждённые данные) -> INTERNAL;
 // std::invalid_argument -> INVALID_ARGUMENT; всё остальное -> INTERNAL
 // без внутренних деталей.

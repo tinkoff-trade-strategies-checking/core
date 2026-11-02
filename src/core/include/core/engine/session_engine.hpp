@@ -48,7 +48,7 @@ struct SessionSpec {
   bool naive = false;
 };
 
-// Нарушена целостность времени: бар позже текущего шага или исполнение не позже шага подачи (INV-1, INV-2).
+// Нарушена целостность времени: исполнение не на текущем шаге, неизвестной заявки или не позже шага подачи (INV-2).
 struct IntegrityViolation : std::logic_error {
   using std::logic_error::logic_error;
 };

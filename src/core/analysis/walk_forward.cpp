@@ -182,7 +182,7 @@ WalkForwardResult walkForward(const SessionSpec& spec, std::shared_ptr<const Tim
       }
     }
     if (best == nullptr) {
-      throw std::runtime_error("walk-forward: все прогоны подбора остановлены нарушением целостности (E-RT01)");
+      throw NoValidFitRun("walk-forward: все прогоны подбора остановлены нарушением целостности (E-RT01)");
     }
 
     const auto testTimeline = std::make_shared<const Timeline>(timeline->slice(w.testFrom, w.testTo));

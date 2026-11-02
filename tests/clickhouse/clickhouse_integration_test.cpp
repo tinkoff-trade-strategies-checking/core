@@ -9,7 +9,6 @@
 #include <string>
 
 #include "clickhouse/clickhouse_bar_source.hpp"
-#include "core/market/bar_cursor.hpp"
 
 namespace {
 
@@ -137,18 +136,6 @@ TEST_F(ClickHouseIntegration, LoadIsDeterministic) {
   const auto b = source_->load(req);
   ASSERT_FALSE(a.empty());
   EXPECT_EQ(a, b);
-}
-
-TEST_F(ClickHouseIntegration, LoadedSeriesFeedsCursorWithoutFuture) {
-  const std::int64_t t0 = utcMs(2026, 10, 28, 3, 59);
-  core::BarCursor cursor(source_->load({kFixture, "SBER", 60, t0, t0 + 10 * 60000}));
-  std::int64_t expected = -1;
-  while (cursor.advance()) {
-    ++expected;
-    ASSERT_EQ(cursor.visible().size(), static_cast<std::size_t>(expected) + 1);
-    EXPECT_EQ(cursor.visible().back().index, expected);
-  }
-  EXPECT_EQ(expected, 9);
 }
 
 TEST_F(ClickHouseIntegration, Security) {

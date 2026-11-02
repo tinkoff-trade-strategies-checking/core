@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "clickhouse/clickhouse_client.hpp"
+#include "core/analysis/walk_forward.hpp"
 #include "core/market/bar_source.hpp"
 #include "core/market/in_memory_bar_source.hpp"
 #include "worker_test_support.hpp"
@@ -222,6 +223,10 @@ TEST(WalkForwardRpcExceptions, MappedToStatus) {
   EXPECT_EQ(unavailable.error_message().find("секрет"), std::string::npos);
   EXPECT_EQ(statusOf([] { throw core::SnapshotNotFound("нет"); }).error_code(), grpc::StatusCode::FAILED_PRECONDITION);
   EXPECT_EQ(statusOf([] { throw std::invalid_argument("плохо"); }).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  // Все прогоны подбора невалидны - доменный исход для стратегии, а не сбой воркера: без повторов, без деталей.
+  const grpc::Status noValid = statusOf([] { throw core::NoValidFitRun("детали /etc/passwd"); });
+  EXPECT_EQ(noValid.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+  EXPECT_EQ(noValid.error_message().find("passwd"), std::string::npos);
   const grpc::Status internal = statusOf([] { throw std::runtime_error("внутренняя деталь /etc/passwd"); });
   EXPECT_EQ(internal.error_code(), grpc::StatusCode::INTERNAL);
   EXPECT_EQ(internal.error_message().find("passwd"), std::string::npos);

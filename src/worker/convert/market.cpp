@@ -1,12 +1,17 @@
 #include "convert/market.hpp"
 
 #include <cctype>
+#include <memory>
+#include <optional>
+#include <string>
 #include <set>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
 #include "clickhouse/clickhouse_client.hpp"
+#include "core/analysis/stress.hpp"
+#include "core/analysis/walk_forward.hpp"
 #include "core/money/proto_conv.hpp"
 
 namespace worker {
@@ -102,6 +107,39 @@ std::shared_ptr<const core::Timeline> loadTimeline(Context& context, const pb::M
   return std::make_shared<const core::Timeline>(std::move(timeline));
 }
 
+namespace {
+
+std::optional<core::StressScenario> stressOf(const pb::StressScenario& stress, std::int64_t totalSteps) {
+  core::StressScenario scenario;
+  scenario.gapPercent = core::fromProto(stress.gap_percent());
+  scenario.volMultiplier = core::fromProto(stress.vol_multiplier());
+  scenario.volBars = stress.vol_bars();
+  scenario.volumeShare = core::fromProto(stress.volume_share());
+  // Ненулевые отрицательные значения тоже идут в applyStress, он откажет (INVALID_ARGUMENT).
+  const bool active = scenario.volBars != 0 || scenario.gapPercent != core::Decimal::zero() ||
+                      scenario.volumeShare != core::Decimal::zero() || scenario.volMultiplier < core::Decimal::zero();
+  if (!active) return std::nullopt;
+  scenario.startStep = stress.start_step() < 0 ? totalSteps / 2 : stress.start_step();
+  if (scenario.startStep >= totalSteps) {
+    throw std::invalid_argument("стресс: start_step " + std::to_string(scenario.startStep) +
+                                " за пределами шкалы времени, шагов " + std::to_string(totalSteps));
+  }
+  return scenario;
+}
+
+}  // namespace
+
+std::shared_ptr<const core::Timeline> loadStressedTimeline(Context& context, const pb::MarketSpec& market,
+                                                           const pb::StressScenario& stress, bool hasStress) {
+  std::shared_ptr<const core::Timeline> timeline = loadTimeline(context, market);
+  if (hasStress) {
+    if (const auto scenario = stressOf(stress, timeline->totalSteps())) {
+      timeline = std::make_shared<const core::Timeline>(core::applyStress(*timeline, *scenario));
+    }
+  }
+  return timeline;
+}
+
 std::optional<std::pair<core::Decimal, core::Decimal>> loadBenchmark(Context& context, const pb::MarketSpec& market) {
   if (market.benchmark_ticker().empty()) return std::nullopt;
   // Однобумажная дневная шкала бенчмарка: из неё берём open первого и close последнего бара.
@@ -141,6 +179,10 @@ grpc::Status statusFromCurrentException() {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, e.what());
   } catch (const core::SecurityNotFound& e) {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, e.what());
+  } catch (const core::NoValidFitRun&) {
+    // Доменный исход для стратегии (повтор бессмыслен): общий текст без деталей.
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                        "walk-forward: ни один набор параметров не дал засчитываемого прогона");
   } catch (const IntervalUnavailable& e) {
     return grpc::Status(grpc::StatusCode::NOT_FOUND, e.what());
   } catch (const std::invalid_argument& e) {

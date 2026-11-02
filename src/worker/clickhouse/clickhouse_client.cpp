@@ -60,7 +60,7 @@ std::string trimmed(std::string text) {
 
 ClickHouseConfig ClickHouseConfig::fromUrl(const std::string& url) {
   const auto schemeEnd = url.find("://");
-  if (schemeEnd == std::string::npos) throw std::invalid_argument("ClickHouse URL без схемы: " + url);
+  if (schemeEnd == std::string::npos) throw std::invalid_argument("ClickHouse URL без схемы (ожидается http://[user:password@]host[:port][/база])");
   const std::string scheme = url.substr(0, schemeEnd);
   if (scheme != "http" && scheme != "https") {
     throw std::invalid_argument("ClickHouse URL: допустимы только http и https");
@@ -80,7 +80,7 @@ ClickHouseConfig ClickHouseConfig::fromUrl(const std::string& url) {
     config.user = percentDecode(userInfo.substr(0, colon));
     if (colon != std::string::npos) config.password = percentDecode(userInfo.substr(colon + 1));
   }
-  if (hostPort.empty()) throw std::invalid_argument("ClickHouse URL без хоста: " + url);
+  if (hostPort.empty()) throw std::invalid_argument("ClickHouse URL без хоста");
   config.baseUrl = scheme + "://" + hostPort;
   if (!path.empty()) config.database = percentDecode(path.substr(0, path.find('?')));
   return config;

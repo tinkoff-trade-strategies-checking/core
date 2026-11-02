@@ -424,11 +424,14 @@ TEST(RuntimeChecks, IntegrityViolationSendsFinalProgress) {
   EXPECT_EQ(calls, expected);
 }
 
-TEST(RuntimeChecks, IntegrityViolationInvalidates) {
+// Обработка, а не обнаружение: IntegrityViolation бросает тестовый StepHook (детекторы движка срабатывают только при
+// ошибке в самом движке и недостижимы через публичный API). Проверяется, что прогон при таком исключении
+// останавливается со статусом Invalid и находкой E-RT01.
+TEST(RuntimeChecks, EngineIntegrityViolationInvalidatesRun) {
   const auto [spec, timeline] = testing::fixtureA();
   const auto loaded = loadProgram(kSimpleRules);
   const detail::StepHook hook = [](const SessionEngine& engine) {
-    if (engine.currentStep() == 3) throw IntegrityViolation("тестовый движок прочитал бар из будущего");
+    if (engine.currentStep() == 3) throw IntegrityViolation("тестовый движок нарушил целостность");
   };
   const RunOutput out =
       detail::runBacktestWithHook(spec, timeline, loaded.program, loaded.params, {}, dsl::Level::Ok, nullptr, hook);

@@ -10,7 +10,7 @@ namespace worker {
 namespace {
 
 void fill(Context& context, const pb::GetBarsRequest& request, pb::GetBarsResponse* out) {
-  const std::shared_ptr<const core::Timeline> timeline = loadTimeline(context, request.market());
+  const std::shared_ptr<const core::Timeline> timeline = loadStressedTimeline(context, request.market(), request.stress(), request.has_stress());
   const std::int64_t total = timeline->totalSteps();
   if (request.from_step() < 0 || request.to_step() >= total || request.from_step() > request.to_step()) {
     throw std::invalid_argument("диапазон шагов [" + std::to_string(request.from_step()) + "; " +

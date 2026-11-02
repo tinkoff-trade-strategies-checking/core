@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "core/dsl/ast.hpp"
@@ -17,6 +18,12 @@
 // Каждый прогон отдельный, с капиталом из SessionSpec. Прогоны идут по очереди, без потоков и случайности (INV-4).
 
 namespace core {
+
+// Ни один набор параметров не дал засчитываемого прогона подбора (все остановлены нарушением целостности, E-RT01).
+// Это исход для данной стратегии, а не сбой воркера: повтор бессмыслен (воркер отвечает FAILED_PRECONDITION).
+struct NoValidFitRun : std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
 
 struct WalkForwardConfig {
   std::int32_t fitDays = 250, testDays = 63, shiftDays = 63, maxGrid = 200;
@@ -48,7 +55,7 @@ double chainedReturn(const std::vector<double>& returns);
 // Отрезок k: подбор [1 + shift·k; fit + shift·k], проверка - следующие testDays дней; отрезков столько, сколько
 // помещается в шкалу. Критерий подбора - максимальная net-доходность ((итог − капитал) / капитал) на окне подбора, при
 // равенстве - лексикографически меньший набор (порядок сетки). Прогон подбора со статусом Invalid (E-RT01) не
-// засчитывается; если таких все - std::runtime_error. Уровень версии для прогонов - Ok (как в costBreakdown).
+// засчитывается; если таких все - NoValidFitRun. Уровень версии для прогонов - Ok (как в costBreakdown).
 // Ошибки (std::invalid_argument): поля config <= 0, сетка больше maxGrid, ни одного отрезка, ошибка runBacktest
 // (в том числе значение сетки, не прошедшее повторную проверку StrategyInstance, INV-1).
 // progress - по сумме шагов всех прогонов (done монотонно растёт до total); может быть пустым.

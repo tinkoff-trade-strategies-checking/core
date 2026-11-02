@@ -4,6 +4,7 @@
 
 #include "clickhouse/clickhouse_client.hpp"
 #include "convert/diagnostics.hpp"
+#include "convert/market.hpp"
 #include "core/dsl/checker.hpp"
 #include "core/dsl/linter.hpp"
 #include "core/dsl/parser.hpp"
@@ -42,7 +43,7 @@ void fillResponse(const std::string& source, pb::CheckStrategyResponse* response
 
 }  // namespace
 
-// Ни одно исключение не выходит наружу. ClickHouseError - потомок MarketDataError, поэтому первым.
+// Ни одно исключение не выходит наружу (statusFromCurrentException).
 grpc::Status handleCheckStrategy(Context&, const pb::CheckStrategyRequest& request,
                                  pb::CheckStrategyResponse* response) {
   try {
@@ -50,14 +51,8 @@ grpc::Status handleCheckStrategy(Context&, const pb::CheckStrategyRequest& reque
     fillResponse(request.source(), &result);
     *response = std::move(result);
     return grpc::Status::OK;
-  } catch (const ClickHouseError&) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "хранилище данных недоступно");
-  } catch (const core::MarketDataError& e) {
-    return grpc::Status(grpc::StatusCode::NOT_FOUND, e.what());
-  } catch (const std::invalid_argument& e) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, e.what());
   } catch (...) {
-    return grpc::Status(grpc::StatusCode::INTERNAL, "внутренняя ошибка воркера");
+    return statusFromCurrentException();
   }
 }
 

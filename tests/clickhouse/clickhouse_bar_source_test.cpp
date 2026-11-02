@@ -76,6 +76,18 @@ TEST(ClickHouseUrl, ParsesCredentialsAndDatabase) {
   EXPECT_THROW(worker::ClickHouseConfig::fromUrl("ftp://host"), std::invalid_argument);
 }
 
+// Пароль из CLICKHOUSE_URL не попадает в текст ошибки разбора (воркер печатает его в журнал контейнера).
+TEST(ClickHouseUrl, ParseErrorsDoNotEchoCredentials) {
+  for (const char* url : {"ttsc:hunter2@127.0.0.1:8123", "http://ttsc:hunter2@", "ftp://ttsc:hunter2@host"}) {
+    try {
+      worker::ClickHouseConfig::fromUrl(url);
+      FAIL() << url;
+    } catch (const std::invalid_argument& e) {
+      EXPECT_EQ(std::string(e.what()).find("hunter2"), std::string::npos) << e.what();
+    }
+  }
+}
+
 TEST(TabSeparated, SplitsAndUnescapes) {
   const auto rows = worker::parseTabSeparated("a\tb\\tc\\\\d\n\t\\n\n");
   ASSERT_EQ(rows.size(), 2u);

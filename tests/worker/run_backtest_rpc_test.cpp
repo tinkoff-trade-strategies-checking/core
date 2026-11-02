@@ -153,6 +153,63 @@ TEST_F(RunBacktestRpc, StressChangesRunAndZeroStressDoesNot) {
   EXPECT_NE(result().digest(), base.digest());
 }
 
+// Воспроизведение стрессового прогона (GetBars со стрессом прогона) отдаёт те бары, на которых посчитаны сделки:
+// базовая цена каждой сделки лежит внутри свечи своего шага. Без стресса бары исходные.
+TEST_F(RunBacktestRpc, GetBarsWithStressMatchesBarsOfRun) {
+  setStress(3, "20", 0);
+  const pb::RunResult stressed = result();
+  ASSERT_FALSE(stressed.fills().empty());
+
+  worker::Context context{fixture_.bars, fixture_.calendar};
+  const auto barsOf = [&](bool withStress) {
+    pb::GetBarsRequest bars;
+    *bars.mutable_market() = request_.market();
+    bars.set_from_step(0);
+    bars.set_to_step(9);
+    if (withStress) *bars.mutable_stress() = request_.stress();
+    pb::GetBarsResponse response;
+    const grpc::Status status = worker::handleGetBars(context, bars, &response);
+    EXPECT_TRUE(status.ok()) << status.error_message();
+    return response;
+  };
+  const pb::GetBarsResponse plain = barsOf(false);
+  const pb::GetBarsResponse replay = barsOf(true);
+  ASSERT_EQ(plain.bars_size(), replay.bars_size());
+
+  const auto inside = [](const pb::GetBarsResponse& response, const pb::Fill& fill) {
+    for (const pb::Bar& bar : response.bars()) {
+      if (bar.step() != fill.step() || bar.instrument_key() != fill.instrument_key()) continue;
+      const core::Decimal price = core::fromProto(fill.base_price());
+      return core::fromProto(bar.low()) <= price && price <= core::fromProto(bar.high());
+    }
+    return false;
+  };
+  bool stressedFillOutsidePlain = false;
+  for (const pb::Fill& fill : stressed.fills()) {
+    EXPECT_TRUE(inside(replay, fill)) << "сделка шага " << fill.step() << " вне свечи воспроизведения";
+    if (fill.step() >= 3 && !inside(plain, fill)) stressedFillOutsidePlain = true;
+  }
+  // Тест не вакуумный: без стресса хотя бы одна сделка после начала стресса лежит вне свечи.
+  EXPECT_TRUE(stressedFillOutsidePlain);
+
+  // Шаги до начала стресса не меняются, после - меняются; без стресса ответ тот же, что со «пустым» стрессом.
+  EXPECT_EQ(plain.bars(0).SerializeAsString(), replay.bars(0).SerializeAsString());
+  EXPECT_NE(plain.bars(plain.bars_size() - 1).SerializeAsString(),
+            replay.bars(replay.bars_size() - 1).SerializeAsString());
+  request_.clear_stress();
+  request_.mutable_stress();
+  const pb::GetBarsResponse zero = [&] {
+    pb::GetBarsRequest bars;
+    *bars.mutable_market() = request_.market();
+    bars.set_to_step(9);
+    *bars.mutable_stress() = request_.stress();
+    pb::GetBarsResponse response;
+    EXPECT_TRUE(worker::handleGetBars(context, bars, &response).ok());
+    return response;
+  }();
+  EXPECT_EQ(zero.SerializeAsString(), plain.SerializeAsString());
+}
+
 TEST_F(RunBacktestRpc, NegativeStartStepIsMiddleOfPeriod) {
   setStress(-1, "20", 0);
   const pb::RunResult middle = result();  // 10 шагов -> шаг 5

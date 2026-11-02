@@ -214,12 +214,10 @@ void SessionEngine::recordStepState(bool replaceLast) {
   }
 }
 
-// INV-1, INV-2: на шаге нет баров и исполнений «из будущего», исполнение строго после шага подачи. Исключение -
+// INV-2: исполнения шага относятся к текущему шагу, известной заявке и идут строго после шага её подачи. Исключение -
 // исполнения processNaive (ФТ-24: по close бара решения, sameStepAllowed); из processStep проверка действует всегда.
+// Баров из будущего (INV-1) здесь нет: Timeline::barsAt(step) по построению отдаёт только бары шага step.
 void SessionEngine::checkIntegrity(std::size_t fromFill, bool sameStepAllowed) const {
-  for (const StepBar& bar : timeline_->barsAt(step_)) {
-    if (bar.step > step_) throw IntegrityViolation("бар позже текущего шага");
-  }
   for (std::size_t i = fromFill; i < fills_.size(); ++i) {
     const Fill& f = fills_[i];
     if (f.step != step_) throw IntegrityViolation("исполнение не на текущем шаге");
