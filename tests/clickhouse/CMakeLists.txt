@@ -1,2 +1,3 @@
 # Тесты адаптера ClickHouse: юнит-тесты с подменой клиента и интеграционный (нужен CLICKHOUSE_URL).
-target_sources(worker_tests PRIVATE clickhouse_bar_source_test.cpp clickhouse_integration_test.cpp)
+file(GLOB clickhouse_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*_test.cpp)
+target_sources(worker_tests PRIVATE ${clickhouse_tests})
