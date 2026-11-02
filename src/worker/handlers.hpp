@@ -21,7 +21,6 @@ struct Context {
 // запрос. Инварианты для всех обработчиков:
 //  - INV-1: наружу не уходят бары позже запрошенных up_to_step / курсора;
 //  - INV-7: в слепом режиме нет реальных дат и границ торговых дней.
-// Не реализованы (UNIMPLEMENTED): RunBacktest, RunWalkForward, AnalyzeDivergences.
 grpc::Status handleCheckStrategy(Context& context, const pb::CheckStrategyRequest& request,
                                  pb::CheckStrategyResponse* response);
 grpc::Status handleReplaySession(Context& context, const pb::ReplaySessionRequest& request,
