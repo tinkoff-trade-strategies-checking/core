@@ -5,11 +5,15 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include "core/market/calendar_source.hpp"
+#include "core/market/in_memory_bar_source.hpp"
 #include "core/version.hpp"
 #include "worker_service.hpp"
 
 TEST(WorkerPing, ReturnsCoreVersion) {
-  worker::WorkerService service;
+  core::InMemoryBarSource bars;
+  core::InMemoryCalendarSource calendar;
+  worker::WorkerService service(worker::Context{bars, calendar});
   int port = 0;
   grpc::ServerBuilder builder;
   builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
