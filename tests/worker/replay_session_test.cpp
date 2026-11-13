@@ -246,14 +246,24 @@ TEST_F(ReplaySession, BenchmarkStopsAtCursor) {
   // Шаги 0…4: open первого дня 1000, close пятого дня 1045.
   EXPECT_NEAR(mid.report().metrics().benchmark_return(), 1045.0 / 1000.0 - 1.0, 1e-12);
 
+  // Кривая бенчмарка: капитал 1 000 000 в индексе, точка на каждый пройденный день, не дальше курсора.
+  ASSERT_EQ(mid.report().benchmark_equity_size(), 5);
+  EXPECT_EQ(mid.report().benchmark_equity(0).step(), 0);
+  EXPECT_EQ(mid.report().benchmark_equity(0).equity().units(), 1005000);
+  EXPECT_EQ(mid.report().benchmark_equity(4).step(), 4);
+  EXPECT_EQ(mid.report().benchmark_equity(4).equity().units(), 1045000);
+
   pb::ReplaySessionResponse full;
   ASSERT_TRUE(replay(9, -1, &full, false, true).ok());
   EXPECT_NEAR(full.report().metrics().benchmark_return(), 1095.0 / 1000.0 - 1.0, 1e-12);
+  ASSERT_EQ(full.report().benchmark_equity_size(), 10);
+  EXPECT_EQ(full.report().benchmark_equity(9).equity().units(), 1095000);
 
   market_.set_benchmark_ticker("NOSUCH");
   pb::ReplaySessionResponse missing;
   ASSERT_TRUE(replay(9, -1, &missing, false, true).ok());
   EXPECT_FALSE(missing.report().metrics().has_benchmark_return());
+  EXPECT_EQ(missing.report().benchmark_equity_size(), 0);
 }
 
 TEST_F(ReplaySession, BadRequestsAreInvalidArgument) {
@@ -366,3 +376,40 @@ TEST(ReplaySessionIntraday, BenchmarkStopsAtPreviousFullDay) {
   const pb::ReplaySessionResponse end = report(5);
   EXPECT_NEAR(end.report().metrics().benchmark_return(), 1015.0 / 1000.0 - 1.0, 1e-12);
 }
+
+// Прогрев: history начинается с баров истории до from_date, журнал и шаги сессии не меняются.
+TEST_F(ReplaySession, WarmupBarsComeFirstInHistory) {
+  market_.set_from_date("2024-01-15");
+  market_.set_warmup_bars(2);
+  journal_ = {marketOrder(0, 0, "A", pb::BUY, 5)};
+  pb::ReplaySessionResponse response;
+  ASSERT_TRUE(replay(1, 0, &response).ok());
+  EXPECT_EQ(response.total_steps(), 6);
+  EXPECT_EQ(response.warmup_steps(), 2);
+  // 11 января (A, B), 12 января (A), шаги 0 и 1 (A, B).
+  ASSERT_EQ(response.history_size(), 7);
+  EXPECT_EQ(response.history(0).step(), -2);
+  EXPECT_EQ(response.history(2).step(), -1);
+  EXPECT_EQ(response.history(3).step(), 0);
+  // Заявка исполнилась по open шага 1, как и без прогрева (INV-2); событий до шага 0 нет.
+  ASSERT_EQ(response.fills_size(), 1);
+  EXPECT_EQ(response.fills(0).step(), 1);
+  for (const pb::StepEvents& e : response.events()) EXPECT_GE(e.step(), 1);
+}
+
+// Испорченный бар индекса (open первого дня 0): отчёт считается без доходности и кривой бенчмарка, а не падает.
+TEST_F(ReplaySession, BadBenchmarkOpenDoesNotBreakReport) {
+  std::vector<core::Bar> imoex = fixture_.bars.load(
+      core::BarRequest{"fixture-1", "FIXA", 86400, 0, std::numeric_limits<std::int64_t>::max()});
+  imoex[0].open = core::Decimal::zero();
+  fixture_.bars.addSecurity("fixture-1", core::Security{"IMOEX", "", 1, core::Decimal::parse("0.01")});
+  fixture_.bars.addSeries("fixture-1", "IMOEX", 86400, imoex);
+  market_.set_benchmark_ticker("IMOEX");
+  pb::ReplaySessionResponse response;
+  const grpc::Status status = replay(9, -1, &response, false, true);
+  ASSERT_TRUE(status.ok()) << status.error_message();
+  EXPECT_FALSE(response.report().metrics().has_benchmark_return());
+  EXPECT_EQ(response.report().benchmark_equity_size(), 0);
+  EXPECT_EQ(response.report().equity_size(), 10);
+}
+

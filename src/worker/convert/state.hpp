@@ -14,7 +14,10 @@ namespace worker {
 // Запись журнала. Неизвестный ключ бумаги, незаданная команда или перечисление - std::invalid_argument.
 // Необязательные цены (limit_price, stop_price, trailing_percent) берутся только при наличии поля;
 // oco_with с lots = 0 - заявка без OCO.
+// rule_name и because переносятся как есть; причина снятия не задана - отмена пользователем.
 core::JournalEntry fromProto(const pb::JournalEntry& entry, const core::SessionSpec& spec);
+// Запись журнала ядра (в том числе стратегии) -> proto; fromProto(toProto(e)) == e.
+void toProto(const core::JournalEntry& entry, const core::Timeline& timeline, pb::JournalEntry* out);
 
 // Заявка. ocoSiblingId и closedStep «нет» остаются -1, как в ядре (id 0 - настоящая заявка).
 void toProto(const core::Order& order, const core::Timeline& timeline, pb::Order* out);
@@ -30,5 +33,7 @@ pb::OrderType toProto(core::OrderType type);
 pb::TimeInForce toProto(core::TimeInForce tif);
 pb::OrderStatus toProto(core::OrderStatus status);
 pb::Reason toProto(core::Reason reason);
+// Обратно к toProto(Reason); неизвестное значение - std::invalid_argument.
+core::Reason reasonFromProto(pb::Reason reason);
 
 }  // namespace worker

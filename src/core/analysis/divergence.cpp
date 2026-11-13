@@ -206,6 +206,7 @@ class Analyzer {
     strategies.reserve(algorithms_.size());
     for (const AlgorithmInput& input : algorithms_) {
       strategies.emplace_back(input.program, input.params, input.values, spec_.instruments.size());
+      detail::warmUp(strategies.back(), *timeline_, spec_);  // история до шага 0 - как в независимом прогоне
     }
     algoActions_.assign(algorithms_.size(), {});
     std::vector<std::optional<std::int64_t>> barsInPosition(spec_.instruments.size());
@@ -498,6 +499,10 @@ class Analyzer {
       missed.exitStep = trip.exitStep;
       missed.lots = trip.lots;
       missed.netPnl = trip.netPnl;
+      const std::int64_t lotSize = spec_.instruments.at(static_cast<std::size_t>(trip.instrument)).lotSize;
+      const Decimal units = Decimal::fromUnits(trip.lots * lotSize);
+      missed.entryPrice = trip.entryValue.div(units, RoundingMode::HALF_UP);
+      missed.exitPrice = trip.exitValue.div(units, RoundingMode::HALF_UP);
       for (std::size_t a = 0; a < algorithms_.size(); ++a) {
         const auto found = outcome_.find({a, entry->second.first, entry->second.second});
         if (found != outcome_.end() && !found->second.matched) missed.algorithmIds.push_back(algorithms_[a].id);

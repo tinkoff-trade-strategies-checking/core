@@ -38,6 +38,7 @@ class Runner {
   RunOutput run(dsl::Level staticLevel) {
     RunOutput out;
     std::optional<Finding> violation;
+    detail::warmUp(strategy_, *timeline_, spec_);
     try {
       loop();
     } catch (const IntegrityViolation& e) {
@@ -246,6 +247,17 @@ RunOutput runBacktestToStep(const SessionSpec& spec, std::shared_ptr<const Timel
   const StepHook noHook;
   Runner runner(spec, std::move(timeline), program, params, overrides, noProgress, noHook, lastStep);
   return runner.run(staticLevel);
+}
+
+void warmUp(dsl::StrategyInstance& strategy, const Timeline& timeline, const SessionSpec& spec) {
+  dsl::StateView flat;
+  flat.cash = spec.initialCash.toDouble();
+  flat.equity = flat.cash;
+  for (const StepBar& bar : timeline.warmupBars()) {
+    const Instrument& instrument = spec.instruments.at(static_cast<std::size_t>(bar.instrument));
+    strategy.onBar(bar.instrument, bar);
+    (void)strategy.evaluate(bar.instrument, bar, instrument.lotSize, instrument.priceStep, flat);
+  }
 }
 
 }  // namespace detail

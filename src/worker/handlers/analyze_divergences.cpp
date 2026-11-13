@@ -37,7 +37,7 @@ core::AlgorithmInput toAlgorithm(const pb::AlgorithmRef& ref) {
 
 // Бенчмарк независимых портфелей по шагам 0…lastStep (как в ReplaySession): бар D1 дня, в котором сессия остановилась
 // посреди дня, содержит будущее (INV-1), поэтому период бенчмарка заканчивается последним полностью пройденным днём.
-std::optional<std::pair<core::Decimal, core::Decimal>> benchmarkUpTo(Context& context, const pb::MarketSpec& market,
+std::optional<core::BenchmarkSeries> benchmarkUpTo(Context& context, const pb::MarketSpec& market,
                                                                      const core::Timeline& timeline,
                                                                      std::int64_t lastStep) {
   std::int64_t step = lastStep;
@@ -103,6 +103,8 @@ void fill(Context& context, const pb::DivergenceRequest& request, pb::Divergence
     p->set_lots(m.lots);
     core::toProto(m.netPnl, p->mutable_net_pnl());
     for (const std::string& id : m.algorithmIds) p->add_algorithm_ids(id);
+    core::toProto(m.entryPrice, p->mutable_entry_price());
+    core::toProto(m.exitPrice, p->mutable_exit_price());
   }
   for (const core::ConsensusItem& c : result.consensus) {
     pb::ConsensusItem* p = out->add_consensus();

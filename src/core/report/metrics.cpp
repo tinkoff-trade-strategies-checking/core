@@ -106,6 +106,7 @@ Report computeReport(const MetricsInput& in) {
 
   Report report;
   report.equity = in.equity;
+  report.benchmarkEquity = in.benchmarkEquity;
   report.finalEquity = in.equity.empty() ? in.initialCash : in.equity.back().equity;
   Metrics& m = report.metrics;
 
@@ -117,6 +118,7 @@ Report computeReport(const MetricsInput& in) {
     report.costs.spread += f.spreadCost;
     report.costs.slippage += f.slippageCost;
     tradedValue += f.value;
+    if (f.stopAndTakeSameBar) ++report.metrics.stopTakeSameBar;
   }
 
   const double e0 = in.initialCash.toDouble();

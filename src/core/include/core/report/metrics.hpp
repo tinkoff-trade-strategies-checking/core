@@ -28,6 +28,7 @@ struct MetricsInput {
   // [шаг][бумага]: стоимость позиции (>= 0, 0 без позиции) после обработки шага. Пусто - доли позиций не считаются.
   std::vector<std::vector<Decimal>> positionValuesByStep;
   std::optional<std::pair<Decimal, Decimal>> benchmark;  // (open первого бара, close последнего бара) IMOEX
+  std::vector<EquityPoint> benchmarkEquity;  // кривая бенчмарка в рублях капитала (benchmarkEquity()), в отчёт как есть
 };
 
 struct Metrics {
@@ -44,6 +45,7 @@ struct Metrics {
   double hhiAvg = 0, maxPositionShare = 0;
   std::optional<double> benchmarkReturn;
   std::int32_t tradingDays = 0;
+  std::int64_t stopTakeSameBar = 0;  // сделок, где стоп и тейк задеты одной свечой (Fill::stopAndTakeSameBar)
 };
 
 // Суммы издержек по всем сделкам. Не равны разности денег и net-результата пар на копейки:
@@ -57,6 +59,7 @@ struct Report {
   CostTotals costs;
   std::vector<EquityPoint> equity;
   Decimal finalEquity;  // стоимость на последнем шаге; без точек - начальный капитал
+  std::vector<EquityPoint> benchmarkEquity;  // из MetricsInput::benchmarkEquity
 };
 
 // Находка проверок прогона (ФТ-14): код, уровень, сообщение, шаг.

@@ -1,5 +1,6 @@
 #include "convert/market.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <memory>
 #include <optional>
@@ -100,9 +101,14 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec& market) {
 
 std::shared_ptr<const core::Timeline> loadTimeline(Context& context, const pb::MarketSpec& market) {
   std::vector<core::Instrument> instruments = toSessionSpec(market).instruments;
-  core::Timeline timeline = core::Timeline::load(
+  if (market.warmup_bars() < 0 || market.warmup_bars() > kMaxWarmupBars) {
+    throw std::invalid_argument("warmup_bars вне диапазона 0…" + std::to_string(kMaxWarmupBars) + ": " +
+                                std::to_string(market.warmup_bars()));
+  }
+  core::Timeline timeline = core::Timeline::loadWithWarmup(
       context.bars, context.calendar, market.snapshot_id(), std::move(instruments),
-      timeframeFromProto(market.timeframe()), parseIsoDate(market.from_date()), parseIsoDate(market.to_date()));
+      timeframeFromProto(market.timeframe()), parseIsoDate(market.from_date()), parseIsoDate(market.to_date()),
+      market.warmup_bars());
   if (timeline.totalSteps() == 0) throw core::SnapshotNotFound("в снапшоте нет баров за период");
   return std::make_shared<const core::Timeline>(std::move(timeline));
 }
@@ -140,9 +146,9 @@ std::shared_ptr<const core::Timeline> loadStressedTimeline(Context& context, con
   return timeline;
 }
 
-std::optional<std::pair<core::Decimal, core::Decimal>> loadBenchmark(Context& context, const pb::MarketSpec& market) {
+std::optional<core::BenchmarkSeries> loadBenchmark(Context& context, const pb::MarketSpec& market) {
   if (market.benchmark_ticker().empty()) return std::nullopt;
-  // Однобумажная дневная шкала бенчмарка: из неё берём open первого и close последнего бара.
+  // Однобумажная дневная шкала бенчмарка: из неё берём open первого бара и close каждого дня.
   // Лот и шаг цены для чтения баров не нужны.
   core::Instrument index{market.benchmark_ticker(), market.benchmark_ticker(), 1, core::Decimal::parse("0.01")};
   try {
@@ -150,7 +156,12 @@ std::optional<std::pair<core::Decimal, core::Decimal>> loadBenchmark(Context& co
         core::Timeline::load(context.bars, context.calendar, market.snapshot_id(), {index}, core::Timeframe::D1,
                              parseIsoDate(market.from_date()), parseIsoDate(market.to_date()));
     if (timeline.totalSteps() == 0) return std::nullopt;
-    return std::make_pair(timeline.barsAt(0).front().open, timeline.barsAt(timeline.totalSteps() - 1).front().close);
+    core::BenchmarkSeries series;
+    series.firstOpen = timeline.barsAt(0).front().open;
+    for (std::int64_t step = 0; step < timeline.totalSteps(); ++step) {
+      series.closes.push_back(core::DailyClose{timeline.yyyymmddOf(step), timeline.barsAt(step).front().close});
+    }
+    return series;
   } catch (const core::SecurityNotFound&) {
     return std::nullopt;
   }
@@ -167,6 +178,22 @@ void toProto(const core::StepBar& bar, const core::Timeline& timeline, pb::Bar* 
   core::toProto(bar.close, out->mutable_close());
   out->set_volume_lots(bar.volumeLots);
   out->set_after_halt(bar.afterHalt);
+}
+
+void appendBars(const core::Timeline& timeline, std::int64_t fromStep, std::int64_t toStep,
+                google::protobuf::RepeatedPtrField<pb::Bar>* out) {
+  const std::int64_t total = timeline.totalSteps();
+  if (fromStep < -timeline.warmupSteps() || toStep >= total || fromStep > toStep) {
+    throw std::invalid_argument("диапазон шагов [" + std::to_string(fromStep) + "; " + std::to_string(toStep) +
+                                "] вне шкалы времени, шагов " + std::to_string(total) + ", прогрева " +
+                                std::to_string(timeline.warmupSteps()));
+  }
+  for (const core::StepBar& b : timeline.warmupBars()) {
+    if (b.step >= fromStep && b.step <= toStep) toProto(b, timeline, out->Add());
+  }
+  for (std::int64_t step = std::max<std::int64_t>(fromStep, 0); step <= toStep; ++step) {
+    for (const core::StepBar& b : timeline.barsAt(step)) toProto(b, timeline, out->Add());
+  }
 }
 
 // Прочие MarketDataError (повреждённые данные, неожиданные ответы ClickHouse) - INTERNAL без деталей.

@@ -85,6 +85,10 @@ RunOutput runBacktestToStep(const SessionSpec& spec, std::shared_ptr<const Timel
 std::vector<Finding> runtimeFindings(const Timeline& timeline, const std::vector<Order>& orders,
                                      const std::vector<Fill>& fills, const std::vector<RoundTrip>& roundTrips);
 
+// Прогрев стратегии на барах истории до шага 0 (`Timeline::warmupBars`): ряды и индикаторы обновляются, правила
+// вычисляются с пустым портфелем (деньги = стоимость = начальный капитал), намерения отбрасываются - торговли до
+// шага 0 нет. Вызывается один раз, до первого бара шкалы.
+void warmUp(dsl::StrategyInstance& strategy, const Timeline& timeline, const SessionSpec& spec);
 // Находка о нарушении целостности (E-RT01).
 Finding integrityFinding(const IntegrityViolation& violation, std::int64_t step);
 

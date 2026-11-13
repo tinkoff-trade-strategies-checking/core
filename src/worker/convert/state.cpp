@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include "convert/market.hpp"
 #include "core/money/proto_conv.hpp"
@@ -105,16 +106,56 @@ core::JournalEntry fromProto(const pb::JournalEntry& entry, const core::SessionS
     case pb::JournalEntry::kPlace:
       out.command = placeFromProto(entry.place(), spec);
       break;
-    case pb::JournalEntry::kCancel:
-      out.command = core::CancelCmd{entry.cancel().order_id(), core::Reason::CancelledByUser};
+    case pb::JournalEntry::kCancel: {
+      const pb::Reason reason = entry.cancel().reason();
+      out.command = core::CancelCmd{entry.cancel().order_id(), reason == pb::REASON_UNSPECIFIED
+                                                                   ? core::Reason::CancelledByUser
+                                                                   : reasonFromProto(reason)};
       break;
+    }
     case pb::JournalEntry::kReplace:
       out.command = core::ReplaceCmd{entry.replace().order_id(), placeFromProto(entry.replace().replacement(), spec)};
       break;
     case pb::JournalEntry::COMMAND_NOT_SET:
       throw std::invalid_argument("в записи журнала нет команды, seq " + std::to_string(entry.seq()));
   }
+  out.ruleName = entry.rule_name();
+  out.because = entry.because();
   return out;
+}
+
+namespace {
+
+void placeToProto(const core::PlaceCmd& place, const core::Timeline& timeline, pb::PlaceOrder* out) {
+  specToProto(place.order, timeline, out->mutable_order());
+  if (place.ocoWith) specToProto(*place.ocoWith, timeline, out->mutable_oco_with());
+}
+
+}  // namespace
+
+void toProto(const core::JournalEntry& entry, const core::Timeline& timeline, pb::JournalEntry* out) {
+  out->set_seq(entry.seq);
+  out->set_step(entry.step);
+  if (const auto* place = std::get_if<core::PlaceCmd>(&entry.command)) {
+    placeToProto(*place, timeline, out->mutable_place());
+  } else if (const auto* cancel = std::get_if<core::CancelCmd>(&entry.command)) {
+    out->mutable_cancel()->set_order_id(cancel->orderId);
+    out->mutable_cancel()->set_reason(toProto(cancel->reason));
+  } else {
+    const auto& replace = std::get<core::ReplaceCmd>(entry.command);
+    out->mutable_replace()->set_order_id(replace.orderId);
+    placeToProto(replace.replacement, timeline, out->mutable_replace()->mutable_replacement());
+  }
+  out->set_rule_name(entry.ruleName);
+  out->set_because(entry.because);
+}
+
+core::Reason reasonFromProto(pb::Reason reason) {
+  for (int i = static_cast<int>(core::Reason::None); i <= static_cast<int>(core::Reason::DayExpired); ++i) {
+    const auto candidate = static_cast<core::Reason>(i);
+    if (toProto(candidate) == reason) return candidate;
+  }
+  throw std::invalid_argument("неизвестная причина: " + std::to_string(static_cast<int>(reason)));
 }
 
 void toProto(const core::Order& order, const core::Timeline& timeline, pb::Order* out) {

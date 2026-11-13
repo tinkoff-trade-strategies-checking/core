@@ -163,3 +163,37 @@ TEST(GetBarsExceptions, MappedToStatus) {
   const grpc::Status unavailable = statusOf([] { throw worker::ClickHouseError("секрет: пароль db"); });
   EXPECT_EQ(unavailable.error_message().find("секрет"), std::string::npos);
 }
+
+// Прогрев: бары истории до from_date идут отрицательными шагами, торговые дни <= 0.
+TEST_F(GetBars, WarmupBarsHaveNegativeSteps) {
+  pb::MarketSpec market = fixtureMarket();
+  market.set_from_date("2024-01-15");
+  market.set_warmup_bars(3);
+  pb::GetBarsResponse response;
+  ASSERT_TRUE(get(-3, 0, &response, market).ok());
+  EXPECT_EQ(response.total_steps(), 6);
+  EXPECT_EQ(response.warmup_steps(), 3);
+  // 10, 11, 12 января (у B нет бара 12-го) и шаг 0 - 15 января.
+  ASSERT_EQ(response.bars_size(), 7);
+  const std::int64_t steps[] = {-3, -3, -2, -2, -1, 0, 0};
+  const std::int32_t days[] = {-2, -2, -1, -1, 0, 1, 1};
+  for (int i = 0; i < response.bars_size(); ++i) {
+    EXPECT_EQ(response.bars(i).step(), steps[i]) << i;
+    EXPECT_EQ(response.bars(i).trading_day(), days[i]) << i;
+  }
+  EXPECT_EQ(response.bars(4).close().units(), 106);
+
+  pb::GetBarsResponse tooEarly;
+  EXPECT_EQ(get(-4, 0, &tooEarly, market).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  market.set_warmup_bars(5001);
+  EXPECT_EQ(get(0, 0, &tooEarly, market).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  market.set_warmup_bars(-1);
+  EXPECT_EQ(get(0, 0, &tooEarly, market).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_F(GetBars, NoWarmupByDefault) {
+  pb::GetBarsResponse response;
+  ASSERT_TRUE(get(0, 0, &response).ok());
+  EXPECT_EQ(response.warmup_steps(), 0);
+  EXPECT_EQ(get(-1, 0, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}

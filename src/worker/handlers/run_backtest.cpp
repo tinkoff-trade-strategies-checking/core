@@ -11,6 +11,7 @@
 #include "convert/progress.hpp"
 #include "convert/report.hpp"
 #include "convert/run.hpp"
+#include "convert/state.hpp"
 #include "convert/strategy.hpp"
 #include "core/analysis/cost_breakdown.hpp"
 #include "core/money/proto_conv.hpp"
@@ -63,6 +64,8 @@ void run(Context& context, const pb::RunBacktestRequest& request,
                                     [&] { writeProgress(writer, totalSteps * (1 + ++stagesDone), totalSteps * parts); });
   }
   toProto(output, report, breakdown, *timeline, out);
+  // Журнал стратегии - для воспроизведения прогона через ReplaySession (RunResult.journal).
+  for (const core::JournalEntry& e : output.journal) toProto(e, *timeline, out->add_journal());
 }
 
 }  // namespace

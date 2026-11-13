@@ -424,3 +424,90 @@ TEST(RunBacktestRpcOverGrpc, StreamAndDeterministicDigest) {
   EXPECT_EQ(reader->Finish().error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   server->Shutdown();
 }
+
+// Прогрев: стратегия видит историю до from_date с шага 0, торговля и кривая стоимости - только в периоде.
+TEST_F(RunBacktestRpc, WarmupLetsIndicatorsStartAtStepZero) {
+  request_.mutable_strategy()->set_source(
+      "rule \"b\" when close > close[2] and position == 0 then buy 1 lots because \"рост за два бара\"\n");
+  request_.mutable_market()->set_from_date("2024-01-11");
+  const pb::RunResult plain = result();
+  ASSERT_FALSE(plain.fills().empty());
+  EXPECT_EQ(plain.fills(0).step(), 3);
+
+  request_.mutable_market()->set_warmup_bars(2);
+  const pb::RunResult warm = result();
+  ASSERT_FALSE(warm.fills().empty());
+  EXPECT_EQ(warm.fills(0).step(), 1);
+  EXPECT_EQ(warm.total_steps(), 8);
+  EXPECT_EQ(warm.report().equity_size(), 8);
+  EXPECT_EQ(warm.report().equity(0).step(), 0);
+  EXPECT_EQ(warm.report().metrics().stop_take_same_bar(), 0);
+}
+
+// Журнал прогона: ReplaySession по нему (тот же MarketSpec и стресс) повторяет прогон один в один (INV-3) -
+// воспроизведение алгоритма на курсоре.
+static void expectJournalReplaysRun(core::testing::Fixture& fixture, const pb::RunBacktestRequest& runRequest,
+                             const pb::RunResult& run) {
+  ASSERT_FALSE(run.journal().empty());
+  for (const pb::JournalEntry& e : run.journal()) EXPECT_FALSE(e.rule_name().empty());
+
+  worker::Context context{fixture.bars, fixture.calendar};
+  pb::ReplaySessionRequest request;
+  *request.mutable_market() = runRequest.market();
+  if (runRequest.has_stress()) *request.mutable_stress() = runRequest.stress();
+  *request.mutable_journal() = run.journal();
+  request.set_up_to_step(run.last_step());
+  request.set_events_from_step(-1);
+  request.set_include_report(true);
+  pb::ReplaySessionResponse replayed;
+  const grpc::Status status = worker::handleReplaySession(context, request, &replayed);
+  ASSERT_TRUE(status.ok()) << status.error_message();
+
+  ASSERT_EQ(replayed.fills_size(), run.fills_size());
+  for (int i = 0; i < run.fills_size(); ++i) {
+    EXPECT_EQ(replayed.fills(i).SerializeAsString(), run.fills(i).SerializeAsString()) << i;
+  }
+  ASSERT_EQ(replayed.orders_size(), run.orders_size());
+  for (int i = 0; i < run.orders_size(); ++i) {
+    EXPECT_EQ(replayed.orders(i).SerializeAsString(), run.orders(i).SerializeAsString()) << i;
+  }
+  EXPECT_EQ(replayed.report().final_equity().SerializeAsString(), run.report().final_equity().SerializeAsString());
+
+  // Портфель на промежуточном шаге - тот же путь, что у ручной сессии: записи журнала до курсора включительно.
+  request.clear_journal();
+  for (const pb::JournalEntry& e : run.journal()) {
+    if (e.step() <= 4) *request.add_journal() = e;
+  }
+  request.set_up_to_step(4);
+  request.set_include_report(false);
+  pb::ReplaySessionResponse middle;
+  ASSERT_TRUE(worker::handleReplaySession(context, request, &middle).ok());
+  EXPECT_EQ(middle.last_step(), 4);
+  for (const pb::Fill& f : middle.fills()) EXPECT_LE(f.step(), 4);
+}
+
+TEST_F(RunBacktestRpc, JournalReplaysToSameTradesAndOrders) { expectJournalReplaysRun(fixture_, request_, result()); }
+
+TEST_F(RunBacktestRpc, JournalReplaysStressedRun) {
+  setStress(3, "20", 2);
+  const pb::RunResult stressed = result();
+  expectJournalReplaysRun(fixture_, request_, stressed);
+  // Без стресса тот же журнал даёт другие цены: стресс в запросе воспроизведения обязателен.
+  worker::Context context{fixture_.bars, fixture_.calendar};
+  pb::ReplaySessionRequest request;
+  *request.mutable_market() = request_.market();
+  *request.mutable_journal() = stressed.journal();
+  request.set_up_to_step(stressed.last_step());
+  request.set_events_from_step(-1);
+  pb::ReplaySessionResponse plain;
+  ASSERT_TRUE(worker::handleReplaySession(context, request, &plain).ok());
+  std::string a, b;
+  for (const pb::Fill& f : plain.fills()) a += f.SerializeAsString();
+  for (const pb::Fill& f : stressed.fills()) b += f.SerializeAsString();
+  EXPECT_NE(a, b);
+}
+
+TEST_F(RunBacktestRpc, JournalReplaysNaiveRun) {
+  request_.mutable_market()->set_naive(true);
+  expectJournalReplaysRun(fixture_, request_, result());
+}

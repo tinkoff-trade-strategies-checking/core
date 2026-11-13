@@ -246,5 +246,27 @@ TEST(WalkForward, Refusals) {
   EXPECT_EQ(calls, 0);
 }
 
+// Прогрев: у каждого окна (подбора и проверки) - W шагов истории прямо перед ним, прогон окна равен прямому прогону
+// на срезе с тем же прогревом.
+TEST(WalkForward, WarmupGoesIntoEveryWindow) {
+  const auto [spec, full] = timeline400();
+  const Timeline history = full->slice(1, 30);
+  const auto warmed = std::make_shared<const Timeline>(full->slice(31, 400).withWarmup(history, 20));
+  ASSERT_EQ(warmed->warmupSteps(), 20);
+  const auto loaded = loadProgram(kSmaCross);
+  const WalkForwardResult result = walkForward(spec, warmed, loaded.program, loaded.params, {}, nullptr);
+  ASSERT_FALSE(result.segments.empty());
+  for (const WalkForwardSegment& s : result.segments) {
+    const auto slice = std::make_shared<const Timeline>(warmed->slice(s.testFromDay, s.testToDay));
+    EXPECT_EQ(slice->warmupSteps(), 20) << s.index;
+    const RunOutput direct = runBacktest(spec, slice, loaded.program, loaded.params, s.chosen, dsl::Level::Ok, nullptr);
+    EXPECT_EQ(direct.digest, s.test.digest) << s.index;
+  }
+  // Первое окно подбора начинается с истории до периода: её последний бар - день 30 исходной шкалы.
+  const Timeline firstFit = warmed->slice(result.segments[0].fitFromDay, result.segments[0].fitToDay);
+  EXPECT_EQ(firstFit.warmupBars().back().close, full->barsAt(29).back().close);
+}
+
+
 }  // namespace
 }  // namespace core

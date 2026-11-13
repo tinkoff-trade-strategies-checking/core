@@ -1,8 +1,10 @@
 #include "core/market/timeline.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace core {
 
@@ -169,6 +171,32 @@ Timeline Timeline::load(BarSource& barSource, CalendarSource& calendarSource, co
   return buildWithInterval(std::move(instruments), bars, calendar, static_cast<std::int64_t>(interval) * 1000);
 }
 
+Timeline Timeline::loadWithWarmup(BarSource& barSource, CalendarSource& calendarSource, const std::string& snapshotId,
+                                  std::vector<Instrument> instruments, Timeframe timeframe, std::int32_t fromYmd,
+                                  std::int32_t toYmd, std::int64_t warmupSteps) {
+  Timeline timeline = load(barSource, calendarSource, snapshotId, instruments, timeframe, fromYmd, toYmd);
+  if (warmupSteps <= 0 || timeline.totalSteps() == 0) return timeline;  // пустой период - ошибка вызывающего
+  const std::int64_t stepsPerDay =
+      timeline.tradingDays_ > 0 ? std::max<std::int64_t>(1, (timeline.totalSteps() + timeline.tradingDays_ - 1) /
+                                                                timeline.tradingDays_)
+                                : 1;
+  const std::int64_t start = daysFromCivil(fromYmd / 10000, fromYmd / 100 % 100, fromYmd % 100);
+  // Не раньше 1970-01-01: даты хранилища (ClickHouse Date) начинаются с неё.
+  const std::int64_t maxLookback = std::min(kMaxWarmupLookbackDays, start);
+  if (maxLookback <= 0) return timeline;
+  // Торговых дней в календарной неделе 5 из 7; запас 10 дней - на праздники.
+  std::int64_t lookback = (warmupSteps + stepsPerDay - 1) / stepsPerDay * 7 / 5 + 10;
+  for (;;) {
+    lookback = std::min(lookback, maxLookback);
+    const Timeline history = load(barSource, calendarSource, snapshotId, instruments, timeframe,
+                                  civilFromDays(start - lookback), civilFromDays(start - 1));
+    if (history.totalSteps() >= warmupSteps || lookback >= maxLookback) {
+      return timeline.withWarmup(history, warmupSteps);
+    }
+    lookback *= 2;
+  }
+}
+
 void Timeline::buildIndex() {
   const std::size_t steps = stepDay_.size();
   stepStart_.assign(steps + 1, 0);
@@ -250,7 +278,55 @@ Timeline Timeline::slice(std::int32_t fromDay, std::int32_t toDay) const {
     b.step -= static_cast<std::int64_t>(first);
     b.tradingDay -= fromDay - 1;
   }
+  // Прогрев среза: W шагов перед first - из прогрева шкалы (шаги < 0) и её дней до fromDay.
+  if (warmupSteps_ > 0) {
+    const auto from = static_cast<std::int64_t>(first) - warmupSteps_;
+    for (const StepBar& b : warmup_) {
+      if (b.step >= from) out.warmup_.push_back(b);
+    }
+    out.warmup_.insert(out.warmup_.end(), bars_.begin(), bars_.begin() + static_cast<std::ptrdiff_t>(stepStart_[first]));
+    std::erase_if(out.warmup_, [from](const StepBar& b) { return b.step < from; });
+    for (StepBar& b : out.warmup_) {
+      b.step -= static_cast<std::int64_t>(first);
+      b.tradingDay -= fromDay - 1;
+    }
+    out.warmupSteps_ = warmupSteps_;  // перед first всегда есть W шагов: свои дни шкалы и её прогрев
+  }
   out.buildIndex();
+  return out;
+}
+
+Timeline Timeline::withWarmup(const Timeline& history, std::int64_t steps) const {
+  if (steps < 0) throw std::invalid_argument("Timeline::withWarmup: число шагов прогрева отрицательно");
+  if (history.instruments_.size() != instruments_.size()) {
+    throw std::invalid_argument("Timeline::withWarmup: бумаги истории не совпадают с бумагами шкалы");
+  }
+  for (std::size_t i = 0; i < instruments_.size(); ++i) {
+    if (history.instruments_[i].key != instruments_[i].key) {
+      throw std::invalid_argument("Timeline::withWarmup: бумаги истории не совпадают с бумагами шкалы");
+    }
+  }
+  Timeline out = *this;
+  out.warmup_.clear();
+  const std::int64_t total = history.totalSteps();
+  const std::int64_t n = std::min(steps, total);
+  out.warmupSteps_ = n;
+  if (n == 0) return out;
+  const auto firstStep = static_cast<std::size_t>(total - n);
+  out.warmup_.assign(history.bars_.begin() + static_cast<std::ptrdiff_t>(history.stepStart_[firstStep]),
+                     history.bars_.end());
+  const std::int32_t lastDay = history.stepDay_.back();
+  for (StepBar& b : out.warmup_) {
+    b.step -= total;
+    b.tradingDay -= lastDay;
+  }
+  if (!out.warmup_.empty() && !bars_.empty()) {
+    std::int64_t latest = out.warmup_.front().timeUnixMs;
+    for (const StepBar& b : out.warmup_) latest = std::max(latest, b.timeUnixMs);
+    if (latest >= bars_.front().timeUnixMs) {
+      throw std::invalid_argument("Timeline::withWarmup: история не раньше начала шкалы");
+    }
+  }
   return out;
 }
 

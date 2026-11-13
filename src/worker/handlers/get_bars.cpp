@@ -11,17 +11,10 @@ namespace {
 
 void fill(Context& context, const pb::GetBarsRequest& request, pb::GetBarsResponse* out) {
   const std::shared_ptr<const core::Timeline> timeline = loadStressedTimeline(context, request.market(), request.stress(), request.has_stress());
-  const std::int64_t total = timeline->totalSteps();
-  if (request.from_step() < 0 || request.to_step() >= total || request.from_step() > request.to_step()) {
-    throw std::invalid_argument("диапазон шагов [" + std::to_string(request.from_step()) + "; " +
-                                std::to_string(request.to_step()) + "] вне шкалы времени, шагов " +
-                                std::to_string(total));
-  }
-  out->set_total_steps(total);
-  // Ровно запрошенный диапазон: бэкенд берёт по нему первую цену и график (INV-1).
-  for (std::int64_t step = request.from_step(); step <= request.to_step(); ++step) {
-    for (const core::StepBar& b : timeline->barsAt(step)) toProto(b, *timeline, out->add_bars());
-  }
+  out->set_total_steps(timeline->totalSteps());
+  out->set_warmup_steps(timeline->warmupSteps());
+  // Ровно запрошенный диапазон: бэкенд берёт по нему первую цену и график (INV-1). Шаги < 0 - прогрев.
+  appendBars(*timeline, request.from_step(), request.to_step(), out->mutable_bars());
 }
 
 }  // namespace

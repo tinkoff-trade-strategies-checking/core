@@ -127,6 +127,19 @@ TEST_F(DivergenceRpc, ExcessAndMissedProfitableTrade) {
   EXPECT_GT(fromProto(trade.net_pnl()).sign(), 0);
   ASSERT_EQ(trade.algorithm_ids_size(), 1);
   EXPECT_EQ(trade.algorithm_ids(0), "ref");
+  // Цены пары - цены сделок человека (по одной на вход и выход), без издержек сверх спреда и проскальзывания.
+  worker::Context context{fixture_.bars, fixture_.calendar};
+  pb::ReplaySessionRequest replay;
+  *replay.mutable_market() = market_;
+  *replay.mutable_journal() = request_.journal();
+  replay.set_up_to_step(9);
+  replay.set_events_from_step(-1);
+  pb::ReplaySessionResponse human;
+  ASSERT_TRUE(worker::handleReplaySession(context, replay, &human).ok());
+  ASSERT_EQ(human.fills_size(), 2);
+  EXPECT_EQ(trade.entry_price().SerializeAsString(), human.fills(0).price().SerializeAsString());
+  EXPECT_EQ(trade.exit_price().SerializeAsString(), human.fills(1).price().SerializeAsString());
+  EXPECT_GT(fromProto(trade.entry_price()), core::Decimal::parse("101"));  // open 101 + спред и проскальзывание
 
   // Независимый портфель молчащего алгоритма: ни одной сделки.
   ASSERT_EQ(response.algorithm_portfolios_size(), 1);

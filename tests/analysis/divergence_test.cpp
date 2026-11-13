@@ -134,6 +134,9 @@ TEST(Divergence, ExcessWithProfit) {
   EXPECT_EQ(r.missed[0].lots, 10);
   EXPECT_EQ(r.missed[0].netPnl.toString(2), "100.00");
   EXPECT_EQ(r.missed[0].algorithmIds, std::vector<std::string>{"ref"});
+  // Цены пары за штуку: вход по open шага 2 (= close шага 1), выход по open шага 4 (= close шага 3).
+  EXPECT_EQ(r.missed[0].entryPrice, dec("100"));
+  EXPECT_EQ(r.missed[0].exitPrice, dec("110"));
 }
 
 TEST(Divergence, TimingWithinWindow) {
@@ -515,4 +518,35 @@ TEST(Divergence, ConsensusMedianOnlyOverNonAgreeingAlgorithms) {
   EXPECT_EQ(r.consensus[0].agreeing, 2);
   EXPECT_EQ(r.consensus[0].total, 3);
   EXPECT_EQ(r.consensus[0].medianCost.toString(2), "-50.00");
+}
+
+// Прогрев: алгоритм на месте человека видит историю до шага 0 (как и в независимом прогоне).
+TEST(Divergence, WarmupHistoryIsVisibleToAlgorithm) {
+  Market m;
+  // История: 90 и 95 до шага 0. Правило срабатывает только на шаге 0 и только с историей: close 100, close[1] 95.
+  constexpr std::int64_t kDayMs = 86'400'000;
+  constexpr std::int64_t kStart = 1'704'747'600'000;  // 2024-01-09 00:00 МСК - шаг 0 рынка
+  std::vector<Bar> history;
+  for (int i = 0; i < 2; ++i) {
+    Bar b;
+    b.tsOpenMs = kStart - (2 - i) * kDayMs;
+    b.availableAtMs = b.tsOpenMs + kDayMs;
+    b.open = b.close = dec(i == 0 ? "90" : "95");
+    b.high = b.close + dec("0.5");
+    b.low = b.close - dec("0.5");
+    b.volume = 1'000'000;
+    history.push_back(b);
+  }
+  const Timeline before = Timeline::build({core::testing::syntheticInstrument()}, {history}, {});
+  const std::string rule = "rule \"r\" when close == 100 and close[1] == 95 then buy 10 lots because \"после 95\"\n";
+
+  const DivergenceResult plain = analyze(m, {}, algos(algo("ref", rule)));
+  EXPECT_TRUE(plain.divergences.empty());
+
+  m.timeline = std::make_shared<const Timeline>(m.timeline->withWarmup(before, 2));
+  const DivergenceResult warm = analyze(m, {}, algos(algo("ref", rule)));
+  ASSERT_EQ(warm.divergences.size(), 1u);
+  EXPECT_EQ(warm.divergences[0].type, DivergenceType::Missed);
+  EXPECT_EQ(warm.divergences[0].algoStep, 0);
+  EXPECT_EQ(warm.divergences[0].reason, "после 95");
 }

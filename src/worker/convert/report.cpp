@@ -26,6 +26,17 @@ void countOrders(const std::vector<core::Order>& orders, core::MetricsInput* in)
   }
 }
 
+// Доходность бенчмарка за период и кривая до последнего шага кривой стоимости (только полностью пройденные дни).
+void setBenchmark(const std::optional<core::BenchmarkSeries>& benchmark, const core::Timeline& timeline,
+                  core::MetricsInput* in) {
+  if (!benchmark) return;
+  in->benchmark = core::benchmarkRange(*benchmark);
+  // open первого дня <= 0 - испорченный бар индекса: доходности нет (computeReport), кривой тоже, отчёт считается.
+  if (in->benchmark && in->benchmark->first > core::Decimal::zero() && !in->equity.empty()) {
+    in->benchmarkEquity = core::benchmarkEquity(*benchmark, in->initialCash, timeline, in->equity.back().step);
+  }
+}
+
 void metricsToProto(const core::Metrics& m, pb::Metrics* out) {
   out->set_total_return(m.totalReturn);
   out->set_gross_return(m.grossReturn);
@@ -45,13 +56,14 @@ void metricsToProto(const core::Metrics& m, pb::Metrics* out) {
   out->set_max_position_share(m.maxPositionShare);
   if (m.benchmarkReturn) out->set_benchmark_return(*m.benchmarkReturn);
   out->set_trading_days(m.tradingDays);
+  out->set_stop_take_same_bar(m.stopTakeSameBar);
 }
 
 }  // namespace
 
 core::MetricsInput metricsInput(const core::SessionEngine& engine, const core::Decimal& initialCash,
                                 const core::Timeline& timeline,
-                                std::optional<std::pair<core::Decimal, core::Decimal>> benchmark) {
+                                const std::optional<core::BenchmarkSeries>& benchmark) {
   core::MetricsInput in;
   in.initialCash = initialCash;
   in.equity = engine.equity();
@@ -60,13 +72,13 @@ core::MetricsInput metricsInput(const core::SessionEngine& engine, const core::D
   in.roundTrips = engine.portfolio().roundTrips();
   countOrders(engine.orders(), &in);
   in.positionValuesByStep = engine.positionValues();
-  in.benchmark = std::move(benchmark);
+  setBenchmark(benchmark, timeline, &in);
   return in;
 }
 
 core::MetricsInput metricsInput(const core::RunOutput& output, const core::Decimal& initialCash,
                                 const core::Timeline& timeline,
-                                std::optional<std::pair<core::Decimal, core::Decimal>> benchmark) {
+                                const std::optional<core::BenchmarkSeries>& benchmark) {
   core::MetricsInput in;
   in.initialCash = initialCash;
   in.equity = output.equity;
@@ -76,7 +88,7 @@ core::MetricsInput metricsInput(const core::RunOutput& output, const core::Decim
   in.rejections = output.rejections;
   in.partialFills = output.partialFills;
   in.positionValuesByStep = output.positionValuesByStep;
-  in.benchmark = std::move(benchmark);
+  setBenchmark(benchmark, timeline, &in);
   return in;
 }
 
@@ -94,6 +106,11 @@ void toProto(const core::Report& report, pb::Report* out) {
   }
   out->set_level(pb::OK);
   core::toProto(report.finalEquity, out->mutable_final_equity());
+  for (const core::EquityPoint& p : report.benchmarkEquity) {
+    pb::EquityPoint* point = out->add_benchmark_equity();
+    point->set_step(p.step);
+    core::toProto(p.equity, point->mutable_equity());
+  }
 }
 
 void toProto(const core::Finding& finding, pb::Finding* out) {

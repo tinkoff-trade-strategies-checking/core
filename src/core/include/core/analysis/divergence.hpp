@@ -55,6 +55,9 @@ struct MissedProfitableTrade {
   std::int64_t entryStep = 0, exitStep = 0, lots = 0;
   Decimal netPnl;
   std::vector<std::string> algorithmIds;  // алгоритмы, для которых вход - «лишнее действие», в порядке входа
+  // Средние цены входа и выхода за штуку: стоимость стороны пары без издержек (RoundTrip::entryValue / exitValue,
+  // сумма по сделкам до копейки) / (лоты × размер лота), 9 знаков HALF_UP. У одной сделки - её цена.
+  Decimal entryPrice, exitPrice;
 };
 
 // Консенсус алгоритмов. humanAction: действие человека, agreeing из total алгоритмов сопоставили его (агрегат
