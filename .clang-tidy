@@ -1,6 +1,6 @@
 # Именование по LLVM (core#10). Сгенерированный код (build/) и внешние заголовки не проверяются.
 Checks: '-*,readability-identifier-naming'
-HeaderFilterRegex: '.*/(src|tests)/.*'
+HeaderFilterRegex: '^/src/(src|tests)/'
 WarningsAsErrors: ''
 CheckOptions:
   readability-identifier-naming.ClassCase: CamelCase
