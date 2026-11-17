@@ -65,7 +65,7 @@ TEST(Determinism, SameDigestTwice) {
   EXPECT_NE(digestOf(First.Engine), digestOf(Other.Engine));
 }
 
-TEST(Determinism, DigestCoversFillsEquityAndStatus) {
+TEST(Determinism, DigestCoversFillsAndEquity) {
   const ReplayResult R = replay(sampleJournal());
   const std::uint64_t Base = digestOf(R.Engine);
 
@@ -74,12 +74,19 @@ TEST(Determinism, DigestCoversFillsEquityAndStatus) {
   ASSERT_EQ(Fork.status(), SessionStatus::FinishedEnd);
   EXPECT_EQ(digestOf(Fork), Base);
 
-  // Сессия, остановленная раньше (другой набор шагов и статус), даёт другой
-  // отпечаток.
-  const ReplayResult Short = replaySession(
-      fixtureSpec(), fixtureTimeline(),
-      std::vector<JournalEntry>{market(0, 0, Side::Buy, 10)}, 5, 0);
-  EXPECT_NE(digestOf(Short.Engine), Base);
+  // Те же сделки и статус, но разная длина кривой стоимости: отпечаток
+  // покрывает кривую отдельно от сделок.
+  const std::vector<JournalEntry> OneBuy{market(0, 0, Side::Buy, 10)};
+  const ReplayResult UpTo5 =
+      replaySession(fixtureSpec(), fixtureTimeline(), OneBuy, 5, 0);
+  const ReplayResult UpTo6 =
+      replaySession(fixtureSpec(), fixtureTimeline(), OneBuy, 6, 0);
+  ASSERT_EQ(UpTo5.Engine.fills().size(), UpTo6.Engine.fills().size());
+  ASSERT_EQ(UpTo5.Engine.status(), UpTo6.Engine.status());
+  ASSERT_NE(UpTo5.Engine.equity().size(), UpTo6.Engine.equity().size());
+  EXPECT_NE(digestOf(UpTo5.Engine), digestOf(UpTo6.Engine));
+  // Статус через публичный API отдельно от кривой не меняется (он меняется
+  // только вместе с шагом); его вклад в отпечаток проверяет код digestOf.
 
   // Другие издержки меняют сделки и кривую стоимости.
   SessionSpec Costly = fixtureSpec();

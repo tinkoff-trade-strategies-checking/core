@@ -291,14 +291,6 @@ TEST(Timeline, LoadFirstBarOfRangeIsNotAfterHalt) {
   EXPECT_FALSE(T.barOf(1, 0)->AfterHalt);
 }
 
-TEST(Timeline, MutableBar) {
-  Timeline T = fixtureTimeline();
-  T.mutableBar(2, 0).Close = Decimal::parse("1");
-  EXPECT_EQ(T.barOf(0, 2)->Close, Decimal::parse("1"));
-  EXPECT_EQ(T.lastBarOf(0, 5)->Step, 5);
-  EXPECT_THROW(T.mutableBar(3, 1), std::out_of_range);
-}
-
 TEST(Timeline, RangeChecks) {
   const Timeline T = fixtureTimeline();
   EXPECT_THROW(T.barsAt(10), std::out_of_range);
