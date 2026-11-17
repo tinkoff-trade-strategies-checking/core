@@ -17,33 +17,33 @@ namespace worker {
 // trailing_percent) берутся только при наличии поля; oco_with с lots = 0 -
 // заявка без OCO. rule_name и because переносятся как есть; причина снятия не
 // задана - отмена пользователем.
-core::JournalEntry fromProto(const pb::JournalEntry &entry,
-                             const core::SessionSpec &spec);
+core::JournalEntry fromProto(const pb::JournalEntry &Entry,
+                             const core::SessionSpec &Spec);
 // Запись журнала ядра (в том числе стратегии) -> proto; fromProto(toProto(e))
 // == e.
-void toProto(const core::JournalEntry &entry, const core::Timeline &timeline,
-             pb::JournalEntry *out);
+void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
+             pb::JournalEntry *Out);
 
 // Заявка. ocoSiblingId и closedStep «нет» остаются -1, как в ядре (id 0 -
 // настоящая заявка).
-void toProto(const core::Order &order, const core::Timeline &timeline,
-             pb::Order *out);
-void toProto(const core::Fill &fill, const core::Timeline &timeline,
-             pb::Fill *out);
+void toProto(const core::Order &Order, const core::Timeline &Timeline,
+             pb::Order *Out);
+void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
+             pb::Fill *Out);
 // В positions - только открытые позиции (lots != 0), по порядку бумаг сессии.
-void toProto(const core::PortfolioSnapshot &snapshot,
-             const core::Timeline &timeline, pb::Portfolio *out);
-void toProto(const core::CommandResult &result, pb::CommandResult *out);
-void toProto(const core::StepEvents &events, const core::Timeline &timeline,
-             pb::StepEvents *out);
+void toProto(const core::PortfolioSnapshot &Snapshot,
+             const core::Timeline &Timeline, pb::Portfolio *Out);
+void toProto(const core::CommandResult &Result, pb::CommandResult *Out);
+void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
+             pb::StepEvents *Out);
 
-pb::SessionStatus toProto(core::SessionStatus status);
-pb::Side toProto(core::Side side);
-pb::OrderType toProto(core::OrderType type);
-pb::TimeInForce toProto(core::TimeInForce tif);
-pb::OrderStatus toProto(core::OrderStatus status);
-pb::Reason toProto(core::Reason reason);
+pb::SessionStatus toProto(core::SessionStatus Status);
+pb::Side toProto(core::Side Side);
+pb::OrderType toProto(core::OrderType Type);
+pb::TimeInForce toProto(core::TimeInForce Tif);
+pb::OrderStatus toProto(core::OrderStatus Status);
+pb::Reason toProto(core::Reason Reason);
 // Обратно к toProto(Reason); неизвестное значение - std::invalid_argument.
-core::Reason reasonFromProto(pb::Reason reason);
+core::Reason reasonFromProto(pb::Reason Reason);
 
 } // namespace worker

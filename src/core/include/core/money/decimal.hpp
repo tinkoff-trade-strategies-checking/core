@@ -38,8 +38,8 @@ public:
 // Значение в виде пары полей контракта `.proto` Decimal{units, nano} (знаки -
 // как в ADR-0008).
 struct UnitsNano {
-  std::int64_t units = 0;
-  std::int32_t nano = 0;
+  std::int64_t Units = 0;
+  std::int32_t Nano = 0;
   friend bool operator==(const UnitsNano &, const UnitsNano &) = default;
 };
 
@@ -65,30 +65,32 @@ public:
   static Decimal zero() { return Decimal(); }
   static Decimal one();
   // Целое число рублей (без дробной части).
-  static Decimal fromUnits(std::int64_t units);
+  static Decimal fromUnits(std::int64_t Units);
   // Из пары контракта .proto: значение = units + nano * 10^-9. |nano| <= 999
   // 999 999, знак nano совпадает со знаком units (или один из них 0), иначе
   // std::invalid_argument.
-  static Decimal fromUnitsNano(std::int64_t units, std::int32_t nano);
+  static Decimal fromUnitsNano(std::int64_t Units, std::int32_t Nano);
   // Из числа единиц 10^-9 (Raw). Минимум int128 недопустим -> DecimalOverflow.
-  static Decimal fromRaw(Raw raw);
+  static Decimal fromRaw(Raw Value);
   // Точный разбор: [-]цифры[.цифры], не более 9 знаков после запятой, без
   // пробелов и «+». Неверная строка - std::invalid_argument, слишком большое
   // число - DecimalOverflow.
-  static Decimal parse(std::string_view text);
+  static Decimal parse(std::string_view Text);
   // То же без исключений: nullopt при любой ошибке.
-  static std::optional<Decimal> tryParse(std::string_view text) noexcept;
+  static std::optional<Decimal> tryParse(std::string_view Text) noexcept;
 
   // ---- Просмотр
   // --------------------------------------------------------------------
-  constexpr Raw raw() const { return raw_; }
-  constexpr bool isZero() const { return raw_ == 0; }
-  constexpr int sign() const { return raw_ > 0 ? 1 : (raw_ < 0 ? -1 : 0); }
+  constexpr Raw raw() const { return RawValue; }
+  constexpr bool isZero() const { return RawValue == 0; }
+  constexpr int sign() const {
+    return RawValue > 0 ? 1 : (RawValue < 0 ? -1 : 0);
+  }
   // Каноническая строка: «-», целая часть, при ненулевой дробной - «.» и знаки
   // без хвостовых нулей ("123.45", "-0.000000001", "5"). minFractionDigits
   // (0...9) добивает дробную часть нулями: toString(2) -> "5.00" (удобно для
   // копеек).
-  std::string toString(int minFractionDigits = 0) const;
+  std::string toString(int MinFractionDigits = 0) const;
   // Пара для .proto; units вне int64 -> DecimalOverflow.
   UnitsNano toUnitsNano() const;
   // Только для метрик и выражений DSL (ADR-0008); деньги обратно из double не
@@ -99,12 +101,12 @@ public:
   // ----------------------------
   Decimal operator-() const;
   Decimal abs() const;
-  friend Decimal operator+(const Decimal &a, const Decimal &b);
-  friend Decimal operator-(const Decimal &a, const Decimal &b);
-  Decimal &operator+=(const Decimal &b) { return *this = *this + b; }
-  Decimal &operator-=(const Decimal &b) { return *this = *this - b; }
+  friend Decimal operator+(const Decimal &A, const Decimal &B);
+  friend Decimal operator-(const Decimal &A, const Decimal &B);
+  Decimal &operator+=(const Decimal &B) { return *this = *this + B; }
+  Decimal &operator-=(const Decimal &B) { return *this = *this - B; }
   // Умножение на целое (лоты, размер лота) - точное.
-  Decimal times(std::int64_t n) const;
+  Decimal times(std::int64_t N) const;
   template <std::floating_point F> Decimal times(F) const = delete;
 
   // ---- Умножение и деление: режим округления указывается всегда
@@ -112,42 +114,42 @@ public:
   // (0...9, по умолчанию 9), округлённое из ТОЧНОГО значения за один шаг (без
   // двойного округления). Промежуточные значения считаются без потерь (256
   // бит).
-  Decimal mul(const Decimal &b, RoundingMode mode) const {
-    return mul(b, kScale, mode);
+  Decimal mul(const Decimal &B, RoundingMode Mode) const {
+    return mul(B, kScale, Mode);
   }
-  Decimal mul(const Decimal &b, int scale, RoundingMode mode) const;
-  Decimal div(const Decimal &b, RoundingMode mode) const {
-    return div(b, kScale, mode);
+  Decimal mul(const Decimal &B, int Scale, RoundingMode Mode) const;
+  Decimal div(const Decimal &B, RoundingMode Mode) const {
+    return div(B, kScale, Mode);
   }
-  Decimal div(const Decimal &b, int scale, RoundingMode mode) const;
+  Decimal div(const Decimal &B, int Scale, RoundingMode Mode) const;
   // this * mulBy / divBy одним шагом (слепой масштаб: цена * 100 / P0,
   // `decisions.md`, п. 8).
-  Decimal mulDiv(const Decimal &mulBy, const Decimal &divBy, int scale,
-                 RoundingMode mode) const;
+  Decimal mulDiv(const Decimal &MulBy, const Decimal &DivBy, int Scale,
+                 RoundingMode Mode) const;
 
   // ---- Округление
   // -------------------------------------------------------------------- До
   // `scale` знаков после запятой (0...9); сумма до копейки - round(2, mode).
-  Decimal round(int scale, RoundingMode mode) const;
+  Decimal round(int Scale, RoundingMode Mode) const;
   // До кратного шагу (step > 0): цена до шага цены. Кратность считается от
   // нуля. Не округляй дважды разными режимами (mul HALF_UP, затем шаг CEILING):
   // в mul бери тот же режим.
-  Decimal roundToStep(const Decimal &step, RoundingMode mode) const;
+  Decimal roundToStep(const Decimal &Step, RoundingMode Mode) const;
 
   // ---- Сравнение
   // ---------------------------------------------------------------------
-  friend constexpr bool operator==(const Decimal &a, const Decimal &b) {
-    return a.raw_ == b.raw_;
+  friend constexpr bool operator==(const Decimal &A, const Decimal &B) {
+    return A.RawValue == B.RawValue;
   }
-  friend constexpr std::strong_ordering operator<=>(const Decimal &a,
-                                                    const Decimal &b) {
-    return a.raw_ <=> b.raw_;
+  friend constexpr std::strong_ordering operator<=>(const Decimal &A,
+                                                    const Decimal &B) {
+    return A.RawValue <=> B.RawValue;
   }
 
 private:
-  Raw raw_ = 0;
+  Raw RawValue = 0;
 };
 
-std::ostream &operator<<(std::ostream &os, const Decimal &d);
+std::ostream &operator<<(std::ostream &Os, const Decimal &D);
 
 } // namespace core

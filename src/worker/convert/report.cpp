@@ -12,130 +12,130 @@ namespace worker {
 namespace {
 
 // Номера торговых дней шагов 0…lastStep (в шкале с 1).
-std::vector<std::int32_t> tradingDays(const core::Timeline &timeline,
-                                      std::int64_t lastStep) {
-  std::vector<std::int32_t> days;
-  days.reserve(static_cast<std::size_t>(lastStep) + 1);
-  for (std::int64_t step = 0; step <= lastStep; ++step)
-    days.push_back(timeline.tradingDayOf(step));
-  return days;
+std::vector<std::int32_t> tradingDays(const core::Timeline &Timeline,
+                                      std::int64_t LastStep) {
+  std::vector<std::int32_t> Days;
+  Days.reserve(static_cast<std::size_t>(LastStep) + 1);
+  for (std::int64_t Step = 0; Step <= LastStep; ++Step)
+    Days.push_back(Timeline.tradingDayOf(Step));
+  return Days;
 }
 
-void countOrders(const std::vector<core::Order> &orders,
-                 core::MetricsInput *in) {
-  for (const core::Order &o : orders) {
-    if (o.status == core::OrderStatus::Rejected)
-      ++in->rejections;
-    if (o.filledLots > 0 && o.filledLots < o.spec.lots)
-      ++in->partialFills;
+void countOrders(const std::vector<core::Order> &Orders,
+                 core::MetricsInput *In) {
+  for (const core::Order &O : Orders) {
+    if (O.Status == core::OrderStatus::Rejected)
+      ++In->Rejections;
+    if (O.FilledLots > 0 && O.FilledLots < O.Spec.Lots)
+      ++In->PartialFills;
   }
 }
 
 // Доходность бенчмарка за период и кривая до последнего шага кривой стоимости
 // (только полностью пройденные дни).
-void setBenchmark(const std::optional<core::BenchmarkSeries> &benchmark,
-                  const core::Timeline &timeline, core::MetricsInput *in) {
-  if (!benchmark)
+void setBenchmark(const std::optional<core::BenchmarkSeries> &Benchmark,
+                  const core::Timeline &Timeline, core::MetricsInput *In) {
+  if (!Benchmark)
     return;
-  in->benchmark = core::benchmarkRange(*benchmark);
+  In->Benchmark = core::benchmarkRange(*Benchmark);
   // open первого дня <= 0 - испорченный бар индекса: доходности нет
   // (computeReport), кривой тоже, отчёт считается.
-  if (in->benchmark && in->benchmark->first > core::Decimal::zero() &&
-      !in->equity.empty()) {
-    in->benchmarkEquity = core::benchmarkEquity(
-        *benchmark, in->initialCash, timeline, in->equity.back().step);
+  if (In->Benchmark && In->Benchmark->first > core::Decimal::zero() &&
+      !In->Equity.empty()) {
+    In->BenchmarkEquity = core::benchmarkEquity(
+        *Benchmark, In->InitialCash, Timeline, In->Equity.back().Step);
   }
 }
 
-void metricsToProto(const core::Metrics &m, pb::Metrics *out) {
-  out->set_total_return(m.totalReturn);
-  out->set_gross_return(m.grossReturn);
-  if (m.cagr)
-    out->set_cagr(*m.cagr);
-  out->set_max_drawdown(m.maxDrawdown);
-  out->set_max_drawdown_steps(m.maxDrawdownSteps);
-  if (m.volatility)
-    out->set_volatility(*m.volatility);
-  if (m.sharpe)
-    out->set_sharpe(*m.sharpe);
-  if (m.sortino)
-    out->set_sortino(*m.sortino);
-  out->set_turnover(m.turnover);
-  out->set_fills(m.fills);
-  out->set_round_trips(m.roundTrips);
-  if (m.winRate)
-    out->set_win_rate(*m.winRate);
-  out->set_rejections(m.rejections);
-  out->set_partial_fills(m.partialFills);
-  out->set_hhi_avg(m.hhiAvg);
-  out->set_max_position_share(m.maxPositionShare);
-  if (m.benchmarkReturn)
-    out->set_benchmark_return(*m.benchmarkReturn);
-  out->set_trading_days(m.tradingDays);
-  out->set_stop_take_same_bar(m.stopTakeSameBar);
+void metricsToProto(const core::Metrics &M, pb::Metrics *Out) {
+  Out->set_total_return(M.TotalReturn);
+  Out->set_gross_return(M.GrossReturn);
+  if (M.Cagr)
+    Out->set_cagr(*M.Cagr);
+  Out->set_max_drawdown(M.MaxDrawdown);
+  Out->set_max_drawdown_steps(M.MaxDrawdownSteps);
+  if (M.Volatility)
+    Out->set_volatility(*M.Volatility);
+  if (M.Sharpe)
+    Out->set_sharpe(*M.Sharpe);
+  if (M.Sortino)
+    Out->set_sortino(*M.Sortino);
+  Out->set_turnover(M.Turnover);
+  Out->set_fills(M.Fills);
+  Out->set_round_trips(M.RoundTrips);
+  if (M.WinRate)
+    Out->set_win_rate(*M.WinRate);
+  Out->set_rejections(M.Rejections);
+  Out->set_partial_fills(M.PartialFills);
+  Out->set_hhi_avg(M.HhiAvg);
+  Out->set_max_position_share(M.MaxPositionShare);
+  if (M.BenchmarkReturn)
+    Out->set_benchmark_return(*M.BenchmarkReturn);
+  Out->set_trading_days(M.TradingDays);
+  Out->set_stop_take_same_bar(M.StopTakeSameBar);
 }
 
 } // namespace
 
 core::MetricsInput
-metricsInput(const core::SessionEngine &engine,
-             const core::Decimal &initialCash, const core::Timeline &timeline,
-             const std::optional<core::BenchmarkSeries> &benchmark) {
-  core::MetricsInput in;
-  in.initialCash = initialCash;
-  in.equity = engine.equity();
-  in.tradingDayOfStep = tradingDays(timeline, engine.currentStep());
-  in.fills = engine.fills();
-  in.roundTrips = engine.portfolio().roundTrips();
-  countOrders(engine.orders(), &in);
-  in.positionValuesByStep = engine.positionValues();
-  setBenchmark(benchmark, timeline, &in);
-  return in;
+metricsInput(const core::SessionEngine &Engine,
+             const core::Decimal &InitialCash, const core::Timeline &Timeline,
+             const std::optional<core::BenchmarkSeries> &Benchmark) {
+  core::MetricsInput In;
+  In.InitialCash = InitialCash;
+  In.Equity = Engine.equity();
+  In.TradingDayOfStep = tradingDays(Timeline, Engine.currentStep());
+  In.Fills = Engine.fills();
+  In.RoundTrips = Engine.portfolio().roundTrips();
+  countOrders(Engine.orders(), &In);
+  In.PositionValuesByStep = Engine.positionValues();
+  setBenchmark(Benchmark, Timeline, &In);
+  return In;
 }
 
 core::MetricsInput
-metricsInput(const core::RunOutput &output, const core::Decimal &initialCash,
-             const core::Timeline &timeline,
-             const std::optional<core::BenchmarkSeries> &benchmark) {
-  core::MetricsInput in;
-  in.initialCash = initialCash;
-  in.equity = output.equity;
-  in.tradingDayOfStep = tradingDays(timeline, output.lastStep);
-  in.fills = output.fills;
-  in.roundTrips = output.roundTrips;
-  in.rejections = output.rejections;
-  in.partialFills = output.partialFills;
-  in.positionValuesByStep = output.positionValuesByStep;
-  setBenchmark(benchmark, timeline, &in);
-  return in;
+metricsInput(const core::RunOutput &Output, const core::Decimal &InitialCash,
+             const core::Timeline &Timeline,
+             const std::optional<core::BenchmarkSeries> &Benchmark) {
+  core::MetricsInput In;
+  In.InitialCash = InitialCash;
+  In.Equity = Output.Equity;
+  In.TradingDayOfStep = tradingDays(Timeline, Output.LastStep);
+  In.Fills = Output.Fills;
+  In.RoundTrips = Output.RoundTrips;
+  In.Rejections = Output.Rejections;
+  In.PartialFills = Output.PartialFills;
+  In.PositionValuesByStep = Output.PositionValuesByStep;
+  setBenchmark(Benchmark, Timeline, &In);
+  return In;
 }
 
-void toProto(const core::Report &report, pb::Report *out) {
-  metricsToProto(report.metrics, out->mutable_metrics());
-  pb::CostTotals *costs = out->mutable_costs();
-  core::toProto(report.costs.commission, costs->mutable_commission());
-  core::toProto(report.costs.fee, costs->mutable_exchange_fee());
-  core::toProto(report.costs.spread, costs->mutable_spread());
-  core::toProto(report.costs.slippage, costs->mutable_slippage());
-  for (const core::EquityPoint &p : report.equity) {
-    pb::EquityPoint *point = out->add_equity();
-    point->set_step(p.step);
-    core::toProto(p.equity, point->mutable_equity());
+void toProto(const core::Report &Report, pb::Report *Out) {
+  metricsToProto(Report.Stats, Out->mutable_metrics());
+  pb::CostTotals *Costs = Out->mutable_costs();
+  core::toProto(Report.Costs.Commission, Costs->mutable_commission());
+  core::toProto(Report.Costs.Fee, Costs->mutable_exchange_fee());
+  core::toProto(Report.Costs.Spread, Costs->mutable_spread());
+  core::toProto(Report.Costs.Slippage, Costs->mutable_slippage());
+  for (const core::EquityPoint &P : Report.Equity) {
+    pb::EquityPoint *Point = Out->add_equity();
+    Point->set_step(P.Step);
+    core::toProto(P.Equity, Point->mutable_equity());
   }
-  out->set_level(pb::OK);
-  core::toProto(report.finalEquity, out->mutable_final_equity());
-  for (const core::EquityPoint &p : report.benchmarkEquity) {
-    pb::EquityPoint *point = out->add_benchmark_equity();
-    point->set_step(p.step);
-    core::toProto(p.equity, point->mutable_equity());
+  Out->set_level(pb::OK);
+  core::toProto(Report.FinalEquity, Out->mutable_final_equity());
+  for (const core::EquityPoint &P : Report.BenchmarkEquity) {
+    pb::EquityPoint *Point = Out->add_benchmark_equity();
+    Point->set_step(P.Step);
+    core::toProto(P.Equity, Point->mutable_equity());
   }
 }
 
-void toProto(const core::Finding &finding, pb::Finding *out) {
-  out->set_code(finding.code);
-  out->set_level(convert::toProto(finding.level));
-  out->set_message(finding.message);
-  out->set_step(finding.step);
+void toProto(const core::Finding &Finding, pb::Finding *Out) {
+  Out->set_code(Finding.Code);
+  Out->set_level(convert::toProto(Finding.Severity));
+  Out->set_message(Finding.Message);
+  Out->set_step(Finding.Step);
 }
 
 } // namespace worker

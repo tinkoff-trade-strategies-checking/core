@@ -13,20 +13,20 @@ namespace worker {
 
 namespace {
 
-int instrumentIndex(const std::string &key, const core::SessionSpec &spec) {
-  for (std::size_t i = 0; i < spec.instruments.size(); ++i) {
-    if (spec.instruments[i].key == key)
-      return static_cast<int>(i);
+int instrumentIndex(const std::string &Key, const core::SessionSpec &Spec) {
+  for (std::size_t I = 0; I < Spec.Instruments.size(); ++I) {
+    if (Spec.Instruments[I].Key == Key)
+      return static_cast<int>(I);
   }
-  throw std::invalid_argument("в журнале неизвестная бумага: " + key);
+  throw std::invalid_argument("в журнале неизвестная бумага: " + Key);
 }
 
-const std::string &keyOf(const core::Timeline &timeline, int instrument) {
-  return timeline.instruments().at(static_cast<std::size_t>(instrument)).key;
+const std::string &keyOf(const core::Timeline &Timeline, int Instrument) {
+  return Timeline.instruments().at(static_cast<std::size_t>(Instrument)).Key;
 }
 
-core::Side sideFromProto(pb::Side side) {
-  switch (side) {
+core::Side sideFromProto(pb::Side Side) {
+  switch (Side) {
   case pb::BUY:
     return core::Side::Buy;
   case pb::SELL:
@@ -36,8 +36,8 @@ core::Side sideFromProto(pb::Side side) {
   }
 }
 
-core::OrderType typeFromProto(pb::OrderType type) {
-  switch (type) {
+core::OrderType typeFromProto(pb::OrderType Type) {
+  switch (Type) {
   case pb::MARKET:
     return core::OrderType::Market;
   case pb::LIMIT:
@@ -55,8 +55,8 @@ core::OrderType typeFromProto(pb::OrderType type) {
   }
 }
 
-core::TimeInForce tifFromProto(pb::TimeInForce tif) {
-  switch (tif) {
+core::TimeInForce tifFromProto(pb::TimeInForce Tif) {
+  switch (Tif) {
   case pb::DAY:
     return core::TimeInForce::Day;
   case pb::GTC:
@@ -66,194 +66,194 @@ core::TimeInForce tifFromProto(pb::TimeInForce tif) {
   }
 }
 
-core::OrderSpec specFromProto(const pb::OrderSpec &spec,
-                              const core::SessionSpec &session) {
-  core::OrderSpec out;
-  out.instrument = instrumentIndex(spec.instrument_key(), session);
-  out.side = sideFromProto(spec.side());
-  out.type = typeFromProto(spec.type());
-  out.lots = spec.lots();
-  if (spec.has_limit_price())
-    out.limitPrice = core::fromProto(spec.limit_price());
-  if (spec.has_stop_price())
-    out.stopPrice = core::fromProto(spec.stop_price());
-  if (spec.has_trailing_percent())
-    out.trailingPercent = core::fromProto(spec.trailing_percent());
-  out.tif = tifFromProto(spec.time_in_force());
-  return out;
+core::OrderSpec specFromProto(const pb::OrderSpec &Spec,
+                              const core::SessionSpec &Session) {
+  core::OrderSpec Out;
+  Out.Instrument = instrumentIndex(Spec.instrument_key(), Session);
+  Out.OrderSide = sideFromProto(Spec.side());
+  Out.Type = typeFromProto(Spec.type());
+  Out.Lots = Spec.lots();
+  if (Spec.has_limit_price())
+    Out.LimitPrice = core::fromProto(Spec.limit_price());
+  if (Spec.has_stop_price())
+    Out.StopPrice = core::fromProto(Spec.stop_price());
+  if (Spec.has_trailing_percent())
+    Out.TrailingPercent = core::fromProto(Spec.trailing_percent());
+  Out.Tif = tifFromProto(Spec.time_in_force());
+  return Out;
 }
 
-core::PlaceCmd placeFromProto(const pb::PlaceOrder &place,
-                              const core::SessionSpec &session) {
-  core::PlaceCmd cmd;
-  cmd.order = specFromProto(place.order(), session);
-  if (place.has_oco_with() && place.oco_with().lots() != 0)
-    cmd.ocoWith = specFromProto(place.oco_with(), session);
-  return cmd;
+core::PlaceCmd placeFromProto(const pb::PlaceOrder &Place,
+                              const core::SessionSpec &Session) {
+  core::PlaceCmd Cmd;
+  Cmd.Order = specFromProto(Place.order(), Session);
+  if (Place.has_oco_with() && Place.oco_with().lots() != 0)
+    Cmd.OcoWith = specFromProto(Place.oco_with(), Session);
+  return Cmd;
 }
 
-void specToProto(const core::OrderSpec &spec, const core::Timeline &timeline,
-                 pb::OrderSpec *out) {
-  out->set_instrument_key(keyOf(timeline, spec.instrument));
-  out->set_side(toProto(spec.side));
-  out->set_type(toProto(spec.type));
-  out->set_lots(spec.lots);
-  if (spec.limitPrice)
-    core::toProto(*spec.limitPrice, out->mutable_limit_price());
-  if (spec.stopPrice)
-    core::toProto(*spec.stopPrice, out->mutable_stop_price());
-  if (spec.trailingPercent)
-    core::toProto(*spec.trailingPercent, out->mutable_trailing_percent());
-  out->set_time_in_force(toProto(spec.tif));
+void specToProto(const core::OrderSpec &Spec, const core::Timeline &Timeline,
+                 pb::OrderSpec *Out) {
+  Out->set_instrument_key(keyOf(Timeline, Spec.Instrument));
+  Out->set_side(toProto(Spec.OrderSide));
+  Out->set_type(toProto(Spec.Type));
+  Out->set_lots(Spec.Lots);
+  if (Spec.LimitPrice)
+    core::toProto(*Spec.LimitPrice, Out->mutable_limit_price());
+  if (Spec.StopPrice)
+    core::toProto(*Spec.StopPrice, Out->mutable_stop_price());
+  if (Spec.TrailingPercent)
+    core::toProto(*Spec.TrailingPercent, Out->mutable_trailing_percent());
+  Out->set_time_in_force(toProto(Spec.Tif));
 }
 
 } // namespace
 
-core::JournalEntry fromProto(const pb::JournalEntry &entry,
-                             const core::SessionSpec &spec) {
-  core::JournalEntry out;
-  out.seq = entry.seq();
-  out.step = entry.step();
-  switch (entry.command_case()) {
+core::JournalEntry fromProto(const pb::JournalEntry &Entry,
+                             const core::SessionSpec &Spec) {
+  core::JournalEntry Out;
+  Out.Seq = Entry.seq();
+  Out.Step = Entry.step();
+  switch (Entry.command_case()) {
   case pb::JournalEntry::kPlace:
-    out.command = placeFromProto(entry.place(), spec);
+    Out.Command = placeFromProto(Entry.place(), Spec);
     break;
   case pb::JournalEntry::kCancel: {
-    const pb::Reason reason = entry.cancel().reason();
-    out.command = core::CancelCmd{entry.cancel().order_id(),
-                                  reason == pb::REASON_UNSPECIFIED
+    const pb::Reason Reason = Entry.cancel().reason();
+    Out.Command = core::CancelCmd{Entry.cancel().order_id(),
+                                  Reason == pb::REASON_UNSPECIFIED
                                       ? core::Reason::CancelledByUser
-                                      : reasonFromProto(reason)};
+                                      : reasonFromProto(Reason)};
     break;
   }
   case pb::JournalEntry::kReplace:
-    out.command =
-        core::ReplaceCmd{entry.replace().order_id(),
-                         placeFromProto(entry.replace().replacement(), spec)};
+    Out.Command =
+        core::ReplaceCmd{Entry.replace().order_id(),
+                         placeFromProto(Entry.replace().replacement(), Spec)};
     break;
   case pb::JournalEntry::COMMAND_NOT_SET:
     throw std::invalid_argument("в записи журнала нет команды, seq " +
-                                std::to_string(entry.seq()));
+                                std::to_string(Entry.seq()));
   }
-  out.ruleName = entry.rule_name();
-  out.because = entry.because();
-  return out;
+  Out.RuleName = Entry.rule_name();
+  Out.Because = Entry.because();
+  return Out;
 }
 
 namespace {
 
-void placeToProto(const core::PlaceCmd &place, const core::Timeline &timeline,
-                  pb::PlaceOrder *out) {
-  specToProto(place.order, timeline, out->mutable_order());
-  if (place.ocoWith)
-    specToProto(*place.ocoWith, timeline, out->mutable_oco_with());
+void placeToProto(const core::PlaceCmd &Place, const core::Timeline &Timeline,
+                  pb::PlaceOrder *Out) {
+  specToProto(Place.Order, Timeline, Out->mutable_order());
+  if (Place.OcoWith)
+    specToProto(*Place.OcoWith, Timeline, Out->mutable_oco_with());
 }
 
 } // namespace
 
-void toProto(const core::JournalEntry &entry, const core::Timeline &timeline,
-             pb::JournalEntry *out) {
-  out->set_seq(entry.seq);
-  out->set_step(entry.step);
-  if (const auto *place = std::get_if<core::PlaceCmd>(&entry.command)) {
-    placeToProto(*place, timeline, out->mutable_place());
-  } else if (const auto *cancel =
-                 std::get_if<core::CancelCmd>(&entry.command)) {
-    out->mutable_cancel()->set_order_id(cancel->orderId);
-    out->mutable_cancel()->set_reason(toProto(cancel->reason));
+void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
+             pb::JournalEntry *Out) {
+  Out->set_seq(Entry.Seq);
+  Out->set_step(Entry.Step);
+  if (const auto *Place = std::get_if<core::PlaceCmd>(&Entry.Command)) {
+    placeToProto(*Place, Timeline, Out->mutable_place());
+  } else if (const auto *Cancel =
+                 std::get_if<core::CancelCmd>(&Entry.Command)) {
+    Out->mutable_cancel()->set_order_id(Cancel->OrderId);
+    Out->mutable_cancel()->set_reason(toProto(Cancel->ReasonCode));
   } else {
-    const auto &replace = std::get<core::ReplaceCmd>(entry.command);
-    out->mutable_replace()->set_order_id(replace.orderId);
-    placeToProto(replace.replacement, timeline,
-                 out->mutable_replace()->mutable_replacement());
+    const auto &Replace = std::get<core::ReplaceCmd>(Entry.Command);
+    Out->mutable_replace()->set_order_id(Replace.OrderId);
+    placeToProto(Replace.Replacement, Timeline,
+                 Out->mutable_replace()->mutable_replacement());
   }
-  out->set_rule_name(entry.ruleName);
-  out->set_because(entry.because);
+  Out->set_rule_name(Entry.RuleName);
+  Out->set_because(Entry.Because);
 }
 
-core::Reason reasonFromProto(pb::Reason reason) {
-  for (int i = static_cast<int>(core::Reason::None);
-       i <= static_cast<int>(core::Reason::DayExpired); ++i) {
-    const auto candidate = static_cast<core::Reason>(i);
-    if (toProto(candidate) == reason)
-      return candidate;
+core::Reason reasonFromProto(pb::Reason Reason) {
+  for (int I = static_cast<int>(core::Reason::None);
+       I <= static_cast<int>(core::Reason::DayExpired); ++I) {
+    const auto Candidate = static_cast<core::Reason>(I);
+    if (toProto(Candidate) == Reason)
+      return Candidate;
   }
   throw std::invalid_argument("неизвестная причина: " +
-                              std::to_string(static_cast<int>(reason)));
+                              std::to_string(static_cast<int>(Reason)));
 }
 
-void toProto(const core::Order &order, const core::Timeline &timeline,
-             pb::Order *out) {
-  out->set_id(order.id);
-  specToProto(order.spec, timeline, out->mutable_spec());
-  out->set_placed_step(order.placedStep);
-  out->set_status(toProto(order.status));
-  out->set_reason(toProto(order.reason));
-  out->set_invalid_field(order.invalidField);
-  out->set_filled_lots(order.filledLots);
-  out->set_oco_sibling_id(order.ocoSiblingId);
-  out->set_rule_name(order.ruleName);
-  out->set_because(order.because);
-  if (order.trailingStopLevel)
-    core::toProto(*order.trailingStopLevel, out->mutable_trailing_stop_level());
-  out->set_closed_step(order.closedStep);
+void toProto(const core::Order &Order, const core::Timeline &Timeline,
+             pb::Order *Out) {
+  Out->set_id(Order.Id);
+  specToProto(Order.Spec, Timeline, Out->mutable_spec());
+  Out->set_placed_step(Order.PlacedStep);
+  Out->set_status(toProto(Order.Status));
+  Out->set_reason(toProto(Order.ReasonCode));
+  Out->set_invalid_field(Order.InvalidField);
+  Out->set_filled_lots(Order.FilledLots);
+  Out->set_oco_sibling_id(Order.OcoSiblingId);
+  Out->set_rule_name(Order.RuleName);
+  Out->set_because(Order.Because);
+  if (Order.TrailingStopLevel)
+    core::toProto(*Order.TrailingStopLevel, Out->mutable_trailing_stop_level());
+  Out->set_closed_step(Order.ClosedStep);
 }
 
-void toProto(const core::Fill &fill, const core::Timeline &timeline,
-             pb::Fill *out) {
-  out->set_order_id(fill.orderId);
-  out->set_step(fill.step);
-  out->set_instrument_key(keyOf(timeline, fill.instrument));
-  out->set_side(toProto(fill.side));
-  out->set_lots(fill.lots);
-  core::toProto(fill.price, out->mutable_price());
-  core::toProto(fill.basePrice, out->mutable_base_price());
-  core::toProto(fill.value, out->mutable_value());
-  core::toProto(fill.commission, out->mutable_commission());
-  core::toProto(fill.fee, out->mutable_exchange_fee());
-  out->set_stop_and_take_same_bar(fill.stopAndTakeSameBar);
-  core::toProto(fill.spreadCost, out->mutable_spread_cost());
-  core::toProto(fill.slippageCost, out->mutable_slippage_cost());
+void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
+             pb::Fill *Out) {
+  Out->set_order_id(Fill.OrderId);
+  Out->set_step(Fill.Step);
+  Out->set_instrument_key(keyOf(Timeline, Fill.Instrument));
+  Out->set_side(toProto(Fill.OrderSide));
+  Out->set_lots(Fill.Lots);
+  core::toProto(Fill.Price, Out->mutable_price());
+  core::toProto(Fill.BasePrice, Out->mutable_base_price());
+  core::toProto(Fill.Value, Out->mutable_value());
+  core::toProto(Fill.Commission, Out->mutable_commission());
+  core::toProto(Fill.Fee, Out->mutable_exchange_fee());
+  Out->set_stop_and_take_same_bar(Fill.StopAndTakeSameBar);
+  core::toProto(Fill.SpreadCost, Out->mutable_spread_cost());
+  core::toProto(Fill.SlippageCost, Out->mutable_slippage_cost());
 }
 
-void toProto(const core::PortfolioSnapshot &snapshot,
-             const core::Timeline &timeline, pb::Portfolio *out) {
-  core::toProto(snapshot.cash, out->mutable_cash());
-  core::toProto(snapshot.equity, out->mutable_equity());
-  for (std::size_t i = 0; i < snapshot.lots.size(); ++i) {
-    if (snapshot.lots[i] == 0)
+void toProto(const core::PortfolioSnapshot &Snapshot,
+             const core::Timeline &Timeline, pb::Portfolio *Out) {
+  core::toProto(Snapshot.Cash, Out->mutable_cash());
+  core::toProto(Snapshot.Equity, Out->mutable_equity());
+  for (std::size_t I = 0; I < Snapshot.Lots.size(); ++I) {
+    if (Snapshot.Lots[I] == 0)
       continue;
-    pb::Position *p = out->add_positions();
-    p->set_instrument_key(keyOf(timeline, static_cast<int>(i)));
-    p->set_lots(snapshot.lots[i]);
-    core::toProto(snapshot.avgPrice[i], p->mutable_avg_price());
-    core::toProto(snapshot.marketValue[i], p->mutable_market_value());
+    pb::Position *P = Out->add_positions();
+    P->set_instrument_key(keyOf(Timeline, static_cast<int>(I)));
+    P->set_lots(Snapshot.Lots[I]);
+    core::toProto(Snapshot.AvgPrice[I], P->mutable_avg_price());
+    core::toProto(Snapshot.MarketValue[I], P->mutable_market_value());
   }
 }
 
-void toProto(const core::CommandResult &result, pb::CommandResult *out) {
-  out->set_seq(result.seq);
-  out->set_accepted(result.accepted);
-  out->set_reason(toProto(result.reason));
-  out->set_invalid_field(result.field);
-  for (const std::int64_t id : result.orderIds)
-    out->add_order_ids(id);
+void toProto(const core::CommandResult &Result, pb::CommandResult *Out) {
+  Out->set_seq(Result.Seq);
+  Out->set_accepted(Result.Accepted);
+  Out->set_reason(toProto(Result.ReasonCode));
+  Out->set_invalid_field(Result.Field);
+  for (const std::int64_t Id : Result.OrderIds)
+    Out->add_order_ids(Id);
 }
 
-void toProto(const core::StepEvents &events, const core::Timeline &timeline,
-             pb::StepEvents *out) {
-  out->set_step(events.step);
-  for (const core::StepBar &b : events.bars)
-    toProto(b, timeline, out->add_bars());
-  for (const core::Fill &f : events.fills)
-    toProto(f, timeline, out->add_fills());
-  for (const core::Order &o : events.changedOrders)
-    toProto(o, timeline, out->add_changed_orders());
-  toProto(events.portfolio, timeline, out->mutable_portfolio());
+void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
+             pb::StepEvents *Out) {
+  Out->set_step(Events.Step);
+  for (const core::StepBar &B : Events.Bars)
+    toProto(B, Timeline, Out->add_bars());
+  for (const core::Fill &F : Events.Fills)
+    toProto(F, Timeline, Out->add_fills());
+  for (const core::Order &O : Events.ChangedOrders)
+    toProto(O, Timeline, Out->add_changed_orders());
+  toProto(Events.Portfolio, Timeline, Out->mutable_portfolio());
 }
 
-pb::SessionStatus toProto(core::SessionStatus status) {
-  switch (status) {
+pb::SessionStatus toProto(core::SessionStatus Status) {
+  switch (Status) {
   case core::SessionStatus::Running:
     return pb::RUNNING;
   case core::SessionStatus::FinishedEnd:
@@ -264,12 +264,12 @@ pb::SessionStatus toProto(core::SessionStatus status) {
   return pb::SESSION_STATUS_UNSPECIFIED;
 }
 
-pb::Side toProto(core::Side side) {
-  return side == core::Side::Buy ? pb::BUY : pb::SELL;
+pb::Side toProto(core::Side Side) {
+  return Side == core::Side::Buy ? pb::BUY : pb::SELL;
 }
 
-pb::OrderType toProto(core::OrderType type) {
-  switch (type) {
+pb::OrderType toProto(core::OrderType Type) {
+  switch (Type) {
   case core::OrderType::Market:
     return pb::MARKET;
   case core::OrderType::Limit:
@@ -286,12 +286,12 @@ pb::OrderType toProto(core::OrderType type) {
   return pb::ORDER_TYPE_UNSPECIFIED;
 }
 
-pb::TimeInForce toProto(core::TimeInForce tif) {
-  return tif == core::TimeInForce::Day ? pb::DAY : pb::GTC;
+pb::TimeInForce toProto(core::TimeInForce Tif) {
+  return Tif == core::TimeInForce::Day ? pb::DAY : pb::GTC;
 }
 
-pb::OrderStatus toProto(core::OrderStatus status) {
-  switch (status) {
+pb::OrderStatus toProto(core::OrderStatus Status) {
+  switch (Status) {
   case core::OrderStatus::Active:
     return pb::ACTIVE;
   case core::OrderStatus::PartiallyFilled:
@@ -308,8 +308,8 @@ pb::OrderStatus toProto(core::OrderStatus status) {
   return pb::ORDER_STATUS_UNSPECIFIED;
 }
 
-pb::Reason toProto(core::Reason reason) {
-  switch (reason) {
+pb::Reason toProto(core::Reason Reason) {
+  switch (Reason) {
   case core::Reason::None:
     return pb::REASON_UNSPECIFIED;
   case core::Reason::InvalidParams:

@@ -12,105 +12,105 @@ constexpr std::string_view kKeywords[] = {
     "all",   "market", "limit",  "stop", "take_profit", "day",  "gtc",
     "and",   "or",     "not",    "true", "false",       "na"};
 
-bool isKeyword(std::string_view word) {
-  for (std::string_view keyword : kKeywords) {
-    if (keyword == word)
+bool isKeyword(std::string_view Word) {
+  for (std::string_view Keyword : kKeywords) {
+    if (Keyword == Word)
       return true;
   }
   return false;
 }
 
-bool isDigit(unsigned char c) { return c >= '0' && c <= '9'; }
-bool isIdentStart(unsigned char c) {
-  return (c >= 'a' && c <= 'z') || c == '_';
+bool isDigit(unsigned char C) { return C >= '0' && C <= '9'; }
+bool isIdentStart(unsigned char C) {
+  return (C >= 'a' && C <= 'z') || C == '_';
 }
-bool isIdentPart(unsigned char c) { return isIdentStart(c) || isDigit(c); }
+bool isIdentPart(unsigned char C) { return isIdentStart(C) || isDigit(C); }
 
 } // namespace
 
-Lexer::Lexer(std::string_view source) : source_(source) {
+Lexer::Lexer(std::string_view Text) : Source(Text) {
   // BOM в начале текста не считается символом: редакторы Windows добавляют его
   // сами.
-  if (source_.size() >= 3 && static_cast<unsigned char>(source_[0]) == 0xEF &&
-      static_cast<unsigned char>(source_[1]) == 0xBB &&
-      static_cast<unsigned char>(source_[2]) == 0xBF) {
-    index_ = 3;
+  if (Source.size() >= 3 && static_cast<unsigned char>(Source[0]) == 0xEF &&
+      static_cast<unsigned char>(Source[1]) == 0xBB &&
+      static_cast<unsigned char>(Source[2]) == 0xBF) {
+    Index = 3;
   }
 }
 
-unsigned char Lexer::peek(std::size_t ahead) const {
-  const std::size_t at = index_ + ahead;
-  return at < source_.size() ? static_cast<unsigned char>(source_[at]) : 0;
+unsigned char Lexer::peek(std::size_t Ahead) const {
+  const std::size_t At = Index + Ahead;
+  return At < Source.size() ? static_cast<unsigned char>(Source[At]) : 0;
 }
 
-std::size_t Lexer::sequenceLength(std::size_t at) const {
-  const auto byte = [&](std::size_t k) -> int {
-    return at + k < source_.size() ? static_cast<unsigned char>(source_[at + k])
-                                   : -1;
+std::size_t Lexer::sequenceLength(std::size_t At) const {
+  const auto Byte = [&](std::size_t K) -> int {
+    return At + K < Source.size() ? static_cast<unsigned char>(Source[At + K])
+                                  : -1;
   };
-  const int lead = byte(0);
-  std::size_t length = 0;
-  int lowest = 0x80, highest = 0xBF; // допустимый диапазон второго байта
-  if (lead >= 0xC2 && lead <= 0xDF) {
-    length = 2;
-  } else if (lead >= 0xE0 && lead <= 0xEF) {
-    length = 3;
-    if (lead == 0xE0)
-      lowest = 0xA0; // без избыточных кодировок
-    if (lead == 0xED)
-      highest = 0x9F; // без суррогатов
-  } else if (lead >= 0xF0 && lead <= 0xF4) {
-    length = 4;
-    if (lead == 0xF0)
-      lowest = 0x90;
-    if (lead == 0xF4)
-      highest = 0x8F; // не выше U+10FFFF
+  const int Lead = Byte(0);
+  std::size_t Length = 0;
+  int Lowest = 0x80, Highest = 0xBF; // допустимый диапазон второго байта
+  if (Lead >= 0xC2 && Lead <= 0xDF) {
+    Length = 2;
+  } else if (Lead >= 0xE0 && Lead <= 0xEF) {
+    Length = 3;
+    if (Lead == 0xE0)
+      Lowest = 0xA0; // без избыточных кодировок
+    if (Lead == 0xED)
+      Highest = 0x9F; // без суррогатов
+  } else if (Lead >= 0xF0 && Lead <= 0xF4) {
+    Length = 4;
+    if (Lead == 0xF0)
+      Lowest = 0x90;
+    if (Lead == 0xF4)
+      Highest = 0x8F; // не выше U+10FFFF
   } else {
     return 0;
   }
-  if (byte(1) < lowest || byte(1) > highest)
+  if (Byte(1) < Lowest || Byte(1) > Highest)
     return 0;
-  for (std::size_t k = 2; k < length; ++k) {
-    if (byte(k) < 0x80 || byte(k) > 0xBF)
+  for (std::size_t K = 2; K < Length; ++K) {
+    if (Byte(K) < 0x80 || Byte(K) > 0xBF)
       return 0;
   }
-  return length;
+  return Length;
 }
 
 void Lexer::advance() {
-  const unsigned char c = peek();
-  if (c < 0x80) {
-    ++index_;
-    if (c == '\n') {
-      ++line_;
-      column_ = 1;
+  const unsigned char C = peek();
+  if (C < 0x80) {
+    ++Index;
+    if (C == '\n') {
+      ++Line;
+      Column = 1;
     } else {
-      ++column_;
+      ++Column;
     }
     return;
   }
-  const std::size_t length = sequenceLength(index_);
-  if (length == 0) {
-    fail({line_, column_, line_, column_ + 1},
+  const std::size_t Length = sequenceLength(Index);
+  if (Length == 0) {
+    fail({Line, Column, Line, Column + 1},
          "недопустимая последовательность байтов UTF-8");
   }
-  index_ += length;
-  ++column_;
+  Index += Length;
+  ++Column;
 }
 
-void Lexer::fail(const SourceRange &range, std::string message) const {
+void Lexer::fail(const SourceRange &Range, std::string Message) const {
   throw SyntaxError{
-      Diagnostic{"E-SYN", Level::Error, range, std::move(message), {}}};
+      Diagnostic{"E-SYN", Level::Error, Range, std::move(Message), {}}};
 }
 
 void Lexer::skipTrivia() {
   while (!atEnd()) {
-    const unsigned char c = peek();
-    if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+    const unsigned char C = peek();
+    if (C == ' ' || C == '\t' || C == '\r' || C == '\n') {
       advance();
-    } else if (c == '#' &&
-               !inSubstitution_) { // в подстановке `#` - не комментарий, а
-                                   // недопустимый символ
+    } else if (C == '#' &&
+               !InSubstitution) { // в подстановке `#` - не комментарий, а
+                                  // недопустимый символ
       while (!atEnd() && peek() != '\n')
         advance();
     } else {
@@ -121,71 +121,71 @@ void Lexer::skipTrivia() {
 
 Token Lexer::scan() {
   skipTrivia();
-  const Pos start = pos();
+  const Pos Start = pos();
   if (atEnd()) {
-    return Token{TokenKind::End, "", false, {}, rangeFrom(start)};
+    return Token{TokenKind::End, "", false, {}, rangeFrom(Start)};
   }
-  const unsigned char c = peek();
-  if (isDigit(c))
-    return lexNumber(start);
-  if (isIdentStart(c))
-    return lexIdent(start);
-  if (c == '"') {
-    if (inSubstitution_) {
+  const unsigned char C = peek();
+  if (isDigit(C))
+    return lexNumber(Start);
+  if (isIdentStart(C))
+    return lexIdent(Start);
+  if (C == '"') {
+    if (InSubstitution) {
       // В выражении строк нет: кавычка здесь - это закрытие строки `because`, а
       // `}` пропущена.
-      fail({substitutionOpen_.line, substitutionOpen_.column,
-            substitutionOpen_.line, substitutionOpen_.column + 1},
+      fail({SubstitutionOpen.Line, SubstitutionOpen.Column,
+            SubstitutionOpen.Line, SubstitutionOpen.Column + 1},
            "подстановка не закрыта, ожидалась `}`");
     }
-    return lexString(start);
+    return lexString(Start);
   }
-  return lexPunct(start);
+  return lexPunct(Start);
 }
 
-Token Lexer::lexNumber(Pos start) {
-  const std::size_t first = index_;
+Token Lexer::lexNumber(Pos Start) {
+  const std::size_t First = Index;
   while (isDigit(peek()))
     advance();
-  bool integer = true;
+  bool Integer = true;
   if (peek() == '.' && isDigit(peek(1))) { // `5..50` - это 5, `..`, 50
-    integer = false;
+    Integer = false;
     advance();
     while (isDigit(peek()))
       advance();
   }
   return Token{TokenKind::Number,
-               std::string(source_.substr(first, index_ - first)),
-               integer,
+               std::string(Source.substr(First, Index - First)),
+               Integer,
                {},
-               rangeFrom(start)};
+               rangeFrom(Start)};
 }
 
-Token Lexer::lexIdent(Pos start) {
-  const std::size_t first = index_;
+Token Lexer::lexIdent(Pos Start) {
+  const std::size_t First = Index;
   while (isIdentPart(peek()))
     advance();
-  std::string word(source_.substr(first, index_ - first));
-  const TokenKind kind =
-      isKeyword(word) ? TokenKind::Keyword : TokenKind::Ident;
-  return Token{kind, std::move(word), false, {}, rangeFrom(start)};
+  std::string Word(Source.substr(First, Index - First));
+  const TokenKind Kind =
+      isKeyword(Word) ? TokenKind::Keyword : TokenKind::Ident;
+  return Token{Kind, std::move(Word), false, {}, rangeFrom(Start)};
 }
 
-Token Lexer::lexPunct(Pos start) {
-  const unsigned char c = peek();
-  const unsigned char next = peek(1);
-  std::size_t length = 0;
-  switch (c) {
+Token Lexer::lexPunct(Pos Start) {
+  const unsigned char C = peek();
+  const unsigned char Next = peek(1);
+  std::size_t Length = 0;
+  switch (C) {
   case '<':
   case '>':
   case '=':
-    length = next == '=' ? 2 : 1;
+    Length = Next == '=' ? 2 : 1;
     break;
   case '!':
-    length = next == '=' ? 2 : 0; // одиночного `!` нет: отрицание - `not`
+    Length = Next == '=' ? 2 : 0; // одиночного `!` нет: отрицание - `not`
     break;
   case '.':
-    length = next == '.' ? 2 : 0;
+    Length = Next == '.' ? 2 : 0;
     break;
   case '+':
   case '-':
@@ -197,129 +197,129 @@ Token Lexer::lexPunct(Pos start) {
   case ']':
   case ',':
   case '%':
-    length = 1;
+    Length = 1;
     break;
   case '}':
-    length = inSubstitution_ ? 1 : 0;
+    Length = InSubstitution ? 1 : 0;
     break;
   default:
     break;
   }
-  if (length == 0) {
-    const std::size_t first = index_;
+  if (Length == 0) {
+    const std::size_t First = Index;
     advance();
-    const SourceRange range = rangeFrom(start);
-    std::string shown;
-    if (c < 0x20 || c == 0x7F) {
-      char buffer[16];
-      std::snprintf(buffer, sizeof buffer, "U+%04X", static_cast<unsigned>(c));
-      shown = buffer;
+    const SourceRange Range = rangeFrom(Start);
+    std::string Shown;
+    if (C < 0x20 || C == 0x7F) {
+      char Buffer[16];
+      std::snprintf(Buffer, sizeof Buffer, "U+%04X", static_cast<unsigned>(C));
+      Shown = Buffer;
     } else {
-      shown = "`" + std::string(source_.substr(first, index_ - first)) + "`";
+      Shown = "`" + std::string(Source.substr(First, Index - First)) + "`";
     }
-    std::string message = "недопустимый символ " + shown;
-    if (c >= 'A' && c <= 'Z')
-      message +=
+    std::string Message = "недопустимый символ " + Shown;
+    if (C >= 'A' && C <= 'Z')
+      Message +=
           ": идентификаторы состоят из строчных латинских букв, цифр и `_`";
-    if (c == '!')
-      message += ": отрицание пишется словом `not`";
-    fail(range, std::move(message));
+    if (C == '!')
+      Message += ": отрицание пишется словом `not`";
+    fail(Range, std::move(Message));
   }
-  const std::size_t first = index_;
-  for (std::size_t k = 0; k < length; ++k)
+  const std::size_t First = Index;
+  for (std::size_t K = 0; K < Length; ++K)
     advance();
   return Token{TokenKind::Punct,
-               std::string(source_.substr(first, length)),
+               std::string(Source.substr(First, Length)),
                false,
                {},
-               rangeFrom(start)};
+               rangeFrom(Start)};
 }
 
-Token Lexer::lexString(Pos start) {
-  const SourceRange quote{start.line, start.column, start.line,
-                          start.column + 1};
-  Token token{TokenKind::String, "", false, {}, {}};
-  std::string text;
-  const auto flushText = [&] {
-    if (!text.empty()) {
-      StringPart part;
-      part.text = std::move(text);
-      token.parts.push_back(std::move(part));
-      text.clear();
+Token Lexer::lexString(Pos Start) {
+  const SourceRange Quote{Start.Line, Start.Column, Start.Line,
+                          Start.Column + 1};
+  Token Tok{TokenKind::String, "", false, {}, {}};
+  std::string Text;
+  const auto FlushText = [&] {
+    if (!Text.empty()) {
+      StringPart Part;
+      Part.Text = std::move(Text);
+      Tok.Parts.push_back(std::move(Part));
+      Text.clear();
     }
   };
 
   advance(); // открывающая кавычка
   for (;;) {
     if (atEnd())
-      fail(quote, "строка не закрыта, ожидалась `\"`");
-    const unsigned char c = peek();
-    if (c == '"') {
+      fail(Quote, "строка не закрыта, ожидалась `\"`");
+    const unsigned char C = peek();
+    if (C == '"') {
       advance();
       break;
     }
-    if (c == '\r') { // файл с CRLF: перевод строки внутри строки - один `\n`
+    if (C == '\r') { // файл с CRLF: перевод строки внутри строки - один `\n`
       advance();
       continue;
     }
-    if (c == '\\') {
-      const Pos at = pos();
+    if (C == '\\') {
+      const Pos At = pos();
       advance();
-      const unsigned char escaped = peek();
-      if (atEnd() || (escaped != '"' && escaped != '\\')) {
+      const unsigned char Escaped = peek();
+      if (atEnd() || (Escaped != '"' && Escaped != '\\')) {
         if (!atEnd())
           advance();
-        fail(rangeFrom(at), "недопустимая escape-последовательность, допустимы "
+        fail(rangeFrom(At), "недопустимая escape-последовательность, допустимы "
                             "`\\\"` и `\\\\`");
       }
-      text.push_back(static_cast<char>(escaped));
+      Text.push_back(static_cast<char>(Escaped));
       advance();
-    } else if (c == '{' && peek(1) == '{') {
-      advance();
-      advance();
-      text.push_back('{');
-    } else if (c == '}' && peek(1) == '}') {
+    } else if (C == '{' && peek(1) == '{') {
       advance();
       advance();
-      text.push_back('}');
-    } else if (c == '}') {
-      const Pos at = pos();
+      Text.push_back('{');
+    } else if (C == '}' && peek(1) == '}') {
       advance();
-      fail(rangeFrom(at),
+      advance();
+      Text.push_back('}');
+    } else if (C == '}') {
+      const Pos At = pos();
+      advance();
+      fail(rangeFrom(At),
            "одиночная `}` в строке: скобка записывается как `}}`");
-    } else if (c == '{') {
-      flushText();
-      const Pos open = pos();
+    } else if (C == '{') {
+      FlushText();
+      const Pos Open = pos();
       advance();
-      StringPart part;
-      part.isExpr = true;
-      inSubstitution_ = true;
-      substitutionOpen_ = open;
+      StringPart Part;
+      Part.IsExpr = true;
+      InSubstitution = true;
+      SubstitutionOpen = Open;
       for (;;) {
-        Token inner = scan();
-        if (inner.kind == TokenKind::End) {
-          fail({open.line, open.column, open.line, open.column + 1},
+        Token Inner = scan();
+        if (Inner.Kind == TokenKind::End) {
+          fail({Open.Line, Open.Column, Open.Line, Open.Column + 1},
                "подстановка не закрыта, ожидалась `}`");
         }
-        if (inner.kind == TokenKind::Punct && inner.text == "}") {
-          part.range = rangeFrom(open);
-          part.tokens.push_back(
-              Token{TokenKind::End, "", false, {}, inner.range});
+        if (Inner.Kind == TokenKind::Punct && Inner.Text == "}") {
+          Part.Range = rangeFrom(Open);
+          Part.Tokens.push_back(
+              Token{TokenKind::End, "", false, {}, Inner.Range});
           break;
         }
-        part.tokens.push_back(std::move(inner));
+        Part.Tokens.push_back(std::move(Inner));
       }
-      inSubstitution_ = false;
-      token.parts.push_back(std::move(part));
+      InSubstitution = false;
+      Tok.Parts.push_back(std::move(Part));
     } else {
-      const std::size_t first = index_;
+      const std::size_t First = Index;
       advance();
-      text.append(source_.substr(first, index_ - first));
+      Text.append(Source.substr(First, Index - First));
     }
   }
-  flushText();
-  token.range = rangeFrom(start);
-  return token;
+  FlushText();
+  Tok.Range = rangeFrom(Start);
+  return Tok;
 }
 
 } // namespace core::dsl::detail

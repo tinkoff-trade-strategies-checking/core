@@ -36,6 +36,15 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 - выбор десятичного типа для денег, библиотеки, формата чтения ClickHouse → ADR;
 - тест детерминизма или чтения будущего добавлен в CI → колонка «Проверка» в `invariants.md`.
 
+## Стандарты
+Стиль C++ — LLVM, решение владельца продукта: `home/standards.md`, раздел «Стиль C++». Конфиги — `.clang-format` (`BasedOnStyle: LLVM`) и `.clang-tidy` (`readability-identifier-naming`); проверяются в CI, падение — ошибка.
+- Имена: типы, enum и их значения — `PascalCase`; переменные, параметры и поля (без суффикса `_`) — `PascalCase`; функции и методы — `camelCase`; константы — `k` + `PascalCase`: все `constexpr` (в том числе локальные) и `const` глобальные и статические; пространства имён — `lower_case`; макросы — `UPPER_CASE`; файлы — `snake_case`.
+- Поле не может называться как его тип (`Level Level`): `-Wchanges-meaning`. Давай полю смысловое имя (`Severity`, `TimelineRef`, `ReasonCode`).
+- `-Wshadow` обязателен: при именах в PascalCase параметр с именем поля молча меняет смысл. Параметру конструктора давай другое имя по смыслу (`Period` для поля `N`), локальной — не называй как глобальный тип.
+- Не трогай сгенерированный код protobuf/gRPC и внешние API (макросы GoogleTest, методы protobuf-сообщений вроде `set_units`); имя, обязанное совпасть с внешним API, помечай `// NOLINT(readability-identifier-naming)` с пояснением.
+- Structured bindings (`auto [a, b] = ...`) clang-tidy 18 не проверяет: называй их `PascalCase` сам.
+- Формат и имена: перед коммитом `scripts/dev.sh format`, а имена приводит `scripts/dev.sh tidy-fix` (после него снова `format`). Форматируй только clang-format 18 через `scripts/dev.sh`, не format-on-save IDE другой версии: расхождение версий ломает `format-check`. Коммит «только формат» — в `.git-blame-ignore-revs`.
+
 ## Структура
 - `proto/` — источник правды для gRPC-контрактов (`simulation.proto`); меняя его, обнови `architecture.md` и уведоми `backend`.
 - `src/core/` — библиотека `simulation_core`: чистый C++20, без gRPC и protobuf; публичные заголовки в `src/core/include/core/<область>/`. Область — каталог `src/core/<область>/` с исходниками и `tests/<область>/` с `*_test.cpp`, у обоих свой `CMakeLists.txt` с `file(GLOB CONFIGURE_DEPENDS)`: новый файл подхватывается сам, новая область — каталогом и именем в списке `foreach` в `src/core/CMakeLists.txt` и `tests/CMakeLists.txt`. Области:
@@ -53,7 +62,7 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 - `src/cli/` — `sim_cli`: `version`; `replay` пока не реализован (прогоны идут через воркер).
 - `tests/` — GoogleTest: `core_tests` (области, `tests/build/flags_test.cpp` — проверка `-ffp-contract=off`) и `worker_tests` (`tests/worker/*_test.cpp` — RPC через сервер в процессе, `worker_test_support.hpp`; `tests/clickhouse/` — тесты `ClickHouseBarSource`, интеграционные пропускаются без `CLICKHOUSE_URL`; `tests/money/*_generated_test.cpp` — в `worker_tests`, потому что ему нужен protobuf). Тест детерминизма (INV-4) — `tests/run/determinism_test.cpp` (`Determinism.SameDigestTwice`). `tests/support/*.cpp` — общие фикстуры, входят в оба набора: `fixture1()` — снапшот `fixture-1` с бумагами `FIXA` и `FIXB` (у `FIXB` нет бара на шаге 3).
 - `testdata/` — входные файлы тестов, путь — макрос `CORE_TESTDATA_DIR`: `dsl/reference.lab` (эталонная стратегия из `dsl.md`), `reference-portfolio.md` — эталонная таблица 19 сделок (INV-6), её читает `tests/exec/reference_portfolio_test.cpp`.
-- `Dockerfile.dev` — образ для сборки и тестов (зависимости из apt); `Dockerfile` — runtime-образ воркера (multi-stage).
+- `Dockerfile.dev` — образ для сборки, тестов и проверки стиля (зависимости из apt, `clang-format-18`, `clang-tidy-18`); `Dockerfile` — runtime-образ воркера (multi-stage).
 - CMake использует только `find_package`, поэтому зависимости можно брать из apt или из vcpkg (`vcpkg.json`).
 
 ## Команды
@@ -64,6 +73,10 @@ scripts/dev.sh image   # собрать образ pac-core-dev (один раз
 scripts/dev.sh build   # конфигурация и сборка (пресет debug)
 scripts/dev.sh test    # сборка и ctest
 scripts/dev.sh shell   # оболочка в контейнере
+scripts/dev.sh format        # clang-format по src/ и tests/ (стиль LLVM)
+scripts/dev.sh format-check  # проверка формата без изменений, ошибка при нарушениях
+scripts/dev.sh tidy          # clang-tidy: именование; ошибка при предупреждениях
+scripts/dev.sh tidy-fix      # clang-tidy --fix: автоисправление имён (потом format)
 PRESET=release scripts/dev.sh test   # другой пресет; JOBS=4 — другое число потоков
 ```
 
@@ -98,4 +111,4 @@ src/cli/sim_cli version
 
 Runtime-образ воркера: `docker build -t simulation-worker .` (порт 50051).
 
-CI (`.github/workflows/ci.yml`): сборка с `-Wall -Wextra -Wpedantic -Werror -ffp-contract=off` (INV-4; `-ffast-math` запрещён, CMake завершается ошибкой), `ctest`, сборка runtime-образа.
+CI (`.github/workflows/ci.yml`): джоба `style` (`format-check` и `tidy` в образе `Dockerfile.dev`); сборка с `-Wall -Wextra -Wpedantic -Wshadow -Werror -ffp-contract=off` (INV-4; `-ffast-math` запрещён, CMake завершается ошибкой), `ctest`, сборка runtime-образа.

@@ -20,65 +20,65 @@
 
 namespace {
 
-std::atomic<bool> g_stop_requested{false};
+std::atomic<bool> GStopRequested{false};
 
-extern "C" void handle_signal(int /*signal*/) { g_stop_requested.store(true); }
+extern "C" void handleSignal(int /*signal*/) { GStopRequested.store(true); }
 
 } // namespace
 
 int main(int argc, char **argv) {
-  std::string address = "0.0.0.0:50051";
-  if (const char *env = std::getenv("WORKER_ADDRESS");
-      env != nullptr && *env != '\0') {
-    address = env;
+  std::string Address = "0.0.0.0:50051";
+  if (const char *Env = std::getenv("WORKER_ADDRESS");
+      Env != nullptr && *Env != '\0') {
+    Address = Env;
   }
   if (argc == 3 && std::string(argv[1]) == "--listen") {
-    address = argv[2];
+    Address = argv[2];
   } else if (argc != 1) {
     std::cerr << "Использование: simulation_worker [--listen host:port]\n";
     return 2;
   }
 
-  worker::ClickHouseConfig clickhouse;
-  if (const char *env = std::getenv("CLICKHOUSE_URL");
-      env != nullptr && *env != '\0') {
+  worker::ClickHouseConfig Clickhouse;
+  if (const char *Env = std::getenv("CLICKHOUSE_URL");
+      Env != nullptr && *Env != '\0') {
     try {
-      clickhouse = worker::ClickHouseConfig::fromUrl(env);
-    } catch (const std::invalid_argument &error) {
-      std::cerr << "Неверный CLICKHOUSE_URL: " << error.what() << '\n';
+      Clickhouse = worker::ClickHouseConfig::fromUrl(Env);
+    } catch (const std::invalid_argument &Error) {
+      std::cerr << "Неверный CLICKHOUSE_URL: " << Error.what() << '\n';
       return 2;
     }
   } else {
     std::cerr
         << "ВНИМАНИЕ: CLICKHOUSE_URL не задан, бары и календарь читаются с "
-        << clickhouse.baseUrl << " (база " << clickhouse.database
+        << Clickhouse.BaseUrl << " (база " << Clickhouse.Database
         << ", без учётных данных)" << '\n';
   }
-  worker::ClickHouseBarSource bars(clickhouse);
-  worker::ClickHouseCalendarSource calendar(clickhouse);
-  worker::WorkerService service(worker::Context{bars, calendar});
-  grpc::ServerBuilder builder;
-  builder.AddListeningPort(address, grpc::InsecureServerCredentials());
-  builder.RegisterService(&service);
-  std::unique_ptr<grpc::Server> server = builder.BuildAndStart();
-  if (!server) {
-    std::cerr << "Не удалось запустить сервер на " << address << "\n";
+  worker::ClickHouseBarSource Bars(Clickhouse);
+  worker::ClickHouseCalendarSource Calendar(Clickhouse);
+  worker::WorkerService Service(worker::Context{Bars, Calendar});
+  grpc::ServerBuilder Builder;
+  Builder.AddListeningPort(Address, grpc::InsecureServerCredentials());
+  Builder.RegisterService(&Service);
+  std::unique_ptr<grpc::Server> Server = Builder.BuildAndStart();
+  if (!Server) {
+    std::cerr << "Не удалось запустить сервер на " << Address << "\n";
     return 1;
   }
-  std::cout << "simulation_worker слушает " << address << std::endl;
+  std::cout << "simulation_worker слушает " << Address << std::endl;
 
-  std::signal(SIGINT, handle_signal);
-  std::signal(SIGTERM, handle_signal);
+  std::signal(SIGINT, handleSignal);
+  std::signal(SIGTERM, handleSignal);
 
   // В обработчике сигнала только флаг; остановку делает отдельный поток.
-  std::thread stopper([&server] {
-    while (!g_stop_requested.load()) {
+  std::thread Stopper([&Server] {
+    while (!GStopRequested.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    server->Shutdown();
+    Server->Shutdown();
   });
-  server->Wait();
-  g_stop_requested.store(true);
-  stopper.join();
+  Server->Wait();
+  GStopRequested.store(true);
+  Stopper.join();
   return 0;
 }

@@ -13,26 +13,26 @@ namespace core {
 
 // Один бар (свеча) серии. Цены - Decimal, не double (INV-6).
 struct Bar {
-  std::int64_t index = 0; // номер в запрошенной серии, с 0, без пропусков
-  std::int64_t tsOpenMs = 0; // начало бара
-  std::int64_t availableAtMs =
+  std::int64_t Index = 0; // номер в запрошенной серии, с 0, без пропусков
+  std::int64_t TsOpenMs = 0; // начало бара
+  std::int64_t AvailableAtMs =
       0; // момент, когда бар стал известен (ФТ-5; не раньше закрытия)
-  Decimal open;
-  Decimal high;
-  Decimal low;
-  Decimal close;
-  std::int64_t volume = 0; // штук (не лотов)
-  Decimal value; // оборот в валюте инструмента
+  Decimal Open;
+  Decimal High;
+  Decimal Low;
+  Decimal Close;
+  std::int64_t Volume = 0; // штук (не лотов)
+  Decimal Value; // оборот в валюте инструмента
 
   friend bool operator==(const Bar &, const Bar &) = default;
 };
 
 // Справочные данные инструмента в конкретной версии данных (снапшоте).
 struct Security {
-  std::string secid;
-  std::string sector; // "" - не классифицирован
-  std::int64_t lotSize = 1;
-  Decimal priceStep;
+  std::string Secid;
+  std::string Sector; // "" - не классифицирован
+  std::int64_t LotSize = 1;
+  Decimal PriceStep;
 
   friend bool operator==(const Security &, const Security &) = default;
 };
@@ -41,11 +41,11 @@ struct Security {
 // (INV-1): берутся бары с fromMs <= tsOpenMs < toMs И availableAtMs <= toMs, по
 // возрастанию tsOpenMs; index нумеруется с 0 внутри результата.
 struct BarRequest {
-  std::string snapshotId;
-  std::string secid;
-  std::int32_t intervalSec = 0;
-  std::int64_t fromMs = 0;
-  std::int64_t toMs = 0;
+  std::string SnapshotId;
+  std::string Secid;
+  std::int32_t IntervalSec = 0;
+  std::int64_t FromMs = 0;
+  std::int64_t ToMs = 0;
 };
 
 } // namespace core

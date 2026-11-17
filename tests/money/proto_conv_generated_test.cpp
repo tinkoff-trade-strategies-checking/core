@@ -13,32 +13,32 @@ using core::Decimal;
 using ProtoDecimal = pac::simulation::v1::Decimal;
 
 TEST(DecimalGeneratedProto, ExtremesRoundTripThroughWire) {
-  for (const char *text :
+  for (const char *Text :
        {"0", "0.000000001", "-0.000000001", "-0.5", "100.16",
         "9223372036854775807", "9223372036854775807.999999999",
         "-9223372036854775807.999999999"}) {
-    const Decimal d = Decimal::parse(text);
-    const auto msg = core::toProto<ProtoDecimal>(d);
-    std::string wire;
-    ASSERT_TRUE(msg.SerializeToString(&wire));
-    ProtoDecimal back;
-    ASSERT_TRUE(back.ParseFromString(wire));
-    EXPECT_EQ(core::fromProto(back), d) << text;
-    EXPECT_EQ(back.units(), msg.units());
-    EXPECT_EQ(back.nano(), msg.nano());
+    const Decimal D = Decimal::parse(Text);
+    const auto Msg = core::toProto<ProtoDecimal>(D);
+    std::string Wire;
+    ASSERT_TRUE(Msg.SerializeToString(&Wire));
+    ProtoDecimal Back;
+    ASSERT_TRUE(Back.ParseFromString(Wire));
+    EXPECT_EQ(core::fromProto(Back), D) << Text;
+    EXPECT_EQ(Back.units(), Msg.units());
+    EXPECT_EQ(Back.nano(), Msg.nano());
   }
 }
 
 TEST(DecimalGeneratedProto, SignOfNanoFollowsUnits) {
-  const auto neg = core::toProto<ProtoDecimal>(Decimal::parse("-1.25"));
-  EXPECT_EQ(neg.units(), -1);
-  EXPECT_EQ(neg.nano(), -250000000);
-  const auto small = core::toProto<ProtoDecimal>(Decimal::parse("-0.25"));
-  EXPECT_EQ(small.units(), 0);
-  EXPECT_EQ(small.nano(), -250000000);
+  const auto Neg = core::toProto<ProtoDecimal>(Decimal::parse("-1.25"));
+  EXPECT_EQ(Neg.units(), -1);
+  EXPECT_EQ(Neg.nano(), -250000000);
+  const auto Small = core::toProto<ProtoDecimal>(Decimal::parse("-0.25"));
+  EXPECT_EQ(Small.units(), 0);
+  EXPECT_EQ(Small.nano(), -250000000);
 
-  ProtoDecimal wrong;
-  wrong.set_units(1);
-  wrong.set_nano(-1);
-  EXPECT_THROW(core::fromProto(wrong), std::invalid_argument);
+  ProtoDecimal Wrong;
+  Wrong.set_units(1);
+  Wrong.set_nano(-1);
+  EXPECT_THROW(core::fromProto(Wrong), std::invalid_argument);
 }

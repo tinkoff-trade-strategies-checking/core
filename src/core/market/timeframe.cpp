@@ -4,8 +4,8 @@
 
 namespace core {
 
-std::int32_t intervalSeconds(Timeframe timeframe) {
-  switch (timeframe) {
+std::int32_t intervalSeconds(Timeframe Timeframe) {
+  switch (Timeframe) {
   case Timeframe::S1:
     return 1;
   case Timeframe::S10:

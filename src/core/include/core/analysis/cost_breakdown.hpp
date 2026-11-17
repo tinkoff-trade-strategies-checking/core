@@ -24,9 +24,9 @@ namespace core {
 // (status != Completed: банкротство или нарушение целостности E-RT01, прогон
 // остановлен) и какие находки были.
 struct CostStageRun {
-  RunStatus status = RunStatus::Completed;
-  dsl::Level level = dsl::Level::Ok; // худший из находок прогона
-  std::vector<Finding> findings;
+  RunStatus Status = RunStatus::Completed;
+  dsl::Level Severity = dsl::Level::Ok; // худший из находок прогона
+  std::vector<Finding> Findings;
 };
 
 // Цепочка в фиксированном порядке (INV-4: без часов, потоков и случайности):
@@ -43,33 +43,33 @@ struct CostStageRun {
 // каждого из шести этапов (может быть пустым): по нему вызывающий отдаёт
 // прогресс и замечает закрытый поток; исключение оттуда прерывает цепочку.
 using StageDone = std::function<void()>;
-CostBreakdown costBreakdown(const SessionSpec &honest,
-                            std::shared_ptr<const Timeline> timeline,
-                            const dsl::Program &program,
-                            const std::vector<dsl::ResolvedParam> &params,
-                            const dsl::ParamValues &overrides,
-                            std::optional<double> honestSharpe,
-                            const StageDone &afterStage = {});
+CostBreakdown costBreakdown(const SessionSpec &Honest,
+                            std::shared_ptr<const Timeline> Timeline,
+                            const dsl::Program &Program,
+                            const std::vector<dsl::ResolvedParam> &Params,
+                            const dsl::ParamValues &Overrides,
+                            std::optional<double> HonestSharpe,
+                            const StageDone &AfterStage = {});
 
 // То же, что costBreakdown, плюс итог прогона каждого этапа (stages[i]
 // соответствует breakdown.steps[i]).
 struct CostBreakdownDetail {
-  CostBreakdown breakdown;
-  std::vector<CostStageRun> stages;
+  CostBreakdown Breakdown;
+  std::vector<CostStageRun> Stages;
 };
 CostBreakdownDetail costBreakdownDetailed(
-    const SessionSpec &honest, std::shared_ptr<const Timeline> timeline,
-    const dsl::Program &program, const std::vector<dsl::ResolvedParam> &params,
-    const dsl::ParamValues &overrides, std::optional<double> honestSharpe,
-    const StageDone &afterStage = {});
+    const SessionSpec &Honest, std::shared_ptr<const Timeline> Timeline,
+    const dsl::Program &Program, const std::vector<dsl::ResolvedParam> &Params,
+    const dsl::ParamValues &Overrides, std::optional<double> HonestSharpe,
+    const StageDone &AfterStage = {});
 
 // Флаги ФТ-24 по net-результатам в рублях (R) и Sharpe честного прогона.
 // Порядок в результате: CostsOverHalfProfit, SignChange, SharpeOver3.
 //   CostsOverHalfProfit: R_наивн > 0 и R_наивн - R_честн > 0,5 * R_наивн;
 //   SignChange:          знак R_наивн != знак R_честн (ноль - отдельный знак);
 //   SharpeOver3:         honestSharpe > 3.
-std::vector<CostFlag> costFlags(const Decimal &naiveNet,
-                                const Decimal &honestNet,
-                                std::optional<double> honestSharpe);
+std::vector<CostFlag> costFlags(const Decimal &NaiveNet,
+                                const Decimal &HonestNet,
+                                std::optional<double> HonestSharpe);
 
 } // namespace core

@@ -14,8 +14,8 @@
 namespace core {
 
 struct Quote {
-  Decimal price;
-  Amounts amounts;
+  Decimal Price;
+  Amounts Amts;
 };
 
 // Количество, которое можно исполнить, и причина снятия остатка (None -
@@ -24,74 +24,73 @@ struct Quote {
 // уменьшило количество.
 template <class QuoteFn>
 inline std::pair<std::int64_t, Reason>
-chooseQuantity(Side side, std::int64_t remaining,
-               const std::optional<std::int64_t> &liquidityCap,
-               std::int64_t position, const Decimal &cash, QuoteFn &&quote) {
-  std::int64_t q = remaining;
-  Reason reason = Reason::None;
-  if (liquidityCap && *liquidityCap < q) {
-    q = *liquidityCap;
-    reason = Reason::LiquidityLimit;
+chooseQuantity(Side Side, std::int64_t Remaining,
+               const std::optional<std::int64_t> &LiquidityCap,
+               std::int64_t Position, const Decimal &Cash, QuoteFn &&QuoteOf) {
+  std::int64_t Q = Remaining;
+  Reason Reason = Reason::None;
+  if (LiquidityCap && *LiquidityCap < Q) {
+    Q = *LiquidityCap;
+    Reason = Reason::LiquidityLimit;
   }
-  if (side == Side::Sell) {
-    if (position < q) {
-      q = position;
-      reason = Reason::InsufficientPosition;
+  if (Side == Side::Sell) {
+    if (Position < Q) {
+      Q = Position;
+      Reason = Reason::InsufficientPosition;
     }
-    return {q, reason};
+    return {Q, Reason};
   }
   // Покупка: наибольшее q, при котором хватает денег. Стоимость не убывает с
   // ростом q, поэтому поиск двоичный; цена пересчитывается для каждого q
   // (проскальзывание зависит от q).
-  auto fits = [&](std::int64_t n) {
+  auto Fits = [&](std::int64_t N) {
     try {
-      const Quote x = quote(n);
-      return x.amounts.value + x.amounts.commission + x.amounts.fee <= cash;
+      const Quote X = QuoteOf(N);
+      return X.Amts.Value + X.Amts.Commission + X.Amts.Fee <= Cash;
     } catch (const DecimalOverflow &) {
       return false;
     }
   };
-  if (q > 0 && !fits(q)) {
-    std::int64_t lo = 0, hi = q - 1;
-    while (lo < hi) {
-      const std::int64_t mid = lo + (hi - lo + 1) / 2;
-      if (fits(mid)) {
-        lo = mid;
+  if (Q > 0 && !Fits(Q)) {
+    std::int64_t Lo = 0, Hi = Q - 1;
+    while (Lo < Hi) {
+      const std::int64_t Mid = Lo + (Hi - Lo + 1) / 2;
+      if (Fits(Mid)) {
+        Lo = Mid;
       } else {
-        hi = mid - 1;
+        Hi = Mid - 1;
       }
     }
-    q = lo;
-    reason = Reason::InsufficientCash;
+    Q = Lo;
+    Reason = Reason::InsufficientCash;
   }
-  return {q, reason};
+  return {Q, Reason};
 }
 
 // Проводит исполнение q лотов через портфель и дописывает сделку; возвращает её
 // (ссылка действует до следующей записи).
-inline Fill &recordFill(Portfolio &portfolio, std::vector<Fill> &fills,
-                        const Order &o, std::int64_t step, std::int64_t q,
-                        const Quote &x, const Decimal &base,
-                        const Instrument &inst, const CostConfig &costs) {
-  const CostSplit split = costSplit(base, x.price, q, inst.lotSize, costs);
-  portfolio.applyFill(o.spec.instrument, o.spec.side, q, x.price,
-                      x.amounts.value, x.amounts.commission, x.amounts.fee,
-                      step, o.id);
-  Fill f;
-  f.orderId = o.id;
-  f.step = step;
-  f.instrument = o.spec.instrument;
-  f.side = o.spec.side;
-  f.lots = q;
-  f.price = x.price;
-  f.basePrice = base;
-  f.value = x.amounts.value;
-  f.commission = x.amounts.commission;
-  f.fee = x.amounts.fee;
-  f.spreadCost = split.spreadCost;
-  f.slippageCost = split.slippageCost;
-  fills.push_back(f);
-  return fills.back();
+inline Fill &recordFill(Portfolio &Portfolio, std::vector<Fill> &Fills,
+                        const Order &O, std::int64_t Step, std::int64_t Q,
+                        const Quote &X, const Decimal &Base,
+                        const Instrument &Inst, const CostConfig &Costs) {
+  const CostSplit Split = costSplit(Base, X.Price, Q, Inst.LotSize, Costs);
+  Portfolio.applyFill(O.Spec.Instrument, O.Spec.OrderSide, Q, X.Price,
+                      X.Amts.Value, X.Amts.Commission, X.Amts.Fee, Step, O.Id);
+  Fill F;
+  F.OrderId = O.Id;
+  F.Step = Step;
+  F.Instrument = O.Spec.Instrument;
+  F.OrderSide = O.Spec.OrderSide;
+  F.Lots = Q;
+  F.Price = X.Price;
+  F.BasePrice = Base;
+  F.Value = X.Amts.Value;
+  F.Commission = X.Amts.Commission;
+  F.Fee = X.Amts.Fee;
+  F.SpreadCost = Split.SpreadCost;
+  F.SlippageCost = Split.SlippageCost;
+  Fills.push_back(F);
+  return Fills.back();
 }
 
 } // namespace core

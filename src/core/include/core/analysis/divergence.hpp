@@ -45,31 +45,31 @@ enum class DivergenceType { Excess, Missed, Size, Timing };
 // на шаге, на котором считалась цена ошибки (шаг расхождения: у «момента» -
 // более поздний из двух шагов); 0, если стоимость портфеля <= 0.
 struct Divergence {
-  std::string algorithmId;
-  int instrument = 0;
-  DivergenceType type = DivergenceType::Excess;
-  std::int64_t humanStep = -1, algoStep = -1;
-  std::int64_t humanLots = 0, algoLots = 0;
-  std::int64_t horizonStep = 0;
-  Decimal cost;
-  double costPercent = 0;
-  std::string reason; // `because` правила алгоритма; у «лишнего действия» -
-                      // «алгоритм здесь не действовал бы»
+  std::string AlgorithmId;
+  int Instrument = 0;
+  DivergenceType Type = DivergenceType::Excess;
+  std::int64_t HumanStep = -1, AlgoStep = -1;
+  std::int64_t HumanLots = 0, AlgoLots = 0;
+  std::int64_t HorizonStep = 0;
+  Decimal Cost;
+  double CostPercent = 0;
+  std::string ReasonCode; // `because` правила алгоритма; у «лишнего действия» -
+                          // «алгоритм здесь не действовал бы»
 };
 
 // Закрытая прибыльная сделка человека (покупка -> продажа по FIFO), вход
 // которой алгоритм не сделал. entryStep и exitStep - шаги исполнений, netPnl -
 // после издержек.
 struct MissedProfitableTrade {
-  int instrument = 0;
-  std::int64_t entryStep = 0, exitStep = 0, lots = 0;
-  Decimal netPnl;
-  std::vector<std::string> algorithmIds; // алгоритмы, для которых вход -
+  int Instrument = 0;
+  std::int64_t EntryStep = 0, ExitStep = 0, Lots = 0;
+  Decimal NetPnl;
+  std::vector<std::string> AlgorithmIds; // алгоритмы, для которых вход -
                                          // «лишнее действие», в порядке входа
   // Средние цены входа и выхода за штуку: стоимость стороны пары без издержек
   // (RoundTrip::entryValue / exitValue, сумма по сделкам до копейки) / (лоты ×
   // размер лота), 9 знаков HALF_UP. У одной сделки - её цена.
-  Decimal entryPrice, exitPrice;
+  Decimal EntryPrice, ExitPrice;
 };
 
 // Консенсус алгоритмов. humanAction: действие человека, agreeing из total
@@ -80,28 +80,28 @@ struct MissedProfitableTrade {
 // копейки HALF_UP); 0, если расхождений нет. Действия человека, с которыми
 // согласились все алгоритмы, в список не попадают.
 struct ConsensusItem {
-  int instrument = 0;
-  std::int64_t step = 0;
-  Side side = Side::Buy;
-  bool humanAction = false;
-  std::int32_t agreeing = 0, total = 0;
-  Decimal medianCost;
+  int Instrument = 0;
+  std::int64_t Step = 0;
+  Side OrderSide = Side::Buy;
+  bool HumanAction = false;
+  std::int32_t Agreeing = 0, Total = 0;
+  Decimal MedianCost;
 };
 
 struct AlgorithmInput {
-  std::string id;
-  dsl::Program program;
-  std::vector<dsl::ResolvedParam> params; // результат check() программы
-  dsl::ParamValues values; // значения параметров на разбор
+  std::string Id;
+  dsl::Program Program;
+  std::vector<dsl::ResolvedParam> Params; // результат check() программы
+  dsl::ParamValues Values; // значения параметров на разбор
 };
 
 struct DivergenceResult {
-  std::vector<Divergence> divergences; // по алгоритмам (в порядке входа),
+  std::vector<Divergence> Divergences; // по алгоритмам (в порядке входа),
                                        // внутри - по шагу, бумаге, типу
-  std::vector<MissedProfitableTrade> missed;
-  std::vector<ConsensusItem> consensus; // по шагу, бумаге, стороне; сначала
+  std::vector<MissedProfitableTrade> Missed;
+  std::vector<ConsensusItem> Consensus; // по шагу, бумаге, стороне; сначала
                                         // действия человека, потом упущенные
-  std::vector<RunOutput> independent; // независимые портфели: runBacktest
+  std::vector<RunOutput> Independent; // независимые портфели: runBacktest
                                       // каждого алгоритма, в порядке входа
 };
 
@@ -115,9 +115,9 @@ struct DivergenceResult {
 // naive-сессия (ФТ-24 - не про живую игру), больше 5 алгоритмов, повтор id,
 // журнал вне порядка или за lastStep, значения параметров вне диапазона.
 DivergenceResult
-analyzeDivergences(const SessionSpec &spec,
-                   std::shared_ptr<const Timeline> timeline,
-                   std::span<const JournalEntry> human, std::int64_t lastStep,
-                   const std::vector<AlgorithmInput> &algorithms);
+analyzeDivergences(const SessionSpec &Spec,
+                   std::shared_ptr<const Timeline> Timeline,
+                   std::span<const JournalEntry> Human, std::int64_t LastStep,
+                   const std::vector<AlgorithmInput> &Algorithms);
 
 } // namespace core

@@ -10,8 +10,8 @@ namespace {
 constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
-const char *statusName(RunStatus status) {
-  switch (status) {
+const char *statusName(RunStatus Status) {
+  switch (Status) {
   case RunStatus::Completed:
     return "Completed";
   case RunStatus::BankruptStop:
@@ -28,30 +28,31 @@ const char *statusName(RunStatus status) {
 // (orderId|step|instrument|side|lots|price|value|commission|fee), точки кривой
 // (step|equity) и статус. Деньги - Decimal::toString(), без double (INV-4,
 // INV-6).
-std::uint64_t digestOf(const RunOutput &output) {
-  std::string text;
-  const auto line = [&text](const std::string &s) {
-    if (!text.empty())
-      text += '\n';
-    text += s;
+std::uint64_t digestOf(const RunOutput &Output) {
+  std::string Text;
+  const auto Line = [&Text](const std::string &S) {
+    if (!Text.empty())
+      Text += '\n';
+    Text += S;
   };
-  for (const Fill &f : output.fills) {
-    line(std::to_string(f.orderId) + '|' + std::to_string(f.step) + '|' +
-         std::to_string(f.instrument) + '|' +
-         (f.side == Side::Buy ? "buy" : "sell") + '|' + std::to_string(f.lots) +
-         '|' + f.price.toString() + '|' + f.value.toString() + '|' +
-         f.commission.toString() + '|' + f.fee.toString());
+  for (const Fill &F : Output.Fills) {
+    Line(std::to_string(F.OrderId) + '|' + std::to_string(F.Step) + '|' +
+         std::to_string(F.Instrument) + '|' +
+         (F.OrderSide == Side::Buy ? "buy" : "sell") + '|' +
+         std::to_string(F.Lots) + '|' + F.Price.toString() + '|' +
+         F.Value.toString() + '|' + F.Commission.toString() + '|' +
+         F.Fee.toString());
   }
-  for (const EquityPoint &p : output.equity)
-    line(std::to_string(p.step) + '|' + p.equity.toString());
-  line(statusName(output.status));
+  for (const EquityPoint &P : Output.Equity)
+    Line(std::to_string(P.Step) + '|' + P.Equity.toString());
+  Line(statusName(Output.Status));
 
-  std::uint64_t hash = kFnvOffset;
-  for (const char c : text) {
-    hash ^= static_cast<std::uint8_t>(c);
-    hash *= kFnvPrime;
+  std::uint64_t Hash = kFnvOffset;
+  for (const char C : Text) {
+    Hash ^= static_cast<std::uint8_t>(C);
+    Hash *= kFnvPrime;
   }
-  return hash;
+  return Hash;
 }
 
 } // namespace core

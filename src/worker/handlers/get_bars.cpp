@@ -9,27 +9,27 @@ namespace worker {
 
 namespace {
 
-void fill(Context &context, const pb::GetBarsRequest &request,
-          pb::GetBarsResponse *out) {
-  const std::shared_ptr<const core::Timeline> timeline = loadStressedTimeline(
-      context, request.market(), request.stress(), request.has_stress());
-  out->set_total_steps(timeline->totalSteps());
-  out->set_warmup_steps(timeline->warmupSteps());
+void fill(Context &Context, const pb::GetBarsRequest &Request,
+          pb::GetBarsResponse *Out) {
+  const std::shared_ptr<const core::Timeline> Timeline = loadStressedTimeline(
+      Context, Request.market(), Request.stress(), Request.has_stress());
+  Out->set_total_steps(Timeline->totalSteps());
+  Out->set_warmup_steps(Timeline->warmupSteps());
   // Ровно запрошенный диапазон: бэкенд берёт по нему первую цену и график
   // (INV-1). Шаги < 0 - прогрев.
-  appendBars(*timeline, request.from_step(), request.to_step(),
-             out->mutable_bars());
+  appendBars(*Timeline, Request.from_step(), Request.to_step(),
+             Out->mutable_bars());
 }
 
 } // namespace
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException).
-grpc::Status handleGetBars(Context &context, const pb::GetBarsRequest &request,
-                           pb::GetBarsResponse *response) {
+grpc::Status handleGetBars(Context &Context, const pb::GetBarsRequest &Request,
+                           pb::GetBarsResponse *Response) {
   try {
-    pb::GetBarsResponse result;
-    fill(context, request, &result);
-    *response = std::move(result);
+    pb::GetBarsResponse Result;
+    fill(Context, Request, &Result);
+    *Response = std::move(Result);
     return grpc::Status::OK;
   } catch (...) {
     return statusFromCurrentException();

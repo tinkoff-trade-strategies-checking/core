@@ -24,7 +24,14 @@ BUILD_VOLUME="${BUILD_VOLUME:-pac-core-build}"
 
 # Git Bash на Windows: не переписывать пути контейнера, а путь хоста взять в виде C:/...
 export MSYS_NO_PATHCONV=1
-if SRC_DIR="$(pwd -W 2>/dev/null)"; then :; else SRC_DIR="$(pwd)"; fi
+if SRC_DIR="$(pwd -W 2>/dev/null)"; then
+  CHOWN_BACK=""
+else
+  SRC_DIR="$(pwd)"
+  # Linux/macOS: контейнер работает от root; после правок вернуть файлы владельцу, а не
+  # оставлять root-овыми (build — именованный том, его владелец не важен).
+  CHOWN_BACK="; chown -R $(id -u):$(id -g) src tests"
+fi
 
 # Каталог build — в именованном томе: быстрее, чем bind mount, и не засоряет рабочую копию.
 # Использование: docker_run [опции docker] -- команда...
@@ -55,7 +62,7 @@ cmd_test() {
 FORMAT_FILES='find src tests -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" -o -name "*.cc" \) -print0 | sort -z'
 
 cmd_format() {
-  docker_run -- bash -euc "${FORMAT_FILES} | xargs -0 clang-format -i"
+  docker_run -- bash -euc "${FORMAT_FILES} | xargs -0 clang-format -i${CHOWN_BACK}"
 }
 
 cmd_format_check() {
@@ -71,6 +78,7 @@ cmd_tidy_run() {
     gen=\$(ninja -C build/${PRESET} -t targets all | grep -oE '^[^:]+\.pb\.h' || true)
     if [ -n \"\$gen\" ]; then ninja -C build/${PRESET} -j${JOBS} \$gen; fi
     run-clang-tidy -p build/${PRESET} -j ${JOBS} -quiet ${extra} '^/src/(src|tests)/'
+    ${CHOWN_BACK_FIX:-}
   "
 }
 
@@ -79,7 +87,8 @@ cmd_tidy() {
 }
 
 cmd_tidy_fix() {
-  cmd_tidy_run "-fix"
+  CHOWN_BACK_FIX="${CHOWN_BACK#; }"
+  cmd_tidy_run "-fix -clang-apply-replacements-binary /usr/bin/clang-apply-replacements-18"
 }
 
 cmd_shell() {

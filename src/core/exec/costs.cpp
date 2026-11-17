@@ -5,74 +5,74 @@
 namespace core {
 
 CostConfig CostConfig::defaults() {
-  CostConfig c;
-  c.commissionRate = Decimal::parse("0.0005");
-  c.exchangeFeeRate = Decimal::parse("0.0001");
-  c.spread = Decimal::parse("0.001");
-  c.slippageKappa = Decimal::parse("0.1");
-  c.liquidityShare = Decimal::parse("0.10");
-  return c;
+  CostConfig C;
+  C.CommissionRate = Decimal::parse("0.0005");
+  C.ExchangeFeeRate = Decimal::parse("0.0001");
+  C.Spread = Decimal::parse("0.001");
+  C.SlippageKappa = Decimal::parse("0.1");
+  C.LiquidityShare = Decimal::parse("0.10");
+  return C;
 }
 
 CostConfig CostConfig::zero() { return CostConfig{}; }
 
 namespace {
 
-Decimal halfSpread(const CostConfig &costs) {
-  return costs.spread.div(Decimal::fromUnits(2), Decimal::kScale,
-                          RoundingMode::HALF_UP);
+Decimal halfSpread(const CostConfig &Costs) {
+  return Costs.Spread.div(Decimal::fromUnits(2), Decimal::kScale,
+                          RoundingMode::HalfUp);
 }
 
 } // namespace
 
-Decimal fillPrice(Side side, const Decimal &base, std::int64_t lots,
-                  std::int64_t barVolumeLots, const CostConfig &costs,
-                  const Decimal &priceStep) {
-  if (lots <= 0)
+Decimal fillPrice(Side Side, const Decimal &Base, std::int64_t Lots,
+                  std::int64_t BarVolumeLots, const CostConfig &Costs,
+                  const Decimal &PriceStep) {
+  if (Lots <= 0)
     throw std::invalid_argument(
         "fillPrice: число лотов должно быть положительным");
-  const Decimal frac = (costs.slippageKappa.isZero() || barVolumeLots <= 0)
+  const Decimal Frac = (Costs.SlippageKappa.isZero() || BarVolumeLots <= 0)
                            ? Decimal::zero()
-                           : costs.slippageKappa.times(lots).div(
-                                 Decimal::fromUnits(barVolumeLots),
-                                 Decimal::kScale, RoundingMode::HALF_UP);
-  const Decimal half = halfSpread(costs);
-  const bool buy = side == Side::Buy;
-  const Decimal m =
-      buy ? Decimal::one() + half + frac : Decimal::one() - half - frac;
+                           : Costs.SlippageKappa.times(Lots).div(
+                                 Decimal::fromUnits(BarVolumeLots),
+                                 Decimal::kScale, RoundingMode::HalfUp);
+  const Decimal Half = halfSpread(Costs);
+  const bool Buy = Side == Side::Buy;
+  const Decimal M =
+      Buy ? Decimal::one() + Half + Frac : Decimal::one() - Half - Frac;
   // Покупка вверх, продажа вниз - оба шага округления одним режимом
   // (`decisions.md`, п. 1).
-  const RoundingMode mode = buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
-  const Decimal price =
-      base.mul(m, Decimal::kScale, mode).roundToStep(priceStep, mode);
+  const RoundingMode Mode = Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
+  const Decimal Price =
+      Base.mul(M, Decimal::kScale, Mode).roundToStep(PriceStep, Mode);
   // При q >> V множитель продажи может стать отрицательным: цена не ниже одного
   // шага.
-  return (!buy && price < priceStep) ? priceStep : price;
+  return (!Buy && Price < PriceStep) ? PriceStep : Price;
 }
 
-Amounts amounts(const Decimal &price, std::int64_t lots, std::int64_t lotSize,
-                const CostConfig &costs) {
-  Amounts a;
-  a.value = price.times(lots).times(lotSize).round(2, RoundingMode::HALF_UP);
-  a.commission = a.value.mul(costs.commissionRate, 2, RoundingMode::CEILING);
-  a.fee = a.value.mul(costs.exchangeFeeRate, 2, RoundingMode::CEILING);
-  return a;
+Amounts amounts(const Decimal &Price, std::int64_t Lots, std::int64_t LotSize,
+                const CostConfig &Costs) {
+  Amounts A;
+  A.Value = Price.times(Lots).times(LotSize).round(2, RoundingMode::HalfUp);
+  A.Commission = A.Value.mul(Costs.CommissionRate, 2, RoundingMode::CEILING);
+  A.Fee = A.Value.mul(Costs.ExchangeFeeRate, 2, RoundingMode::CEILING);
+  return A;
 }
 
-CostSplit costSplit(const Decimal &base, const Decimal &price,
-                    std::int64_t lots, std::int64_t lotSize,
-                    const CostConfig &costs) {
-  CostSplit s;
+CostSplit costSplit(const Decimal &Base, const Decimal &Price,
+                    std::int64_t Lots, std::int64_t LotSize,
+                    const CostConfig &Costs) {
+  CostSplit S;
   // base·lots·lotSize·s/2 одним шагом округления.
-  s.spreadCost = base.times(lots).times(lotSize).mulDiv(
-      costs.spread, Decimal::fromUnits(2), 2, RoundingMode::HALF_UP);
-  const Decimal total = (price - base)
+  S.SpreadCost = Base.times(Lots).times(LotSize).mulDiv(
+      Costs.Spread, Decimal::fromUnits(2), 2, RoundingMode::HalfUp);
+  const Decimal Total = (Price - Base)
                             .abs()
-                            .times(lots)
-                            .times(lotSize)
-                            .round(2, RoundingMode::HALF_UP);
-  s.slippageCost = total - s.spreadCost;
-  return s;
+                            .times(Lots)
+                            .times(LotSize)
+                            .round(2, RoundingMode::HalfUp);
+  S.SlippageCost = Total - S.SpreadCost;
+  return S;
 }
 
 } // namespace core

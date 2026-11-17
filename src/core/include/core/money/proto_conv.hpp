@@ -10,21 +10,21 @@
 
 namespace core {
 
-template <class ProtoDecimal> Decimal fromProto(const ProtoDecimal &msg) {
-  return Decimal::fromUnitsNano(msg.units(), msg.nano());
+template <class ProtoDecimal> Decimal fromProto(const ProtoDecimal &Msg) {
+  return Decimal::fromUnitsNano(Msg.units(), Msg.nano());
 }
 
 template <class ProtoDecimal>
-void toProto(const Decimal &value, ProtoDecimal *out) {
-  const UnitsNano parts = value.toUnitsNano();
-  out->set_units(parts.units);
-  out->set_nano(parts.nano);
+void toProto(const Decimal &Value, ProtoDecimal *Out) {
+  const UnitsNano Parts = Value.toUnitsNano();
+  Out->set_units(Parts.Units);
+  Out->set_nano(Parts.Nano);
 }
 
-template <class ProtoDecimal> ProtoDecimal toProto(const Decimal &value) {
-  ProtoDecimal msg;
-  toProto(value, &msg);
-  return msg;
+template <class ProtoDecimal> ProtoDecimal toProto(const Decimal &Value) {
+  ProtoDecimal Msg;
+  toProto(Value, &Msg);
+  return Msg;
 }
 
 } // namespace core

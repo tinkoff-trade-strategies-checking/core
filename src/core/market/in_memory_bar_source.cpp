@@ -6,60 +6,60 @@
 
 namespace core {
 
-void InMemoryBarSource::addSecurity(const std::string &snapshotId,
-                                    const Security &security) {
-  snapshots_.insert(snapshotId);
-  securities_[{snapshotId, security.secid}] = security;
+void InMemoryBarSource::addSecurity(const std::string &SnapshotId,
+                                    const Security &Security) {
+  Snapshots.insert(SnapshotId);
+  Securities[{SnapshotId, Security.Secid}] = Security;
 }
 
-void InMemoryBarSource::addSeries(const std::string &snapshotId,
-                                  const std::string &secid,
-                                  std::int32_t intervalSec,
-                                  std::vector<Bar> bars) {
-  std::stable_sort(bars.begin(), bars.end(), [](const Bar &a, const Bar &b) {
-    return a.tsOpenMs < b.tsOpenMs;
+void InMemoryBarSource::addSeries(const std::string &SnapshotId,
+                                  const std::string &Secid,
+                                  std::int32_t IntervalSec,
+                                  std::vector<Bar> Bars) {
+  std::stable_sort(Bars.begin(), Bars.end(), [](const Bar &A, const Bar &B) {
+    return A.TsOpenMs < B.TsOpenMs;
   });
-  for (std::size_t i = 1; i < bars.size(); ++i) {
-    if (bars[i].tsOpenMs == bars[i - 1].tsOpenMs) {
+  for (std::size_t I = 1; I < Bars.size(); ++I) {
+    if (Bars[I].TsOpenMs == Bars[I - 1].TsOpenMs) {
       throw std::invalid_argument("InMemoryBarSource: дубликат tsOpenMs");
     }
   }
-  snapshots_.insert(snapshotId);
-  series_[{snapshotId, secid, intervalSec}] = std::move(bars);
+  Snapshots.insert(SnapshotId);
+  Series[{SnapshotId, Secid, IntervalSec}] = std::move(Bars);
 }
 
-std::vector<Bar> InMemoryBarSource::load(const BarRequest &request) {
-  if (!snapshots_.contains(request.snapshotId)) {
-    throw SnapshotNotFound("версия данных не найдена: " + request.snapshotId);
+std::vector<Bar> InMemoryBarSource::load(const BarRequest &Request) {
+  if (!Snapshots.contains(Request.SnapshotId)) {
+    throw SnapshotNotFound("версия данных не найдена: " + Request.SnapshotId);
   }
-  const auto it =
-      series_.find({request.snapshotId, request.secid, request.intervalSec});
-  if (it == series_.end()) {
-    if (!securities_.contains({request.snapshotId, request.secid})) {
-      throw SecurityNotFound("инструмент не найден: " + request.secid);
+  const auto It =
+      Series.find({Request.SnapshotId, Request.Secid, Request.IntervalSec});
+  if (It == Series.end()) {
+    if (!Securities.contains({Request.SnapshotId, Request.Secid})) {
+      throw SecurityNotFound("инструмент не найден: " + Request.Secid);
     }
     return {};
   }
-  std::vector<Bar> out;
-  for (const Bar &bar : it->second) {
-    if (bar.tsOpenMs < request.fromMs || bar.tsOpenMs >= request.toMs ||
-        bar.availableAtMs > request.toMs)
+  std::vector<Bar> Out;
+  for (const Bar &Bar : It->second) {
+    if (Bar.TsOpenMs < Request.FromMs || Bar.TsOpenMs >= Request.ToMs ||
+        Bar.AvailableAtMs > Request.ToMs)
       continue;
-    out.push_back(bar);
-    out.back().index = static_cast<std::int64_t>(out.size()) - 1;
+    Out.push_back(Bar);
+    Out.back().Index = static_cast<std::int64_t>(Out.size()) - 1;
   }
-  return out;
+  return Out;
 }
 
-Security InMemoryBarSource::security(const std::string &snapshotId,
-                                     const std::string &secid) {
-  if (!snapshots_.contains(snapshotId)) {
-    throw SnapshotNotFound("версия данных не найдена: " + snapshotId);
+Security InMemoryBarSource::security(const std::string &SnapshotId,
+                                     const std::string &Secid) {
+  if (!Snapshots.contains(SnapshotId)) {
+    throw SnapshotNotFound("версия данных не найдена: " + SnapshotId);
   }
-  const auto it = securities_.find({snapshotId, secid});
-  if (it == securities_.end())
-    throw SecurityNotFound("инструмент не найден: " + secid);
-  return it->second;
+  const auto It = Securities.find({SnapshotId, Secid});
+  if (It == Securities.end())
+    throw SecurityNotFound("инструмент не найден: " + Secid);
+  return It->second;
 }
 
 } // namespace core

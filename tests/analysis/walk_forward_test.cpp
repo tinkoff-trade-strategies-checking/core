@@ -29,9 +29,9 @@ constexpr const char *kNoParams =
     "rule \"s\" when close < close[1] and position > 0 then sell all because "
     "\"падение\"\n";
 
-dsl::ResolvedParam ranged(const char *name, double from, double to,
-                          double step) {
-  return dsl::ResolvedParam{name, from, from, to, step, false};
+dsl::ResolvedParam ranged(const char *Name, double From, double To,
+                          double Step) {
+  return dsl::ResolvedParam{Name, From, From, To, Step, false};
 }
 
 // Окна подбора и проверки из брифа задачи 28, на синтетической шкале в 400
@@ -43,61 +43,61 @@ std::pair<SessionSpec, std::shared_ptr<const Timeline>> timeline400() {
 // Все значения сетки в порядке перебора: список значений параметров по порядку
 // объявления.
 std::vector<std::vector<double>>
-gridValues(const std::vector<dsl::ResolvedParam> &params,
-           std::int32_t maxGrid) {
-  std::vector<std::vector<double>> out;
-  for (const dsl::ParamValues &values : paramGrid(params, maxGrid)) {
-    std::vector<double> row;
-    for (const dsl::ResolvedParam &p : params)
-      row.push_back(values.at(p.name));
-    out.push_back(row);
+gridValues(const std::vector<dsl::ResolvedParam> &Params,
+           std::int32_t MaxGrid) {
+  std::vector<std::vector<double>> Out;
+  for (const dsl::ParamValues &Values : paramGrid(Params, MaxGrid)) {
+    std::vector<double> Row;
+    for (const dsl::ResolvedParam &P : Params)
+      Row.push_back(Values.at(P.Name));
+    Out.push_back(Row);
   }
-  return out;
+  return Out;
 }
 
 TEST(ParamGrid, Order) {
-  const std::vector<dsl::ResolvedParam> params{ranged("a", 1, 2, 1),
+  const std::vector<dsl::ResolvedParam> Params{ranged("a", 1, 2, 1),
                                                ranged("b", 10, 20, 10)};
-  const std::vector<std::vector<double>> expected{
+  const std::vector<std::vector<double>> Expected{
       {1, 10}, {1, 20}, {2, 10}, {2, 20}};
-  EXPECT_EQ(gridValues(params, 200), expected);
+  EXPECT_EQ(gridValues(Params, 200), Expected);
 }
 
 TEST(ParamGrid, ParamWithoutRangeUsesDefault) {
-  const std::vector<dsl::ResolvedParam> params{
+  const std::vector<dsl::ResolvedParam> Params{
       ranged("a", 1, 2, 1), dsl::ResolvedParam{"c", 7, {}, {}, {}, false},
       ranged("b", 10, 20, 10)};
-  const std::vector<std::vector<double>> expected{
+  const std::vector<std::vector<double>> Expected{
       {1, 7, 10}, {1, 7, 20}, {2, 7, 10}, {2, 7, 20}};
-  EXPECT_EQ(gridValues(params, 200), expected);
+  EXPECT_EQ(gridValues(Params, 200), Expected);
 }
 
 TEST(ParamGrid, NoParamsIsOneEmptyCombination) {
-  const std::vector<dsl::ParamValues> grid = paramGrid({}, 200);
-  ASSERT_EQ(grid.size(), 1u);
-  EXPECT_TRUE(grid.front().empty());
+  const std::vector<dsl::ParamValues> Grid = paramGrid({}, 200);
+  ASSERT_EQ(Grid.size(), 1u);
+  EXPECT_TRUE(Grid.front().empty());
 }
 
 // Сетка не накапливает ошибку double: 0.1, 0.2, 0.3 - три значения, последнее
 // не больше «до».
 TEST(ParamGrid, FractionalStepKeepsLastValue) {
-  const std::vector<dsl::ResolvedParam> params{ranged("x", 0.1, 0.3, 0.1)};
-  const std::vector<dsl::ParamValues> grid = paramGrid(params, 200);
-  ASSERT_EQ(grid.size(), 3u);
-  EXPECT_LE(grid.back().at("x"), 0.3);
-  EXPECT_NEAR(grid.back().at("x"), 0.3, 1e-12);
+  const std::vector<dsl::ResolvedParam> Params{ranged("x", 0.1, 0.3, 0.1)};
+  const std::vector<dsl::ParamValues> Grid = paramGrid(Params, 200);
+  ASSERT_EQ(Grid.size(), 3u);
+  EXPECT_LE(Grid.back().at("x"), 0.3);
+  EXPECT_NEAR(Grid.back().at("x"), 0.3, 1e-12);
 }
 
 TEST(ParamGrid, ExactlyMaxIsAllowed) {
-  const std::vector<dsl::ResolvedParam> params{ranged("a", 1, 10, 1),
+  const std::vector<dsl::ResolvedParam> Params{ranged("a", 1, 10, 1),
                                                ranged("b", 1, 20, 1)};
-  EXPECT_EQ(paramGrid(params, 200).size(), 200u);
+  EXPECT_EQ(paramGrid(Params, 200).size(), 200u);
 }
 
 TEST(ParamGrid, TooLarge) {
-  const std::vector<dsl::ResolvedParam> params{ranged("a", 1, 10, 1),
+  const std::vector<dsl::ResolvedParam> Params{ranged("a", 1, 10, 1),
                                                ranged("b", 1, 21, 1)};
-  EXPECT_THROW(paramGrid(params, 200), std::invalid_argument);
+  EXPECT_THROW(paramGrid(Params, 200), std::invalid_argument);
   // Огромный диапазон: отказ без построения сетки.
   EXPECT_THROW(paramGrid({ranged("a", 0, 1e18, 1)}, 200),
                std::invalid_argument);
@@ -112,49 +112,49 @@ TEST(WalkForward, ChainedReturnFormula) {
 TEST(WalkForward, Segments) {
   const auto [spec, timeline] = timeline400();
   ASSERT_EQ(timeline->tradingDays(), 400);
-  const auto loaded = loadProgram(kNoParams);
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
+  const auto Loaded = loadProgram(kNoParams);
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
 
   // Третий отрезок (проверка 377-439) в 400 дней не помещается.
-  ASSERT_EQ(result.segments.size(), 2u);
-  const WalkForwardSegment &a = result.segments[0];
-  EXPECT_EQ(a.index, 0);
-  EXPECT_EQ(a.fitFromDay, 1);
-  EXPECT_EQ(a.fitToDay, 250);
-  EXPECT_EQ(a.testFromDay, 251);
-  EXPECT_EQ(a.testToDay, 313);
-  const WalkForwardSegment &b = result.segments[1];
-  EXPECT_EQ(b.index, 1);
-  EXPECT_EQ(b.fitFromDay, 64);
-  EXPECT_EQ(b.fitToDay, 313);
-  EXPECT_EQ(b.testFromDay, 314);
-  EXPECT_EQ(b.testToDay, 376);
+  ASSERT_EQ(Result.Segments.size(), 2u);
+  const WalkForwardSegment &A = Result.Segments[0];
+  EXPECT_EQ(A.Index, 0);
+  EXPECT_EQ(A.FitFromDay, 1);
+  EXPECT_EQ(A.FitToDay, 250);
+  EXPECT_EQ(A.TestFromDay, 251);
+  EXPECT_EQ(A.TestToDay, 313);
+  const WalkForwardSegment &B = Result.Segments[1];
+  EXPECT_EQ(B.Index, 1);
+  EXPECT_EQ(B.FitFromDay, 64);
+  EXPECT_EQ(B.FitToDay, 313);
+  EXPECT_EQ(B.TestFromDay, 314);
+  EXPECT_EQ(B.TestToDay, 376);
 
   // Проверка идёт на срезе: 63 дня, шаги с 0; отчёт посчитан по нему же.
-  for (const WalkForwardSegment &s : result.segments) {
-    EXPECT_EQ(s.test.status, RunStatus::Completed);
-    EXPECT_EQ(s.test.equity.size(), 63u);
-    EXPECT_EQ(s.testReport.metrics.tradingDays, 63);
-    EXPECT_EQ(s.testReport.finalEquity, s.test.finalEquity);
-    EXPECT_TRUE(s.chosen.empty());
+  for (const WalkForwardSegment &S : Result.Segments) {
+    EXPECT_EQ(S.Test.Status, RunStatus::Completed);
+    EXPECT_EQ(S.Test.Equity.size(), 63u);
+    EXPECT_EQ(S.TestReport.Stats.TradingDays, 63);
+    EXPECT_EQ(S.TestReport.FinalEquity, S.Test.FinalEquity);
+    EXPECT_TRUE(S.Chosen.empty());
   }
 }
 
 TEST(WalkForward, TestRunEqualsDirectRunOnSlice) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kSmaCross);
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
-  ASSERT_FALSE(result.segments.empty());
-  for (const WalkForwardSegment &s : result.segments) {
-    const auto slice = std::make_shared<const Timeline>(
-        timeline->slice(s.testFromDay, s.testToDay));
-    const RunOutput direct =
-        runBacktest(spec, slice, loaded.program, loaded.params, s.chosen,
+  const auto Loaded = loadProgram(kSmaCross);
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
+  ASSERT_FALSE(Result.Segments.empty());
+  for (const WalkForwardSegment &S : Result.Segments) {
+    const auto Slice = std::make_shared<const Timeline>(
+        timeline->slice(S.TestFromDay, S.TestToDay));
+    const RunOutput Direct =
+        runBacktest(spec, Slice, Loaded.Program, Loaded.Params, S.Chosen,
                     dsl::Level::Ok, nullptr);
-    EXPECT_EQ(direct.digest, s.test.digest) << s.index;
-    EXPECT_EQ(direct.finalEquity, s.test.finalEquity) << s.index;
+    EXPECT_EQ(Direct.Digest, S.Test.Digest) << S.Index;
+    EXPECT_EQ(Direct.FinalEquity, S.Test.FinalEquity) << S.Index;
   }
 }
 
@@ -162,34 +162,34 @@ TEST(WalkForward, TestRunEqualsDirectRunOnSlice) {
 // перебором по сетке.
 TEST(WalkForward, PicksBestOnFitWindow) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kSmaCross);
-  const std::vector<dsl::ParamValues> grid = paramGrid(loaded.params, 200);
-  ASSERT_EQ(grid.size(), 7u); // 2, 5, 8, 11, 14, 17, 20
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
+  const auto Loaded = loadProgram(kSmaCross);
+  const std::vector<dsl::ParamValues> Grid = paramGrid(Loaded.Params, 200);
+  ASSERT_EQ(Grid.size(), 7u); // 2, 5, 8, 11, 14, 17, 20
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
 
-  for (const WalkForwardSegment &s : result.segments) {
-    const auto fit = std::make_shared<const Timeline>(
-        timeline->slice(s.fitFromDay, s.fitToDay));
-    double best = 0;
-    double chosenReturn = 0;
-    std::vector<double> returns;
-    for (const dsl::ParamValues &values : grid) {
-      const RunOutput out =
-          runBacktest(spec, fit, loaded.program, loaded.params, values,
+  for (const WalkForwardSegment &S : Result.Segments) {
+    const auto Fit = std::make_shared<const Timeline>(
+        timeline->slice(S.FitFromDay, S.FitToDay));
+    double Best = 0;
+    double ChosenReturn = 0;
+    std::vector<double> Returns;
+    for (const dsl::ParamValues &Values : Grid) {
+      const RunOutput Out =
+          runBacktest(spec, Fit, Loaded.Program, Loaded.Params, Values,
                       dsl::Level::Ok, nullptr);
-      const double r = (out.finalEquity - spec.initialCash).toDouble() /
-                       spec.initialCash.toDouble();
-      returns.push_back(r);
-      if (values == s.chosen)
-        chosenReturn = r;
+      const double R = (Out.FinalEquity - spec.InitialCash).toDouble() /
+                       spec.InitialCash.toDouble();
+      Returns.push_back(R);
+      if (Values == S.Chosen)
+        ChosenReturn = R;
     }
-    best = *std::max_element(returns.begin(), returns.end());
-    EXPECT_DOUBLE_EQ(s.fitNetReturn, best) << s.index;
-    EXPECT_DOUBLE_EQ(chosenReturn, best) << s.index;
+    Best = *std::max_element(Returns.begin(), Returns.end());
+    EXPECT_DOUBLE_EQ(S.FitNetReturn, Best) << S.Index;
+    EXPECT_DOUBLE_EQ(ChosenReturn, Best) << S.Index;
     // Подбор содержательный: доходности на сетке различаются.
-    EXPECT_NE(*std::min_element(returns.begin(), returns.end()), best)
-        << s.index;
+    EXPECT_NE(*std::min_element(Returns.begin(), Returns.end()), Best)
+        << S.Index;
   }
 }
 
@@ -197,129 +197,129 @@ TEST(WalkForward, PicksBestOnFitWindow) {
 // первый в порядке сетки.
 TEST(WalkForward, TieBreak) {
   const auto [spec, timeline] = timeline400();
-  const std::string source = std::string("param a = 2 range 1..3 step 1\nparam "
+  const std::string Source = std::string("param a = 2 range 1..3 step 1\nparam "
                                          "b = 20 range 10..30 step 10\n") +
                              kNoParams;
-  const auto loaded = loadProgram(source);
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
-  ASSERT_EQ(result.segments.size(), 2u);
-  for (const WalkForwardSegment &s : result.segments) {
-    EXPECT_EQ(s.chosen, (dsl::ParamValues{{"a", 1}, {"b", 10}})) << s.index;
+  const auto Loaded = loadProgram(Source);
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
+  ASSERT_EQ(Result.Segments.size(), 2u);
+  for (const WalkForwardSegment &S : Result.Segments) {
+    EXPECT_EQ(S.Chosen, (dsl::ParamValues{{"a", 1}, {"b", 10}})) << S.Index;
   }
 }
 
 TEST(WalkForward, ChainedReturn) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kSmaCross);
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
-  std::vector<double> returns;
-  for (const WalkForwardSegment &s : result.segments) {
-    returns.push_back((s.test.finalEquity - spec.initialCash).toDouble() /
-                      spec.initialCash.toDouble());
+  const auto Loaded = loadProgram(kSmaCross);
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
+  std::vector<double> Returns;
+  for (const WalkForwardSegment &S : Result.Segments) {
+    Returns.push_back((S.Test.FinalEquity - spec.InitialCash).toDouble() /
+                      spec.InitialCash.toDouble());
   }
-  EXPECT_DOUBLE_EQ(result.chainedReturn, chainedReturn(returns));
+  EXPECT_DOUBLE_EQ(Result.ChainedReturn, chainedReturn(Returns));
 }
 
 TEST(WalkForward, ProgressCoversAllRuns) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kSmaCross); // 7 наборов
-  std::vector<std::pair<std::int64_t, std::int64_t>> calls;
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params, {},
-                  [&](std::int64_t done, std::int64_t total) {
-                    calls.emplace_back(done, total);
+  const auto Loaded = loadProgram(kSmaCross); // 7 наборов
+  std::vector<std::pair<std::int64_t, std::int64_t>> Calls;
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {},
+                  [&](std::int64_t Done, std::int64_t Total) {
+                    Calls.emplace_back(Done, Total);
                   });
-  ASSERT_EQ(result.segments.size(), 2u);
+  ASSERT_EQ(Result.Segments.size(), 2u);
   // По шагу на день: 2 · (7 · 250 + 63) прогонов-шагов.
-  const std::int64_t expectedTotal = 2 * (7 * 250 + 63);
-  ASSERT_FALSE(calls.empty());
-  std::int64_t previous = 0;
-  for (const auto &[done, total] : calls) {
-    EXPECT_EQ(total, expectedTotal);
-    EXPECT_GT(done, previous);
-    previous = done;
+  const std::int64_t ExpectedTotal = 2 * (7 * 250 + 63);
+  ASSERT_FALSE(Calls.empty());
+  std::int64_t Previous = 0;
+  for (const auto &[done, total] : Calls) {
+    EXPECT_EQ(total, ExpectedTotal);
+    EXPECT_GT(done, Previous);
+    Previous = done;
   }
-  EXPECT_EQ(calls.back().first, expectedTotal);
+  EXPECT_EQ(Calls.back().first, ExpectedTotal);
 }
 
 TEST(WalkForward, SameResultTwice) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kSmaCross);
-  const WalkForwardResult first =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
-  const WalkForwardResult second =
-      walkForward(spec, timeline, loaded.program, loaded.params, {}, nullptr);
-  ASSERT_EQ(first.segments.size(), second.segments.size());
-  for (std::size_t i = 0; i < first.segments.size(); ++i) {
-    EXPECT_EQ(first.segments[i].chosen, second.segments[i].chosen);
-    EXPECT_EQ(first.segments[i].test.digest, second.segments[i].test.digest);
+  const auto Loaded = loadProgram(kSmaCross);
+  const WalkForwardResult First =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
+  const WalkForwardResult Second =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params, {}, nullptr);
+  ASSERT_EQ(First.Segments.size(), Second.Segments.size());
+  for (std::size_t I = 0; I < First.Segments.size(); ++I) {
+    EXPECT_EQ(First.Segments[I].Chosen, Second.Segments[I].Chosen);
+    EXPECT_EQ(First.Segments[I].Test.Digest, Second.Segments[I].Test.Digest);
   }
-  EXPECT_DOUBLE_EQ(first.chainedReturn, second.chainedReturn);
+  EXPECT_DOUBLE_EQ(First.ChainedReturn, Second.ChainedReturn);
 }
 
 TEST(WalkForward, CustomWindows) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kNoParams);
-  const WalkForwardResult result =
-      walkForward(spec, timeline, loaded.program, loaded.params,
+  const auto Loaded = loadProgram(kNoParams);
+  const WalkForwardResult Result =
+      walkForward(spec, timeline, Loaded.Program, Loaded.Params,
                   WalkForwardConfig{100, 50, 100, 200}, nullptr);
   // Подбор 1-100 / проверка 101-150, подбор 101-200 / 201-250, 201-300 /
   // 301-350; четвёртый (301-400 / 401-450) не помещается.
-  ASSERT_EQ(result.segments.size(), 3u);
-  EXPECT_EQ(result.segments[2].fitFromDay, 201);
-  EXPECT_EQ(result.segments[2].testToDay, 350);
+  ASSERT_EQ(Result.Segments.size(), 3u);
+  EXPECT_EQ(Result.Segments[2].FitFromDay, 201);
+  EXPECT_EQ(Result.Segments[2].TestToDay, 350);
 }
 
 TEST(WalkForward, Refusals) {
   const auto [spec, timeline] = timeline400();
-  const auto loaded = loadProgram(kSmaCross);
+  const auto Loaded = loadProgram(kSmaCross);
   // Окна длиннее шкалы: ни одного отрезка.
-  EXPECT_THROW(walkForward(spec, timeline, loaded.program, loaded.params,
+  EXPECT_THROW(walkForward(spec, timeline, Loaded.Program, Loaded.Params,
                            WalkForwardConfig{380, 63, 63, 200}, nullptr),
                std::invalid_argument);
-  EXPECT_THROW(walkForward(spec, timeline, loaded.program, loaded.params,
+  EXPECT_THROW(walkForward(spec, timeline, Loaded.Program, Loaded.Params,
                            WalkForwardConfig{0, 63, 63, 200}, nullptr),
                std::invalid_argument);
-  EXPECT_THROW(walkForward(spec, timeline, loaded.program, loaded.params,
+  EXPECT_THROW(walkForward(spec, timeline, Loaded.Program, Loaded.Params,
                            WalkForwardConfig{250, 63, 0, 200}, nullptr),
                std::invalid_argument);
   // Сетка больше предела отклоняется до первого прогона.
-  std::int32_t calls = 0;
-  EXPECT_THROW(walkForward(spec, timeline, loaded.program, loaded.params,
+  std::int32_t Calls = 0;
+  EXPECT_THROW(walkForward(spec, timeline, Loaded.Program, Loaded.Params,
                            WalkForwardConfig{250, 63, 63, 3},
-                           [&](std::int64_t, std::int64_t) { ++calls; }),
+                           [&](std::int64_t, std::int64_t) { ++Calls; }),
                std::invalid_argument);
-  EXPECT_EQ(calls, 0);
+  EXPECT_EQ(Calls, 0);
 }
 
 // Прогрев: у каждого окна (подбора и проверки) - W шагов истории прямо перед
 // ним, прогон окна равен прямому прогону на срезе с тем же прогревом.
 TEST(WalkForward, WarmupGoesIntoEveryWindow) {
   const auto [spec, full] = timeline400();
-  const Timeline history = full->slice(1, 30);
-  const auto warmed = std::make_shared<const Timeline>(
-      full->slice(31, 400).withWarmup(history, 20));
-  ASSERT_EQ(warmed->warmupSteps(), 20);
-  const auto loaded = loadProgram(kSmaCross);
-  const WalkForwardResult result =
-      walkForward(spec, warmed, loaded.program, loaded.params, {}, nullptr);
-  ASSERT_FALSE(result.segments.empty());
-  for (const WalkForwardSegment &s : result.segments) {
-    const auto slice = std::make_shared<const Timeline>(
-        warmed->slice(s.testFromDay, s.testToDay));
-    EXPECT_EQ(slice->warmupSteps(), 20) << s.index;
-    const RunOutput direct =
-        runBacktest(spec, slice, loaded.program, loaded.params, s.chosen,
+  const Timeline History = full->slice(1, 30);
+  const auto Warmed = std::make_shared<const Timeline>(
+      full->slice(31, 400).withWarmup(History, 20));
+  ASSERT_EQ(Warmed->warmupSteps(), 20);
+  const auto Loaded = loadProgram(kSmaCross);
+  const WalkForwardResult Result =
+      walkForward(spec, Warmed, Loaded.Program, Loaded.Params, {}, nullptr);
+  ASSERT_FALSE(Result.Segments.empty());
+  for (const WalkForwardSegment &S : Result.Segments) {
+    const auto Slice = std::make_shared<const Timeline>(
+        Warmed->slice(S.TestFromDay, S.TestToDay));
+    EXPECT_EQ(Slice->warmupSteps(), 20) << S.Index;
+    const RunOutput Direct =
+        runBacktest(spec, Slice, Loaded.Program, Loaded.Params, S.Chosen,
                     dsl::Level::Ok, nullptr);
-    EXPECT_EQ(direct.digest, s.test.digest) << s.index;
+    EXPECT_EQ(Direct.Digest, S.Test.Digest) << S.Index;
   }
   // Первое окно подбора начинается с истории до периода: её последний бар -
   // день 30 исходной шкалы.
-  const Timeline firstFit =
-      warmed->slice(result.segments[0].fitFromDay, result.segments[0].fitToDay);
-  EXPECT_EQ(firstFit.warmupBars().back().close, full->barsAt(29).back().close);
+  const Timeline FirstFit =
+      Warmed->slice(Result.Segments[0].FitFromDay, Result.Segments[0].FitToDay);
+  EXPECT_EQ(FirstFit.warmupBars().back().Close, full->barsAt(29).back().Close);
 }
 
 } // namespace

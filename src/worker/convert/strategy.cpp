@@ -7,30 +7,30 @@
 
 namespace worker {
 
-std::string errorCodes(const std::vector<core::dsl::Diagnostic> &diagnostics) {
-  std::string codes;
-  for (const core::dsl::Diagnostic &d : diagnostics) {
-    if (d.level != core::dsl::Level::Error)
+std::string errorCodes(const std::vector<core::dsl::Diagnostic> &Diagnostics) {
+  std::string Codes;
+  for (const core::dsl::Diagnostic &D : Diagnostics) {
+    if (D.Severity != core::dsl::Level::Error)
       continue;
-    if (!codes.empty())
-      codes += ';';
-    codes += d.code;
+    if (!Codes.empty())
+      Codes += ';';
+    Codes += D.Code;
   }
-  return codes;
+  return Codes;
 }
 
-Strategy loadStrategy(const std::string &source) {
-  core::dsl::ParseResult parsed = core::dsl::parse(source);
-  if (!parsed.program)
+Strategy loadStrategy(const std::string &Source) {
+  core::dsl::ParseResult Parsed = core::dsl::parse(Source);
+  if (!Parsed.Ast)
     throw std::invalid_argument("стратегия не разобрана: " +
-                                errorCodes(parsed.diagnostics));
-  core::dsl::CheckResult checked = core::dsl::check(*parsed.program);
-  if (checked.level == core::dsl::Level::Error) {
+                                errorCodes(Parsed.Diagnostics));
+  core::dsl::CheckResult Checked = core::dsl::check(*Parsed.Ast);
+  if (Checked.Severity == core::dsl::Level::Error) {
     throw std::invalid_argument("стратегия не проходит проверку: " +
-                                errorCodes(checked.diagnostics));
+                                errorCodes(Checked.Diagnostics));
   }
-  return Strategy{std::move(*parsed.program), std::move(checked.params),
-                  checked.level};
+  return Strategy{std::move(*Parsed.Ast), std::move(Checked.Params),
+                  Checked.Severity};
 }
 
 } // namespace worker

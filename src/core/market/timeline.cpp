@@ -19,401 +19,399 @@ constexpr std::int64_t kMinGapIntervals = 2;
 
 // Дней от 1970-01-01 до даты (григорианский календарь, алгоритм Говарда
 // Хиннанта).
-std::int64_t daysFromCivil(std::int32_t y, std::int32_t m, std::int32_t d) {
-  y -= m <= 2 ? 1 : 0;
-  const std::int64_t era = (y >= 0 ? y : y - 399) / 400;
-  const std::int64_t yoe = y - era * 400;
-  const std::int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-  const std::int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  return era * 146097 + doe - 719468;
+std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M, std::int32_t D) {
+  Y -= M <= 2 ? 1 : 0;
+  const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
+  const std::int64_t Yoe = Y - Era * 400;
+  const std::int64_t Doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
+  const std::int64_t Doe = Yoe * 365 + Yoe / 4 - Yoe / 100 + Doy;
+  return Era * 146097 + Doe - 719468;
 }
 
-std::int32_t civilFromDays(std::int64_t z) {
-  z += 719468;
-  const std::int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-  const std::int64_t doe = z - era * 146097;
-  const std::int64_t yoe =
-      (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-  const std::int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-  const std::int64_t mp = (5 * doy + 2) / 153;
-  const std::int64_t d = doy - (153 * mp + 2) / 5 + 1;
-  const std::int64_t m = mp < 10 ? mp + 3 : mp - 9;
-  const std::int64_t y = yoe + era * 400 + (m <= 2 ? 1 : 0);
-  return static_cast<std::int32_t>(y * 10000 + m * 100 + d);
+std::int32_t civilFromDays(std::int64_t Z) {
+  Z += 719468;
+  const std::int64_t Era = (Z >= 0 ? Z : Z - 146096) / 146097;
+  const std::int64_t Doe = Z - Era * 146097;
+  const std::int64_t Yoe =
+      (Doe - Doe / 1460 + Doe / 36524 - Doe / 146096) / 365;
+  const std::int64_t Doy = Doe - (365 * Yoe + Yoe / 4 - Yoe / 100);
+  const std::int64_t Mp = (5 * Doy + 2) / 153;
+  const std::int64_t D = Doy - (153 * Mp + 2) / 5 + 1;
+  const std::int64_t M = Mp < 10 ? Mp + 3 : Mp - 9;
+  const std::int64_t Y = Yoe + Era * 400 + (M <= 2 ? 1 : 0);
+  return static_cast<std::int32_t>(Y * 10000 + M * 100 + D);
 }
 
-std::int64_t floorDiv(std::int64_t a, std::int64_t b) {
-  std::int64_t q = a / b;
-  if ((a % b != 0) && ((a < 0) != (b < 0)))
-    --q;
-  return q;
+std::int64_t floorDiv(std::int64_t A, std::int64_t B) {
+  std::int64_t Q = A / B;
+  if ((A % B != 0) && ((A < 0) != (B < 0)))
+    --Q;
+  return Q;
 }
 
 // Московская дата момента tsMs (UTC) в виде yyyymmdd.
-std::int32_t moscowYmd(std::int64_t tsMs) {
-  return civilFromDays(floorDiv(tsMs + kMoscowOffsetMs, kDayMs));
+std::int32_t moscowYmd(std::int64_t TsMs) {
+  return civilFromDays(floorDiv(TsMs + kMoscowOffsetMs, kDayMs));
 }
 
 // Начало московских суток даты в UTC, мс.
-std::int64_t moscowDayStartMs(std::int32_t ymd) {
-  return daysFromCivil(ymd / 10000, ymd / 100 % 100, ymd % 100) * kDayMs -
+std::int64_t moscowDayStartMs(std::int32_t Ymd) {
+  return daysFromCivil(Ymd / 10000, Ymd / 100 % 100, Ymd % 100) * kDayMs -
          kMoscowOffsetMs;
 }
 
-bool validYmd(std::int32_t ymd) {
-  const std::int32_t m = ymd / 100 % 100;
-  const std::int32_t d = ymd % 100;
-  return ymd >= 10000 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+bool validYmd(std::int32_t Ymd) {
+  const std::int32_t M = Ymd / 100 % 100;
+  const std::int32_t D = Ymd % 100;
+  return Ymd >= 10000 && M >= 1 && M <= 12 && D >= 1 && D <= 31;
 }
 
 } // namespace
 
-Timeline Timeline::build(std::vector<Instrument> instruments,
-                         const std::vector<std::vector<Bar>> &bars,
-                         const std::vector<TradingDay> &calendar) {
+Timeline Timeline::build(std::vector<Instrument> Instruments,
+                         const std::vector<std::vector<Bar>> &Bars,
+                         const std::vector<TradingDay> &Calendar) {
   // Длина шага: наименьшая длительность бара (от начала до момента, когда он
   // стал известен).
-  std::int64_t intervalMs = 0;
-  for (const auto &series : bars) {
-    for (const Bar &b : series) {
-      const std::int64_t length = b.availableAtMs - b.tsOpenMs;
-      if (length > 0 && (intervalMs == 0 || length < intervalMs))
-        intervalMs = length;
+  std::int64_t IntervalMs = 0;
+  for (const auto &Series : Bars) {
+    for (const Bar &B : Series) {
+      const std::int64_t Length = B.AvailableAtMs - B.TsOpenMs;
+      if (Length > 0 && (IntervalMs == 0 || Length < IntervalMs))
+        IntervalMs = Length;
     }
   }
-  return buildWithInterval(std::move(instruments), bars, calendar, intervalMs);
+  return buildWithInterval(std::move(Instruments), Bars, Calendar, IntervalMs);
 }
 
-Timeline Timeline::buildWithInterval(std::vector<Instrument> instruments,
-                                     const std::vector<std::vector<Bar>> &bars,
-                                     const std::vector<TradingDay> &calendar,
-                                     std::int64_t intervalMs) {
-  if (bars.size() != instruments.size()) {
+Timeline Timeline::buildWithInterval(std::vector<Instrument> Instruments,
+                                     const std::vector<std::vector<Bar>> &Bars,
+                                     const std::vector<TradingDay> &Calendar,
+                                     std::int64_t IntervalMs) {
+  if (Bars.size() != Instruments.size()) {
     throw std::invalid_argument(
         "Timeline: число серий баров не равно числу бумаг");
   }
-  for (const Instrument &instrument : instruments) {
-    if (instrument.lotSize <= 0)
+  for (const Instrument &Instrument : Instruments) {
+    if (Instrument.LotSize <= 0)
       throw std::invalid_argument(
           "Timeline: размер лота должен быть положительным");
   }
-  std::vector<std::int64_t> times;
-  for (const auto &series : bars) {
-    for (std::size_t i = 1; i < series.size(); ++i) {
-      if (series[i].tsOpenMs <= series[i - 1].tsOpenMs) {
+  std::vector<std::int64_t> Times;
+  for (const auto &Series : Bars) {
+    for (std::size_t I = 1; I < Series.size(); ++I) {
+      if (Series[I].TsOpenMs <= Series[I - 1].TsOpenMs) {
         throw std::invalid_argument("Timeline: бары бумаги должны идти по "
                                     "строго возрастающему времени");
       }
     }
-    for (const Bar &b : series)
-      times.push_back(b.tsOpenMs);
+    for (const Bar &B : Series)
+      Times.push_back(B.TsOpenMs);
   }
-  std::sort(times.begin(), times.end());
-  times.erase(std::unique(times.begin(), times.end()), times.end());
+  std::sort(Times.begin(), Times.end());
+  Times.erase(std::unique(Times.begin(), Times.end()), Times.end());
 
-  Timeline timeline;
-  timeline.instruments_ = std::move(instruments);
-  timeline.stepYmd_.reserve(times.size());
-  timeline.stepDay_.reserve(times.size());
-  for (const std::int64_t t : times) {
-    const std::int32_t ymd = moscowYmd(t);
-    if (timeline.stepYmd_.empty() || timeline.stepYmd_.back() != ymd)
-      ++timeline.tradingDays_;
-    timeline.stepYmd_.push_back(ymd);
-    timeline.stepDay_.push_back(timeline.tradingDays_);
+  Timeline Timeline;
+  Timeline.Instruments = std::move(Instruments);
+  Timeline.StepYmd.reserve(Times.size());
+  Timeline.StepDay.reserve(Times.size());
+  for (const std::int64_t T : Times) {
+    const std::int32_t Ymd = moscowYmd(T);
+    if (Timeline.StepYmd.empty() || Timeline.StepYmd.back() != Ymd)
+      ++Timeline.TradingDays;
+    Timeline.StepYmd.push_back(Ymd);
+    Timeline.StepDay.push_back(Timeline.TradingDays);
   }
 
-  std::vector<std::int32_t> tradingYmds;
-  for (const TradingDay &day : calendar) {
-    if (day.isTrading)
-      tradingYmds.push_back(day.yyyymmdd);
+  std::vector<std::int32_t> TradingYmds;
+  for (const TradingDay &Day : Calendar) {
+    if (Day.IsTrading)
+      TradingYmds.push_back(Day.Yyyymmdd);
   }
-  std::sort(tradingYmds.begin(), tradingYmds.end());
+  std::sort(TradingYmds.begin(), TradingYmds.end());
 
-  for (std::size_t instrument = 0; instrument < bars.size(); ++instrument) {
-    const std::int64_t lotSize = timeline.instruments_[instrument].lotSize;
-    const Bar *previous = nullptr;
-    std::int32_t previousYmd = 0;
-    for (const Bar &b : bars[instrument]) {
-      const auto step = static_cast<std::int64_t>(
-          std::lower_bound(times.begin(), times.end(), b.tsOpenMs) -
-          times.begin());
-      StepBar s;
-      s.step = step;
-      s.instrument = static_cast<int>(instrument);
-      s.timeUnixMs = b.tsOpenMs;
-      s.tradingDay = timeline.stepDay_[static_cast<std::size_t>(step)];
-      s.open = b.open;
-      s.high = b.high;
-      s.low = b.low;
-      s.close = b.close;
-      s.volumeLots = b.volume / lotSize;
-      const std::int32_t ymd =
-          timeline.stepYmd_[static_cast<std::size_t>(step)];
-      if (previous != nullptr) {
-        if (ymd == previousYmd) {
-          const std::int64_t gap = b.tsOpenMs - previous->tsOpenMs;
-          s.afterHalt =
-              gap >= kMinGapMs && gap >= kMinGapIntervals * intervalMs;
+  for (std::size_t Instrument = 0; Instrument < Bars.size(); ++Instrument) {
+    const std::int64_t LotSize = Timeline.Instruments[Instrument].LotSize;
+    const Bar *Previous = nullptr;
+    std::int32_t PreviousYmd = 0;
+    for (const Bar &B : Bars[Instrument]) {
+      const auto Step = static_cast<std::int64_t>(
+          std::lower_bound(Times.begin(), Times.end(), B.TsOpenMs) -
+          Times.begin());
+      StepBar S;
+      S.Step = Step;
+      S.Instrument = static_cast<int>(Instrument);
+      S.TimeUnixMs = B.TsOpenMs;
+      S.TradingDay = Timeline.StepDay[static_cast<std::size_t>(Step)];
+      S.Open = B.Open;
+      S.High = B.High;
+      S.Low = B.Low;
+      S.Close = B.Close;
+      S.VolumeLots = B.Volume / LotSize;
+      const std::int32_t Ymd = Timeline.StepYmd[static_cast<std::size_t>(Step)];
+      if (Previous != nullptr) {
+        if (Ymd == PreviousYmd) {
+          const std::int64_t Gap = B.TsOpenMs - Previous->TsOpenMs;
+          S.AfterHalt =
+              Gap >= kMinGapMs && Gap >= kMinGapIntervals * IntervalMs;
         } else {
           // Между датами есть торговый день (по календарю), а бумага в него не
           // торговалась.
-          const auto next = std::upper_bound(tradingYmds.begin(),
-                                             tradingYmds.end(), previousYmd);
-          s.afterHalt = next != tradingYmds.end() && *next < ymd;
+          const auto Next = std::upper_bound(TradingYmds.begin(),
+                                             TradingYmds.end(), PreviousYmd);
+          S.AfterHalt = Next != TradingYmds.end() && *Next < Ymd;
         }
       }
-      timeline.bars_.push_back(s);
-      previous = &b;
-      previousYmd = ymd;
+      Timeline.Bars.push_back(S);
+      Previous = &B;
+      PreviousYmd = Ymd;
     }
   }
-  std::sort(timeline.bars_.begin(), timeline.bars_.end(),
-            [](const StepBar &a, const StepBar &b) {
-              return a.step != b.step ? a.step < b.step
-                                      : a.instrument < b.instrument;
+  std::sort(Timeline.Bars.begin(), Timeline.Bars.end(),
+            [](const StepBar &A, const StepBar &B) {
+              return A.Step != B.Step ? A.Step < B.Step
+                                      : A.Instrument < B.Instrument;
             });
-  timeline.buildIndex();
-  return timeline;
+  Timeline.buildIndex();
+  return Timeline;
 }
 
-Timeline Timeline::load(BarSource &barSource, CalendarSource &calendarSource,
-                        const std::string &snapshotId,
-                        std::vector<Instrument> instruments,
-                        Timeframe timeframe, std::int32_t fromYmd,
-                        std::int32_t toYmd) {
-  if (!validYmd(fromYmd) || !validYmd(toYmd) || fromYmd > toYmd) {
+Timeline Timeline::load(BarSource &BarSource, CalendarSource &CalendarSource,
+                        const std::string &SnapshotId,
+                        std::vector<Instrument> Instruments,
+                        Timeframe Timeframe, std::int32_t FromYmd,
+                        std::int32_t ToYmd) {
+  if (!validYmd(FromYmd) || !validYmd(ToYmd) || FromYmd > ToYmd) {
     throw std::invalid_argument("Timeline::load: неверный диапазон дат");
   }
-  const std::int32_t interval = intervalSeconds(timeframe);
-  BarRequest request;
-  request.snapshotId = snapshotId;
-  request.intervalSec = interval;
-  request.fromMs = moscowDayStartMs(fromYmd);
-  request.toMs = moscowDayStartMs(toYmd) + kDayMs; // начало суток после toYmd
-  std::vector<std::vector<Bar>> bars;
-  bars.reserve(instruments.size());
-  for (const Instrument &instrument : instruments) {
-    request.secid = instrument.ticker;
-    bars.push_back(barSource.load(request));
+  const std::int32_t Interval = intervalSeconds(Timeframe);
+  BarRequest Request;
+  Request.SnapshotId = SnapshotId;
+  Request.IntervalSec = Interval;
+  Request.FromMs = moscowDayStartMs(FromYmd);
+  Request.ToMs = moscowDayStartMs(ToYmd) + kDayMs; // начало суток после toYmd
+  std::vector<std::vector<Bar>> Bars;
+  Bars.reserve(Instruments.size());
+  for (const Instrument &Instrument : Instruments) {
+    Request.Secid = Instrument.Ticker;
+    Bars.push_back(BarSource.load(Request));
   }
-  const std::vector<TradingDay> calendar =
-      calendarSource.tradingDays(snapshotId, fromYmd, toYmd);
-  return buildWithInterval(std::move(instruments), bars, calendar,
-                           static_cast<std::int64_t>(interval) * 1000);
+  const std::vector<TradingDay> Calendar =
+      CalendarSource.tradingDays(SnapshotId, FromYmd, ToYmd);
+  return buildWithInterval(std::move(Instruments), Bars, Calendar,
+                           static_cast<std::int64_t>(Interval) * 1000);
 }
 
-Timeline Timeline::loadWithWarmup(BarSource &barSource,
-                                  CalendarSource &calendarSource,
-                                  const std::string &snapshotId,
-                                  std::vector<Instrument> instruments,
-                                  Timeframe timeframe, std::int32_t fromYmd,
-                                  std::int32_t toYmd,
-                                  std::int64_t warmupSteps) {
-  Timeline timeline = load(barSource, calendarSource, snapshotId, instruments,
-                           timeframe, fromYmd, toYmd);
-  if (warmupSteps <= 0 || timeline.totalSteps() == 0)
-    return timeline; // пустой период - ошибка вызывающего
-  const std::int64_t stepsPerDay =
-      timeline.tradingDays_ > 0
+Timeline Timeline::loadWithWarmup(BarSource &BarSource,
+                                  CalendarSource &CalendarSource,
+                                  const std::string &SnapshotId,
+                                  std::vector<Instrument> Instruments,
+                                  Timeframe Timeframe, std::int32_t FromYmd,
+                                  std::int32_t ToYmd,
+                                  std::int64_t WarmupSteps) {
+  Timeline Result = load(BarSource, CalendarSource, SnapshotId, Instruments,
+                         Timeframe, FromYmd, ToYmd);
+  if (WarmupSteps <= 0 || Result.totalSteps() == 0)
+    return Result; // пустой период - ошибка вызывающего
+  const std::int64_t StepsPerDay =
+      Result.TradingDays > 0
           ? std::max<std::int64_t>(
-                1, (timeline.totalSteps() + timeline.tradingDays_ - 1) /
-                       timeline.tradingDays_)
+                1, (Result.totalSteps() + Result.TradingDays - 1) /
+                       Result.TradingDays)
           : 1;
-  const std::int64_t start =
-      daysFromCivil(fromYmd / 10000, fromYmd / 100 % 100, fromYmd % 100);
+  const std::int64_t Start =
+      daysFromCivil(FromYmd / 10000, FromYmd / 100 % 100, FromYmd % 100);
   // Не раньше 1970-01-01: даты хранилища (ClickHouse Date) начинаются с неё.
-  const std::int64_t maxLookback = std::min(kMaxWarmupLookbackDays, start);
-  if (maxLookback <= 0)
-    return timeline;
+  const std::int64_t MaxLookback = std::min(kMaxWarmupLookbackDays, Start);
+  if (MaxLookback <= 0)
+    return Result;
   // Торговых дней в календарной неделе 5 из 7; запас 10 дней - на праздники.
-  std::int64_t lookback =
-      (warmupSteps + stepsPerDay - 1) / stepsPerDay * 7 / 5 + 10;
+  std::int64_t Lookback =
+      (WarmupSteps + StepsPerDay - 1) / StepsPerDay * 7 / 5 + 10;
   for (;;) {
-    lookback = std::min(lookback, maxLookback);
-    const Timeline history =
-        load(barSource, calendarSource, snapshotId, instruments, timeframe,
-             civilFromDays(start - lookback), civilFromDays(start - 1));
-    if (history.totalSteps() >= warmupSteps || lookback >= maxLookback) {
-      return timeline.withWarmup(history, warmupSteps);
+    Lookback = std::min(Lookback, MaxLookback);
+    const Timeline History =
+        load(BarSource, CalendarSource, SnapshotId, Instruments, Timeframe,
+             civilFromDays(Start - Lookback), civilFromDays(Start - 1));
+    if (History.totalSteps() >= WarmupSteps || Lookback >= MaxLookback) {
+      return Result.withWarmup(History, WarmupSteps);
     }
-    lookback *= 2;
+    Lookback *= 2;
   }
 }
 
 void Timeline::buildIndex() {
-  const std::size_t steps = stepDay_.size();
-  stepStart_.assign(steps + 1, 0);
-  for (const StepBar &b : bars_)
-    ++stepStart_[static_cast<std::size_t>(b.step) + 1];
-  for (std::size_t i = 0; i < steps; ++i)
-    stepStart_[i + 1] += stepStart_[i];
-  byInstrument_.assign(instruments_.size(), {});
-  for (std::size_t i = 0; i < bars_.size(); ++i) {
-    byInstrument_[static_cast<std::size_t>(bars_[i].instrument)].push_back(i);
+  const std::size_t Steps = StepDay.size();
+  StepStart.assign(Steps + 1, 0);
+  for (const StepBar &B : Bars)
+    ++StepStart[static_cast<std::size_t>(B.Step) + 1];
+  for (std::size_t I = 0; I < Steps; ++I)
+    StepStart[I + 1] += StepStart[I];
+  ByInstrument.assign(Instruments.size(), {});
+  for (std::size_t I = 0; I < Bars.size(); ++I) {
+    ByInstrument[static_cast<std::size_t>(Bars[I].Instrument)].push_back(I);
   }
 }
 
-void Timeline::checkStep(std::int64_t step) const {
-  if (step < 0 || step >= totalSteps())
+void Timeline::checkStep(std::int64_t Step) const {
+  if (Step < 0 || Step >= totalSteps())
     throw std::out_of_range("Timeline: шаг вне шкалы");
 }
 
-void Timeline::checkInstrument(int instrument) const {
-  if (instrument < 0 ||
-      static_cast<std::size_t>(instrument) >= instruments_.size()) {
+void Timeline::checkInstrument(int Instrument) const {
+  if (Instrument < 0 ||
+      static_cast<std::size_t>(Instrument) >= Instruments.size()) {
     throw std::out_of_range("Timeline: нет такой бумаги");
   }
 }
 
-std::span<const StepBar> Timeline::barsAt(std::int64_t step) const {
-  checkStep(step);
-  const auto i = static_cast<std::size_t>(step);
-  return std::span<const StepBar>(bars_).subspan(
-      stepStart_[i], stepStart_[i + 1] - stepStart_[i]);
+std::span<const StepBar> Timeline::barsAt(std::int64_t Step) const {
+  checkStep(Step);
+  const auto I = static_cast<std::size_t>(Step);
+  return std::span<const StepBar>(Bars).subspan(StepStart[I], StepStart[I + 1] -
+                                                                  StepStart[I]);
 }
 
-const StepBar *Timeline::barOf(int instrument, std::int64_t step) const {
-  checkInstrument(instrument);
-  for (const StepBar &b : barsAt(step)) {
-    if (b.instrument == instrument)
-      return &b;
+const StepBar *Timeline::barOf(int Instrument, std::int64_t Step) const {
+  checkInstrument(Instrument);
+  for (const StepBar &B : barsAt(Step)) {
+    if (B.Instrument == Instrument)
+      return &B;
   }
   return nullptr;
 }
 
-const StepBar *Timeline::lastBarOf(int instrument,
-                                   std::int64_t upToStep) const {
-  checkInstrument(instrument);
-  if (upToStep >= totalSteps())
+const StepBar *Timeline::lastBarOf(int Instrument,
+                                   std::int64_t UpToStep) const {
+  checkInstrument(Instrument);
+  if (UpToStep >= totalSteps())
     throw std::out_of_range("Timeline: шаг вне шкалы");
-  const auto &indexes = byInstrument_[static_cast<std::size_t>(instrument)];
-  const auto it =
-      std::upper_bound(indexes.begin(), indexes.end(), upToStep,
-                       [this](std::int64_t step, std::size_t index) {
-                         return step < bars_[index].step;
+  const auto &Indexes = ByInstrument[static_cast<std::size_t>(Instrument)];
+  const auto It =
+      std::upper_bound(Indexes.begin(), Indexes.end(), UpToStep,
+                       [this](std::int64_t Step, std::size_t Index) {
+                         return Step < Bars[Index].Step;
                        });
-  if (it == indexes.begin())
+  if (It == Indexes.begin())
     return nullptr;
-  return &bars_[*(it - 1)];
+  return &Bars[*(It - 1)];
 }
 
-std::int32_t Timeline::tradingDayOf(std::int64_t step) const {
-  checkStep(step);
-  return stepDay_[static_cast<std::size_t>(step)];
+std::int32_t Timeline::tradingDayOf(std::int64_t Step) const {
+  checkStep(Step);
+  return StepDay[static_cast<std::size_t>(Step)];
 }
 
-std::int32_t Timeline::yyyymmddOf(std::int64_t step) const {
-  checkStep(step);
-  return stepYmd_[static_cast<std::size_t>(step)];
+std::int32_t Timeline::yyyymmddOf(std::int64_t Step) const {
+  checkStep(Step);
+  return StepYmd[static_cast<std::size_t>(Step)];
 }
 
-bool Timeline::isLastStepOfDay(std::int64_t step) const {
-  checkStep(step);
-  const auto i = static_cast<std::size_t>(step);
-  return i + 1 == stepDay_.size() || stepDay_[i + 1] != stepDay_[i];
+bool Timeline::isLastStepOfDay(std::int64_t Step) const {
+  checkStep(Step);
+  const auto I = static_cast<std::size_t>(Step);
+  return I + 1 == StepDay.size() || StepDay[I + 1] != StepDay[I];
 }
 
-Timeline Timeline::slice(std::int32_t fromDay, std::int32_t toDay) const {
-  if (fromDay < 1 || toDay > tradingDays_ || fromDay > toDay) {
+Timeline Timeline::slice(std::int32_t FromDay, std::int32_t ToDay) const {
+  if (FromDay < 1 || ToDay > TradingDays || FromDay > ToDay) {
     throw std::invalid_argument("Timeline::slice: дни вне шкалы");
   }
   // Дни идут подряд, поэтому шаги выбранных дней - непрерывный диапазон [first,
   // last).
-  const auto first = static_cast<std::size_t>(
-      std::lower_bound(stepDay_.begin(), stepDay_.end(), fromDay) -
-      stepDay_.begin());
-  const auto last = static_cast<std::size_t>(
-      std::upper_bound(stepDay_.begin(), stepDay_.end(), toDay) -
-      stepDay_.begin());
+  const auto First = static_cast<std::size_t>(
+      std::lower_bound(StepDay.begin(), StepDay.end(), FromDay) -
+      StepDay.begin());
+  const auto Last = static_cast<std::size_t>(
+      std::upper_bound(StepDay.begin(), StepDay.end(), ToDay) -
+      StepDay.begin());
 
-  Timeline out;
-  out.instruments_ = instruments_;
-  out.tradingDays_ = toDay - fromDay + 1;
-  out.stepDay_.reserve(last - first);
-  out.stepYmd_.assign(stepYmd_.begin() + static_cast<std::ptrdiff_t>(first),
-                      stepYmd_.begin() + static_cast<std::ptrdiff_t>(last));
-  for (std::size_t i = first; i < last; ++i)
-    out.stepDay_.push_back(stepDay_[i] - (fromDay - 1));
-  out.bars_.assign(
-      bars_.begin() + static_cast<std::ptrdiff_t>(stepStart_[first]),
-      bars_.begin() + static_cast<std::ptrdiff_t>(stepStart_[last]));
-  for (StepBar &b : out.bars_) {
-    b.step -= static_cast<std::int64_t>(first);
-    b.tradingDay -= fromDay - 1;
+  Timeline Out;
+  Out.Instruments = Instruments;
+  Out.TradingDays = ToDay - FromDay + 1;
+  Out.StepDay.reserve(Last - First);
+  Out.StepYmd.assign(StepYmd.begin() + static_cast<std::ptrdiff_t>(First),
+                     StepYmd.begin() + static_cast<std::ptrdiff_t>(Last));
+  for (std::size_t I = First; I < Last; ++I)
+    Out.StepDay.push_back(StepDay[I] - (FromDay - 1));
+  Out.Bars.assign(Bars.begin() + static_cast<std::ptrdiff_t>(StepStart[First]),
+                  Bars.begin() + static_cast<std::ptrdiff_t>(StepStart[Last]));
+  for (StepBar &B : Out.Bars) {
+    B.Step -= static_cast<std::int64_t>(First);
+    B.TradingDay -= FromDay - 1;
   }
   // Прогрев среза: W шагов перед first - из прогрева шкалы (шаги < 0) и её дней
   // до fromDay.
-  if (warmupSteps_ > 0) {
-    const auto from = static_cast<std::int64_t>(first) - warmupSteps_;
-    for (const StepBar &b : warmup_) {
-      if (b.step >= from)
-        out.warmup_.push_back(b);
+  if (WarmupSteps > 0) {
+    const auto From = static_cast<std::int64_t>(First) - WarmupSteps;
+    for (const StepBar &B : Warmup) {
+      if (B.Step >= From)
+        Out.Warmup.push_back(B);
     }
-    out.warmup_.insert(out.warmup_.end(), bars_.begin(),
-                       bars_.begin() +
-                           static_cast<std::ptrdiff_t>(stepStart_[first]));
-    std::erase_if(out.warmup_,
-                  [from](const StepBar &b) { return b.step < from; });
-    for (StepBar &b : out.warmup_) {
-      b.step -= static_cast<std::int64_t>(first);
-      b.tradingDay -= fromDay - 1;
+    Out.Warmup.insert(Out.Warmup.end(), Bars.begin(),
+                      Bars.begin() +
+                          static_cast<std::ptrdiff_t>(StepStart[First]));
+    std::erase_if(Out.Warmup,
+                  [From](const StepBar &B) { return B.Step < From; });
+    for (StepBar &B : Out.Warmup) {
+      B.Step -= static_cast<std::int64_t>(First);
+      B.TradingDay -= FromDay - 1;
     }
-    out.warmupSteps_ = warmupSteps_; // перед first всегда есть W шагов: свои
-                                     // дни шкалы и её прогрев
+    Out.WarmupSteps = WarmupSteps; // перед first всегда есть W шагов: свои
+                                   // дни шкалы и её прогрев
   }
-  out.buildIndex();
-  return out;
+  Out.buildIndex();
+  return Out;
 }
 
-Timeline Timeline::withWarmup(const Timeline &history,
-                              std::int64_t steps) const {
-  if (steps < 0)
+Timeline Timeline::withWarmup(const Timeline &History,
+                              std::int64_t Steps) const {
+  if (Steps < 0)
     throw std::invalid_argument(
         "Timeline::withWarmup: число шагов прогрева отрицательно");
-  if (history.instruments_.size() != instruments_.size()) {
+  if (History.Instruments.size() != Instruments.size()) {
     throw std::invalid_argument(
         "Timeline::withWarmup: бумаги истории не совпадают с бумагами шкалы");
   }
-  for (std::size_t i = 0; i < instruments_.size(); ++i) {
-    if (history.instruments_[i].key != instruments_[i].key) {
+  for (std::size_t I = 0; I < Instruments.size(); ++I) {
+    if (History.Instruments[I].Key != Instruments[I].Key) {
       throw std::invalid_argument(
           "Timeline::withWarmup: бумаги истории не совпадают с бумагами шкалы");
     }
   }
-  Timeline out = *this;
-  out.warmup_.clear();
-  const std::int64_t total = history.totalSteps();
-  const std::int64_t n = std::min(steps, total);
-  out.warmupSteps_ = n;
-  if (n == 0)
-    return out;
-  const auto firstStep = static_cast<std::size_t>(total - n);
-  out.warmup_.assign(history.bars_.begin() + static_cast<std::ptrdiff_t>(
-                                                 history.stepStart_[firstStep]),
-                     history.bars_.end());
-  const std::int32_t lastDay = history.stepDay_.back();
-  for (StepBar &b : out.warmup_) {
-    b.step -= total;
-    b.tradingDay -= lastDay;
+  Timeline Out = *this;
+  Out.Warmup.clear();
+  const std::int64_t Total = History.totalSteps();
+  const std::int64_t N = std::min(Steps, Total);
+  Out.WarmupSteps = N;
+  if (N == 0)
+    return Out;
+  const auto FirstStep = static_cast<std::size_t>(Total - N);
+  Out.Warmup.assign(History.Bars.begin() + static_cast<std::ptrdiff_t>(
+                                               History.StepStart[FirstStep]),
+                    History.Bars.end());
+  const std::int32_t LastDay = History.StepDay.back();
+  for (StepBar &B : Out.Warmup) {
+    B.Step -= Total;
+    B.TradingDay -= LastDay;
   }
-  if (!out.warmup_.empty() && !bars_.empty()) {
-    std::int64_t latest = out.warmup_.front().timeUnixMs;
-    for (const StepBar &b : out.warmup_)
-      latest = std::max(latest, b.timeUnixMs);
-    if (latest >= bars_.front().timeUnixMs) {
+  if (!Out.Warmup.empty() && !Bars.empty()) {
+    std::int64_t Latest = Out.Warmup.front().TimeUnixMs;
+    for (const StepBar &B : Out.Warmup)
+      Latest = std::max(Latest, B.TimeUnixMs);
+    if (Latest >= Bars.front().TimeUnixMs) {
       throw std::invalid_argument(
           "Timeline::withWarmup: история не раньше начала шкалы");
     }
   }
-  return out;
+  return Out;
 }
 
-StepBar &Timeline::mutableBar(std::int64_t step, int instrument) {
-  const StepBar *found = barOf(instrument, step);
-  if (found == nullptr)
+StepBar &Timeline::mutableBar(std::int64_t Step, int Instrument) {
+  const StepBar *Found = barOf(Instrument, Step);
+  if (Found == nullptr)
     throw std::out_of_range("Timeline: у бумаги нет бара на этом шаге");
-  return bars_[static_cast<std::size_t>(found - bars_.data())];
+  return Bars[static_cast<std::size_t>(Found - Bars.data())];
 }
 
 } // namespace core

@@ -14,245 +14,245 @@ namespace {
 
 // Наивная сессия (ФТ-24) всегда без издержек и лимита ликвидности, что бы ни
 // передал вызывающий.
-SessionSpec normalized(SessionSpec spec) {
-  if (spec.naive)
-    spec.costs = CostConfig::zero();
-  return spec;
+SessionSpec normalized(SessionSpec Spec) {
+  if (Spec.Naive)
+    Spec.Costs = CostConfig::zero();
+  return Spec;
 }
 
-bool isActive(const Order &o) {
-  return o.status == OrderStatus::Active ||
-         o.status == OrderStatus::PartiallyFilled;
+bool isActive(const Order &O) {
+  return O.Status == OrderStatus::Active ||
+         O.Status == OrderStatus::PartiallyFilled;
 }
 
 } // namespace
 
-SessionEngine::SessionEngine(SessionSpec spec,
-                             std::shared_ptr<const Timeline> timeline)
-    : spec_(normalized(std::move(spec))), timeline_(std::move(timeline)),
-      exec_(spec_.instruments, spec_.costs, spec_.naive),
-      portfolio_(spec_.initialCash, spec_.instruments.size()) {
-  if (!timeline_)
+SessionEngine::SessionEngine(SessionSpec InSpec,
+                             std::shared_ptr<const Timeline> Tl)
+    : Spec(normalized(std::move(InSpec))), TimelineRef(std::move(Tl)),
+      Exec(Spec.Instruments, Spec.Costs, Spec.Naive),
+      PortfolioState(Spec.InitialCash, Spec.Instruments.size()) {
+  if (!TimelineRef)
     throw std::invalid_argument("SessionEngine: нет шкалы времени");
-  if (timeline_->totalSteps() < 1)
+  if (TimelineRef->totalSteps() < 1)
     throw std::invalid_argument("SessionEngine: шкала времени без шагов");
-  if (spec_.instruments != timeline_->instruments()) {
+  if (Spec.Instruments != TimelineRef->instruments()) {
     throw std::invalid_argument(
         "SessionEngine: бумаги сессии не совпадают с бумагами шкалы времени");
   }
-  if (spec_.initialCash.sign() <= 0)
+  if (Spec.InitialCash.sign() <= 0)
     throw std::invalid_argument(
         "SessionEngine: начальный капитал должен быть > 0");
   recordStepState(false);
   // Единственный шаг шкалы - он же последний: сессия сразу закончена.
-  if (timeline_->totalSteps() == 1)
-    status_ = SessionStatus::FinishedEnd;
+  if (TimelineRef->totalSteps() == 1)
+    Status = SessionStatus::FinishedEnd;
 }
 
 Validation
-SessionEngine::validateLegs(const std::vector<const OrderSpec *> &legs) const {
-  if (status_ != SessionStatus::Running)
+SessionEngine::validateLegs(const std::vector<const OrderSpec *> &Legs) const {
+  if (Status != SessionStatus::Running)
     return Validation{false, Reason::SessionNotActive, ""};
-  for (const OrderSpec *leg : legs) {
-    Validation v = exec_.validate(*leg, portfolio_, *timeline_, step_);
-    if (!v.ok)
-      return v;
+  for (const OrderSpec *Leg : Legs) {
+    Validation V = Exec.validate(*Leg, PortfolioState, *TimelineRef, Step);
+    if (!V.Ok)
+      return V;
   }
   return Validation{};
 }
 
 // Создаёт заявки команды: при отказе - со статусом Rejected и причиной (запись
 // остаётся в журнале).
-void SessionEngine::createOrders(const JournalEntry &entry, const PlaceCmd &cmd,
-                                 const Validation &verdict,
-                                 CommandResult &result) {
-  std::vector<const OrderSpec *> legs{&cmd.order};
-  if (cmd.ocoWith)
-    legs.push_back(&*cmd.ocoWith);
-  std::vector<std::int64_t> ids;
-  for (std::size_t i = 0; i < legs.size(); ++i)
-    ids.push_back(entry.seq * 2 + static_cast<std::int64_t>(i));
+void SessionEngine::createOrders(const JournalEntry &Entry, const PlaceCmd &Cmd,
+                                 const Validation &Verdict,
+                                 CommandResult &Result) {
+  std::vector<const OrderSpec *> Legs{&Cmd.Order};
+  if (Cmd.OcoWith)
+    Legs.push_back(&*Cmd.OcoWith);
+  std::vector<std::int64_t> Ids;
+  for (std::size_t I = 0; I < Legs.size(); ++I)
+    Ids.push_back(Entry.Seq * 2 + static_cast<std::int64_t>(I));
 
-  for (std::size_t i = 0; i < legs.size(); ++i) {
-    Order o;
-    o.id = ids[i];
-    o.spec = *legs[i];
-    o.placedStep = step_;
-    o.ruleName = entry.ruleName;
-    o.because = entry.because;
-    if (verdict.ok) {
-      o.status = OrderStatus::Active;
-      if (legs.size() == 2)
-        o.ocoSiblingId = ids[1 - i];
+  for (std::size_t I = 0; I < Legs.size(); ++I) {
+    Order O;
+    O.Id = Ids[I];
+    O.Spec = *Legs[I];
+    O.PlacedStep = Step;
+    O.RuleName = Entry.RuleName;
+    O.Because = Entry.Because;
+    if (Verdict.Ok) {
+      O.Status = OrderStatus::Active;
+      if (Legs.size() == 2)
+        O.OcoSiblingId = Ids[1 - I];
     } else {
-      o.status = OrderStatus::Rejected;
-      o.reason = verdict.reason;
-      o.invalidField = verdict.field;
-      o.closedStep = step_;
+      O.Status = OrderStatus::Rejected;
+      O.ReasonCode = Verdict.ReasonCode;
+      O.InvalidField = Verdict.Field;
+      O.ClosedStep = Step;
     }
-    orders_.push_back(std::move(o));
-    changed_.push_back(ids[i]);
-    result.orderIds.push_back(ids[i]);
+    Orders.push_back(std::move(O));
+    Changed.push_back(Ids[I]);
+    Result.OrderIds.push_back(Ids[I]);
   }
-  result.accepted = verdict.ok;
-  result.reason = verdict.reason;
-  result.field = verdict.field;
+  Result.Accepted = Verdict.Ok;
+  Result.ReasonCode = Verdict.ReasonCode;
+  Result.Field = Verdict.Field;
 }
 
-Order *SessionEngine::findOrder(std::int64_t id) {
-  const auto it = std::lower_bound(
-      orders_.begin(), orders_.end(), id,
-      [](const Order &o, std::int64_t value) { return o.id < value; });
-  return it != orders_.end() && it->id == id ? &*it : nullptr;
+Order *SessionEngine::findOrder(std::int64_t Id) {
+  const auto It = std::lower_bound(
+      Orders.begin(), Orders.end(), Id,
+      [](const Order &O, std::int64_t Value) { return O.Id < Value; });
+  return It != Orders.end() && It->Id == Id ? &*It : nullptr;
 }
 
-void SessionEngine::closeOrder(Order &order, OrderStatus status,
-                               Reason reason) {
-  order.status = status;
-  order.reason = reason;
-  order.closedStep = step_;
-  changed_.push_back(order.id);
+void SessionEngine::closeOrder(Order &Order, OrderStatus FinalStatus,
+                               Reason Reason) {
+  Order.Status = FinalStatus;
+  Order.ReasonCode = Reason;
+  Order.ClosedStep = Step;
+  Changed.push_back(Order.Id);
 }
 
-void SessionEngine::cancelActive(Reason reason) {
-  for (Order &o : orders_) {
-    if (isActive(o))
-      closeOrder(o, OrderStatus::Cancelled, reason);
+void SessionEngine::cancelActive(Reason Reason) {
+  for (Order &O : Orders) {
+    if (isActive(O))
+      closeOrder(O, OrderStatus::Cancelled, Reason);
   }
 }
 
-CommandResult SessionEngine::apply(const JournalEntry &entry) {
+CommandResult SessionEngine::apply(const JournalEntry &Entry) {
   // Остановленная сессия принимает и записи с более поздним шагом: они
   // отклоняются с SessionNotActive, чтобы журнал с такими записями оставался
   // проигрываемым.
-  const bool stopped = status_ != SessionStatus::Running;
-  if (entry.step != step_ && !(stopped && entry.step > step_)) {
+  const bool Stopped = Status != SessionStatus::Running;
+  if (Entry.Step != Step && !(Stopped && Entry.Step > Step)) {
     throw std::invalid_argument(
-        "SessionEngine::apply: шаг записи " + std::to_string(entry.step) +
-        " не равен текущему шагу " + std::to_string(step_));
+        "SessionEngine::apply: шаг записи " + std::to_string(Entry.Step) +
+        " не равен текущему шагу " + std::to_string(Step));
   }
-  if (naiveSettled_) {
+  if (NaiveSettled) {
     throw std::logic_error("SessionEngine::apply: шаг уже закрыт settleStep(), "
                            "записи этого шага больше не принимаются");
   }
-  if (entry.seq < 0 || entry.seq <= lastSeq_) {
+  if (Entry.Seq < 0 || Entry.Seq <= LastSeq) {
     throw std::invalid_argument(
-        "SessionEngine::apply: seq " + std::to_string(entry.seq) +
-        " не больше предыдущего " + std::to_string(lastSeq_));
+        "SessionEngine::apply: seq " + std::to_string(Entry.Seq) +
+        " не больше предыдущего " + std::to_string(LastSeq));
   }
-  lastSeq_ = entry.seq;
+  LastSeq = Entry.Seq;
 
-  CommandResult result;
-  result.seq = entry.seq;
-  const bool running = status_ == SessionStatus::Running;
+  CommandResult Result;
+  Result.Seq = Entry.Seq;
+  const bool Running = Status == SessionStatus::Running;
 
   std::visit(
-      [&](const auto &cmd) {
-        using T = std::decay_t<decltype(cmd)>;
+      [&](const auto &Cmd) {
+        using T = std::decay_t<decltype(Cmd)>;
         if constexpr (std::is_same_v<T, PlaceCmd>) {
-          std::vector<const OrderSpec *> legs{&cmd.order};
-          if (cmd.ocoWith)
-            legs.push_back(&*cmd.ocoWith);
-          createOrders(entry, cmd, validateLegs(legs), result);
+          std::vector<const OrderSpec *> Legs{&Cmd.Order};
+          if (Cmd.OcoWith)
+            Legs.push_back(&*Cmd.OcoWith);
+          createOrders(Entry, Cmd, validateLegs(Legs), Result);
         } else if constexpr (std::is_same_v<T, CancelCmd>) {
-          if (!running) {
-            result.reason = Reason::SessionNotActive;
-          } else if (cancelOrder(orders_, cmd.orderId, cmd.reason, step_,
-                                 changed_)) { // у OCO - вместе со второй ногой
-            result.accepted = true;
+          if (!Running) {
+            Result.ReasonCode = Reason::SessionNotActive;
+          } else if (cancelOrder(Orders, Cmd.OrderId, Cmd.ReasonCode, Step,
+                                 Changed)) { // у OCO - вместе со второй ногой
+            Result.Accepted = true;
           } else {
-            result.reason = Reason::OrderNotActive;
+            Result.ReasonCode = Reason::OrderNotActive;
           }
         } else {
           // Замена: сначала проверяется новая заявка; не прошла - запись
           // отклонена целиком, старая не тронута.
-          Order *old = findOrder(cmd.orderId);
-          std::vector<const OrderSpec *> legs{&cmd.replacement.order};
-          if (cmd.replacement.ocoWith)
-            legs.push_back(&*cmd.replacement.ocoWith);
-          Validation verdict = validateLegs(legs);
-          if (verdict.ok && (old == nullptr || !isActive(*old)))
-            verdict = Validation{false, Reason::OrderNotActive, ""};
-          if (verdict.ok) {
-            const Reason why = entry.ruleName.empty() ? Reason::Replaced
+          Order *Old = findOrder(Cmd.OrderId);
+          std::vector<const OrderSpec *> Legs{&Cmd.Replacement.Order};
+          if (Cmd.Replacement.OcoWith)
+            Legs.push_back(&*Cmd.Replacement.OcoWith);
+          Validation Verdict = validateLegs(Legs);
+          if (Verdict.Ok && (Old == nullptr || !isActive(*Old)))
+            Verdict = Validation{false, Reason::OrderNotActive, ""};
+          if (Verdict.Ok) {
+            const Reason Why = Entry.RuleName.empty() ? Reason::Replaced
                                                       : Reason::RuleReplaced;
-            cancelOrder(orders_, old->id, why, step_,
-                        changed_); // у OCO заменяется вся пара
+            cancelOrder(Orders, Old->Id, Why, Step,
+                        Changed); // у OCO заменяется вся пара
           }
-          createOrders(entry, cmd.replacement, verdict, result);
+          createOrders(Entry, Cmd.Replacement, Verdict, Result);
         }
       },
-      entry.command);
+      Entry.Command);
 
-  if (spec_.naive && running)
-    naiveDue_ = true;
-  return result;
+  if (Spec.Naive && Running)
+    NaiveDue = true;
+  return Result;
 }
 
 // ФТ-24: наивное исполнение без задержки - рыночные заявки шага по close бара
 // решения, без издержек.
 void SessionEngine::settleStep() {
-  if (!naiveDue_)
+  if (!NaiveDue)
     return;
-  naiveDue_ = false;
-  naiveSettled_ = true;
-  const std::size_t from = fills_.size();
-  exec_.processNaive(step_, *timeline_, orders_, portfolio_, fills_, changed_);
-  checkIntegrity(from, true);
+  NaiveDue = false;
+  NaiveSettled = true;
+  const std::size_t From = Fills.size();
+  Exec.processNaive(Step, *TimelineRef, Orders, PortfolioState, Fills, Changed);
+  checkIntegrity(From, true);
   recordStepState(true);
 }
 
 void SessionEngine::advance() {
-  if (status_ != SessionStatus::Running)
+  if (Status != SessionStatus::Running)
     throw std::logic_error("SessionEngine::advance: сессия остановлена");
   settleStep();
-  const std::int64_t next = step_ + 1;
-  step_ = next;
-  naiveSettled_ = false;
-  fillsBegin_ = fills_.size();
-  changed_.clear();
+  const std::int64_t Next = Step + 1;
+  Step = Next;
+  NaiveSettled = false;
+  FillsBegin = Fills.size();
+  Changed.clear();
 
   // Дневные заявки снимает processStep (задача 14), движок своего снятия не
   // делает.
-  exec_.processStep(next, *timeline_, orders_, portfolio_, fills_, changed_);
-  checkIntegrity(fillsBegin_, false);
+  Exec.processStep(Next, *TimelineRef, Orders, PortfolioState, Fills, Changed);
+  checkIntegrity(FillsBegin, false);
   recordStepState(false);
 
-  const bool bankrupt = equity_.back().equity.sign() <= 0;
-  const bool lastStep = next == timeline_->totalSteps() - 1;
-  if (bankrupt) {
-    status_ = SessionStatus::Bankrupt;
-  } else if (lastStep) {
-    status_ = SessionStatus::FinishedEnd;
+  const bool Bankrupt = Equity.back().Equity.sign() <= 0;
+  const bool LastStep = Next == TimelineRef->totalSteps() - 1;
+  if (Bankrupt) {
+    Status = SessionStatus::Bankrupt;
+  } else if (LastStep) {
+    Status = SessionStatus::FinishedEnd;
   }
   // Остановленная сессия не оставляет активных заявок.
-  if (status_ != SessionStatus::Running)
+  if (Status != SessionStatus::Running)
     cancelActive(Reason::SessionEnd);
 }
 
 // Состояние шага: переоценка по последним close, точка кривой стоимости и
 // стоимости позиций.
-void SessionEngine::recordStepState(bool replaceLast) {
-  const std::size_t n = spec_.instruments.size();
-  std::vector<std::optional<Decimal>> lastClose(n);
-  std::vector<std::int64_t> lotSizes(n);
-  std::vector<Decimal> values(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    lotSizes[i] = spec_.instruments[i].lotSize;
-    const StepBar *bar = timeline_->lastBarOf(static_cast<int>(i), step_);
-    if (bar != nullptr)
-      lastClose[i] = bar->close;
-    const std::int64_t lots = portfolio_.lots(static_cast<int>(i));
-    if (lots > 0 && bar != nullptr)
-      values[i] = Portfolio::positionValue(lots, lotSizes[i], bar->close);
+void SessionEngine::recordStepState(bool ReplaceLast) {
+  const std::size_t N = Spec.Instruments.size();
+  std::vector<std::optional<Decimal>> LastClose(N);
+  std::vector<std::int64_t> LotSizes(N);
+  std::vector<Decimal> Values(N);
+  for (std::size_t I = 0; I < N; ++I) {
+    LotSizes[I] = Spec.Instruments[I].LotSize;
+    const StepBar *Bar = TimelineRef->lastBarOf(static_cast<int>(I), Step);
+    if (Bar != nullptr)
+      LastClose[I] = Bar->Close;
+    const std::int64_t Lots = PortfolioState.lots(static_cast<int>(I));
+    if (Lots > 0 && Bar != nullptr)
+      Values[I] = Portfolio::positionValue(Lots, LotSizes[I], Bar->Close);
   }
-  EquityPoint point{step_, portfolio_.equity(lastClose, lotSizes)};
-  if (replaceLast) {
-    equity_.back() = point;
-    positionValues_.back() = std::move(values);
+  EquityPoint Point{Step, PortfolioState.equity(LastClose, LotSizes)};
+  if (ReplaceLast) {
+    Equity.back() = Point;
+    PositionValues.back() = std::move(Values);
   } else {
-    equity_.push_back(point);
-    positionValues_.push_back(std::move(values));
+    Equity.push_back(Point);
+    PositionValues.push_back(std::move(Values));
   }
 }
 
@@ -261,106 +261,106 @@ void SessionEngine::recordStepState(bool replaceLast) {
 // close бара решения, sameStepAllowed); из processStep проверка действует
 // всегда. Баров из будущего (INV-1) здесь нет: Timeline::barsAt(step) по
 // построению отдаёт только бары шага step.
-void SessionEngine::checkIntegrity(std::size_t fromFill,
-                                   bool sameStepAllowed) const {
-  for (std::size_t i = fromFill; i < fills_.size(); ++i) {
-    const Fill &f = fills_[i];
-    if (f.step != step_)
+void SessionEngine::checkIntegrity(std::size_t FromFill,
+                                   bool SameStepAllowed) const {
+  for (std::size_t I = FromFill; I < Fills.size(); ++I) {
+    const Fill &F = Fills[I];
+    if (F.Step != Step)
       throw IntegrityViolation("исполнение не на текущем шаге");
-    const auto it = std::lower_bound(
-        orders_.begin(), orders_.end(), f.orderId,
-        [](const Order &o, std::int64_t value) { return o.id < value; });
-    if (it == orders_.end() || it->id != f.orderId)
+    const auto It = std::lower_bound(
+        Orders.begin(), Orders.end(), F.OrderId,
+        [](const Order &O, std::int64_t Value) { return O.Id < Value; });
+    if (It == Orders.end() || It->Id != F.OrderId)
       throw IntegrityViolation("исполнение неизвестной заявки");
-    if (!sameStepAllowed && f.step <= it->placedStep) {
+    if (!SameStepAllowed && F.Step <= It->PlacedStep) {
       throw IntegrityViolation("исполнение не позже шага подачи заявки");
     }
   }
 }
 
 PortfolioSnapshot SessionEngine::snapshot() const {
-  PortfolioSnapshot s;
-  s.cash = portfolio_.cash();
-  s.equity = equity_.back().equity;
-  const std::size_t n = spec_.instruments.size();
-  for (std::size_t i = 0; i < n; ++i) {
-    s.lots.push_back(portfolio_.lots(static_cast<int>(i)));
-    s.avgPrice.push_back(portfolio_.avgPrice(static_cast<int>(i)));
+  PortfolioSnapshot S;
+  S.Cash = PortfolioState.cash();
+  S.Equity = Equity.back().Equity;
+  const std::size_t N = Spec.Instruments.size();
+  for (std::size_t I = 0; I < N; ++I) {
+    S.Lots.push_back(PortfolioState.lots(static_cast<int>(I)));
+    S.AvgPrice.push_back(PortfolioState.avgPrice(static_cast<int>(I)));
   }
-  s.marketValue = positionValues_.back();
-  return s;
+  S.MarketValue = PositionValues.back();
+  return S;
 }
 
 StepEvents SessionEngine::lastStepEvents() const {
-  StepEvents e;
-  e.step = step_;
-  const auto bars = timeline_->barsAt(step_);
-  e.bars.assign(bars.begin(), bars.end());
-  e.fills.assign(fills_.begin() + static_cast<std::ptrdiff_t>(fillsBegin_),
-                 fills_.end());
-  std::vector<std::int64_t> ids = changed_;
-  std::sort(ids.begin(), ids.end());
-  ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-  for (const std::int64_t id : ids) {
-    const auto it = std::lower_bound(
-        orders_.begin(), orders_.end(), id,
-        [](const Order &o, std::int64_t value) { return o.id < value; });
-    if (it != orders_.end() && it->id == id)
-      e.changedOrders.push_back(*it);
+  StepEvents E;
+  E.Step = Step;
+  const auto Bars = TimelineRef->barsAt(Step);
+  E.Bars.assign(Bars.begin(), Bars.end());
+  E.Fills.assign(Fills.begin() + static_cast<std::ptrdiff_t>(FillsBegin),
+                 Fills.end());
+  std::vector<std::int64_t> Ids = Changed;
+  std::sort(Ids.begin(), Ids.end());
+  Ids.erase(std::unique(Ids.begin(), Ids.end()), Ids.end());
+  for (const std::int64_t Id : Ids) {
+    const auto It = std::lower_bound(
+        Orders.begin(), Orders.end(), Id,
+        [](const Order &O, std::int64_t Value) { return O.Id < Value; });
+    if (It != Orders.end() && It->Id == Id)
+      E.ChangedOrders.push_back(*It);
   }
-  e.portfolio = snapshot();
-  return e;
+  E.Portfolio = snapshot();
+  return E;
 }
 
-ReplayResult replaySession(const SessionSpec &spec,
-                           std::shared_ptr<const Timeline> timeline,
-                           std::span<const JournalEntry> journal,
-                           std::int64_t upToStep, std::int64_t eventsFromStep) {
-  if (!timeline)
+ReplayResult replaySession(const SessionSpec &Spec,
+                           std::shared_ptr<const Timeline> Timeline,
+                           std::span<const JournalEntry> Journal,
+                           std::int64_t UpToStep, std::int64_t EventsFromStep) {
+  if (!Timeline)
     throw std::invalid_argument("replaySession: нет шкалы времени");
-  if (upToStep < 0 || upToStep >= timeline->totalSteps()) {
+  if (UpToStep < 0 || UpToStep >= Timeline->totalSteps()) {
     throw std::invalid_argument("replaySession: upToStep вне шкалы времени");
   }
   // Журнал проверяется целиком до проигрывания: результат не зависит от того,
   // где он оборвётся.
-  std::int64_t prevStep = 0, prevSeq = -1;
-  for (const JournalEntry &e : journal) {
-    if (e.step < prevStep)
+  std::int64_t PrevStep = 0, PrevSeq = -1;
+  for (const JournalEntry &E : Journal) {
+    if (E.Step < PrevStep)
       throw std::invalid_argument("replaySession: шаг записи журнала убывает");
-    if (e.step > upToStep)
+    if (E.Step > UpToStep)
       throw std::invalid_argument(
           "replaySession: шаг записи журнала больше upToStep");
-    if (e.seq < 0 || e.seq <= prevSeq)
+    if (E.Seq < 0 || E.Seq <= PrevSeq)
       throw std::invalid_argument(
           "replaySession: seq записей журнала не возрастает");
-    prevStep = e.step;
-    prevSeq = e.seq;
+    PrevStep = E.Step;
+    PrevSeq = E.Seq;
   }
 
-  SessionEngine engine(spec, std::move(timeline));
-  std::vector<StepEvents> events;
-  std::vector<CommandResult> results;
-  results.reserve(journal.size());
-  std::size_t next = 0;
+  SessionEngine Engine(Spec, std::move(Timeline));
+  std::vector<StepEvents> Events;
+  std::vector<CommandResult> Results;
+  Results.reserve(Journal.size());
+  std::size_t Next = 0;
   for (;;) {
-    const std::int64_t k = engine.currentStep();
+    const std::int64_t K = Engine.currentStep();
     // Остановленная сессия принимает все оставшиеся записи (отказ
     // SessionNotActive).
-    while (next < journal.size() && (journal[next].step == k ||
-                                     engine.status() != SessionStatus::Running))
-      results.push_back(engine.apply(journal[next++]));
-    engine.settleStep();
-    if (k >= eventsFromStep)
-      events.push_back(engine.lastStepEvents());
-    if (k == upToStep || engine.status() != SessionStatus::Running)
+    while (Next < Journal.size() && (Journal[Next].Step == K ||
+                                     Engine.status() != SessionStatus::Running))
+      Results.push_back(Engine.apply(Journal[Next++]));
+    Engine.settleStep();
+    if (K >= EventsFromStep)
+      Events.push_back(Engine.lastStepEvents());
+    if (K == UpToStep || Engine.status() != SessionStatus::Running)
       break;
-    engine.advance();
+    Engine.advance();
   }
 
-  const SessionStatus status = engine.status();
-  const std::int64_t lastStep = engine.currentStep();
-  return ReplayResult{status, lastStep, std::move(events), std::move(results),
-                      std::move(engine)};
+  const SessionStatus Status = Engine.status();
+  const std::int64_t LastStep = Engine.currentStep();
+  return ReplayResult{Status, LastStep, std::move(Events), std::move(Results),
+                      std::move(Engine)};
 }
 
 } // namespace core

@@ -19,31 +19,31 @@ namespace {
 using testing::dec;
 using testing::loadProgram;
 
-RunOutput run(const std::string &source, const SessionSpec &spec,
-              const std::shared_ptr<const Timeline> &timeline,
-              const dsl::ParamValues &overrides = {},
-              const Progress &progress = nullptr) {
-  const auto loaded = loadProgram(source);
-  return runBacktest(spec, timeline, loaded.program, loaded.params, overrides,
-                     dsl::Level::Ok, progress);
+RunOutput run(const std::string &Source, const SessionSpec &Spec,
+              const std::shared_ptr<const Timeline> &Timeline,
+              const dsl::ParamValues &Overrides = {},
+              const Progress &Progress = nullptr) {
+  const auto Loaded = loadProgram(Source);
+  return runBacktest(Spec, Timeline, Loaded.Program, Loaded.Params, Overrides,
+                     dsl::Level::Ok, Progress);
 }
 
-const Order *findOrder(const RunOutput &out, std::int64_t id) {
-  for (const Order &o : out.orders) {
-    if (o.id == id)
-      return &o;
+const Order *findOrder(const RunOutput &Out, std::int64_t Id) {
+  for (const Order &O : Out.Orders) {
+    if (O.Id == Id)
+      return &O;
   }
   return nullptr;
 }
 
-std::vector<const Order *> ordersOf(const RunOutput &out,
-                                    const std::string &rule) {
-  std::vector<const Order *> found;
-  for (const Order &o : out.orders) {
-    if (o.ruleName == rule)
-      found.push_back(&o);
+std::vector<const Order *> ordersOf(const RunOutput &Out,
+                                    const std::string &Rule) {
+  std::vector<const Order *> Found;
+  for (const Order &O : Out.Orders) {
+    if (O.RuleName == Rule)
+      Found.push_back(&O);
   }
-  return found;
+  return Found;
 }
 
 constexpr const char *kSimpleRules =
@@ -54,77 +54,77 @@ constexpr const char *kSimpleRules =
 
 TEST(Backtest, SimpleRulesOnFixture) {
   const auto [spec, timeline] = testing::fixtureA();
-  const RunOutput out = run(kSimpleRules, spec, timeline);
+  const RunOutput Out = run(kSimpleRules, spec, timeline);
 
-  EXPECT_EQ(out.status, RunStatus::Completed);
-  EXPECT_EQ(out.level, dsl::Level::Ok);
-  EXPECT_EQ(out.lastStep, 9);
-  ASSERT_EQ(out.fills.size(), 3u);
+  EXPECT_EQ(Out.Status, RunStatus::Completed);
+  EXPECT_EQ(Out.Severity, dsl::Level::Ok);
+  EXPECT_EQ(Out.LastStep, 9);
+  ASSERT_EQ(Out.Fills.size(), 3u);
 
-  EXPECT_EQ(out.fills[0].step, 2);
-  EXPECT_EQ(out.fills[0].side, Side::Buy);
-  EXPECT_EQ(out.fills[0].lots, 10);
-  EXPECT_EQ(out.fills[0].price, dec("101.07")); // base 101, raw 101.0606
+  EXPECT_EQ(Out.Fills[0].Step, 2);
+  EXPECT_EQ(Out.Fills[0].OrderSide, Side::Buy);
+  EXPECT_EQ(Out.Fills[0].Lots, 10);
+  EXPECT_EQ(Out.Fills[0].Price, dec("101.07")); // base 101, raw 101.0606
 
-  EXPECT_EQ(out.fills[1].step, 5);
-  EXPECT_EQ(out.fills[1].side, Side::Sell);
-  EXPECT_EQ(out.fills[1].price, dec("103.93")); // raw 103.9376
+  EXPECT_EQ(Out.Fills[1].Step, 5);
+  EXPECT_EQ(Out.Fills[1].OrderSide, Side::Sell);
+  EXPECT_EQ(Out.Fills[1].Price, dec("103.93")); // raw 103.9376
 
-  EXPECT_EQ(out.fills[2].step, 8);
-  EXPECT_EQ(out.fills[2].side, Side::Buy);
-  EXPECT_EQ(out.fills[2].price, dec("102.07")); // raw 102.0612
+  EXPECT_EQ(Out.Fills[2].Step, 8);
+  EXPECT_EQ(Out.Fills[2].OrderSide, Side::Buy);
+  EXPECT_EQ(Out.Fills[2].Price, dec("102.07")); // raw 102.0612
 
-  const char *because[] = {"рост", "падение", "рост"};
-  for (std::size_t i = 0; i < 3; ++i) {
-    const Order *order = findOrder(out, out.fills[i].orderId);
-    ASSERT_NE(order, nullptr);
-    EXPECT_EQ(order->because, because[i]);
+  const char *Because[] = {"рост", "падение", "рост"};
+  for (std::size_t I = 0; I < 3; ++I) {
+    const Order *Order = findOrder(Out, Out.Fills[I].OrderId);
+    ASSERT_NE(Order, nullptr);
+    EXPECT_EQ(Order->Because, Because[I]);
   }
-  EXPECT_EQ(out.equity.size(), 10u);
-  EXPECT_EQ(out.positionValuesByStep.size(), 10u);
-  EXPECT_EQ(out.finalEquity, out.equity.back().equity);
-  EXPECT_EQ(out.roundTrips.size(), 1u);
-  EXPECT_EQ(out.digest, digestOf(out));
+  EXPECT_EQ(Out.Equity.size(), 10u);
+  EXPECT_EQ(Out.PositionValuesByStep.size(), 10u);
+  EXPECT_EQ(Out.FinalEquity, Out.Equity.back().Equity);
+  EXPECT_EQ(Out.RoundTrips.size(), 1u);
+  EXPECT_EQ(Out.Digest, digestOf(Out));
 }
 
 TEST(Backtest, SameEngineAsHuman) {
   // Стратегия с заменой и отменой заявок: журнал стратегии проигрывается
   // движком как журнал человека.
   const auto [spec, timeline] = testing::fixtureA();
-  const RunOutput out =
+  const RunOutput Out =
       run(std::string(kSimpleRules) +
               "rule \"lim\" when close < 103 then buy 1 lots limit close * 0.9 "
               "because \"лимит\"\n"
               "rule \"c\" when close >= 106 then cancel because \"отмена\"\n",
           spec, timeline);
-  ASSERT_FALSE(out.journal.empty());
+  ASSERT_FALSE(Out.Journal.empty());
 
-  const ReplayResult replay =
-      replaySession(spec, timeline, out.journal, out.lastStep, 0);
-  ASSERT_EQ(replay.engine.fills().size(), out.fills.size());
-  for (std::size_t i = 0; i < out.fills.size(); ++i) {
-    EXPECT_TRUE(testing::sameFill(replay.engine.fills()[i], out.fills[i]))
-        << "сделка " << i;
+  const ReplayResult Replay =
+      replaySession(spec, timeline, Out.Journal, Out.LastStep, 0);
+  ASSERT_EQ(Replay.Engine.fills().size(), Out.Fills.size());
+  for (std::size_t I = 0; I < Out.Fills.size(); ++I) {
+    EXPECT_TRUE(testing::sameFill(Replay.Engine.fills()[I], Out.Fills[I]))
+        << "сделка " << I;
   }
-  ASSERT_EQ(replay.engine.equity().size(), out.equity.size());
-  for (std::size_t i = 0; i < out.equity.size(); ++i) {
-    EXPECT_EQ(replay.engine.equity()[i].equity, out.equity[i].equity)
-        << "шаг " << i;
+  ASSERT_EQ(Replay.Engine.equity().size(), Out.Equity.size());
+  for (std::size_t I = 0; I < Out.Equity.size(); ++I) {
+    EXPECT_EQ(Replay.Engine.equity()[I].Equity, Out.Equity[I].Equity)
+        << "шаг " << I;
   }
-  ASSERT_EQ(replay.engine.orders().size(), out.orders.size());
-  for (std::size_t i = 0; i < out.orders.size(); ++i) {
-    EXPECT_EQ(replay.engine.orders()[i].status, out.orders[i].status)
-        << "заявка " << i;
-    EXPECT_EQ(replay.engine.orders()[i].reason, out.orders[i].reason)
-        << "заявка " << i;
-    EXPECT_EQ(replay.engine.orders()[i].closedStep, out.orders[i].closedStep)
-        << "заявка " << i;
+  ASSERT_EQ(Replay.Engine.orders().size(), Out.Orders.size());
+  for (std::size_t I = 0; I < Out.Orders.size(); ++I) {
+    EXPECT_EQ(Replay.Engine.orders()[I].Status, Out.Orders[I].Status)
+        << "заявка " << I;
+    EXPECT_EQ(Replay.Engine.orders()[I].ReasonCode, Out.Orders[I].ReasonCode)
+        << "заявка " << I;
+    EXPECT_EQ(Replay.Engine.orders()[I].ClosedStep, Out.Orders[I].ClosedStep)
+        << "заявка " << I;
   }
 }
 
 TEST(Backtest, StopCancelledWhenFlat) {
   const auto [spec, timeline] = testing::fixtureA();
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"вход\" when close > close[1] and position == 0 then buy 10 "
           "lots because \"рост\"\n"
           "rule \"стоп\" when position > 0 then sell all stop entry_price * "
@@ -135,135 +135,135 @@ TEST(Backtest, StopCancelledWhenFlat) {
 
   // Выход по перекупленности: решение на шаге 3 (close 106), продажа на шаге 4;
   // стоп снят с PositionClosed.
-  const auto stops = ordersOf(out, "стоп");
-  ASSERT_GE(stops.size(), 1u);
-  EXPECT_EQ(stops[0]->status, OrderStatus::Cancelled);
-  EXPECT_EQ(stops[0]->reason, Reason::PositionClosed);
-  EXPECT_EQ(stops[0]->closedStep, 4);
-  ASSERT_GE(out.fills.size(), 2u);
-  EXPECT_EQ(out.fills[1].side, Side::Sell);
-  EXPECT_EQ(out.fills[1].step, 4);
+  const auto Stops = ordersOf(Out, "стоп");
+  ASSERT_GE(Stops.size(), 1u);
+  EXPECT_EQ(Stops[0]->Status, OrderStatus::Cancelled);
+  EXPECT_EQ(Stops[0]->ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(Stops[0]->ClosedStep, 4);
+  ASSERT_GE(Out.Fills.size(), 2u);
+  EXPECT_EQ(Out.Fills[1].OrderSide, Side::Sell);
+  EXPECT_EQ(Out.Fills[1].Step, 4);
   // В журнале это запись CancelCmd с причиной PositionClosed.
-  bool journaled = false;
-  for (const JournalEntry &e : out.journal) {
-    if (const auto *cancel = std::get_if<CancelCmd>(&e.command)) {
-      journaled |= cancel->orderId == stops[0]->id &&
-                   cancel->reason == Reason::PositionClosed && e.step == 4;
+  bool Journaled = false;
+  for (const JournalEntry &E : Out.Journal) {
+    if (const auto *Cancel = std::get_if<CancelCmd>(&E.Command)) {
+      Journaled |= Cancel->OrderId == Stops[0]->Id &&
+                   Cancel->ReasonCode == Reason::PositionClosed && E.Step == 4;
     }
   }
-  EXPECT_TRUE(journaled);
+  EXPECT_TRUE(Journaled);
 }
 
 TEST(Backtest, OneActiveOrderPerRule) {
   const auto [spec, timeline] = testing::fixtureA();
   // «moving»: цена лимита меняется каждый бар - прежняя заявка снимается.
   // «fixed»: заявка не меняется - не дублируется.
-  const RunOutput out = run("rule \"moving\" when true then buy 1 lots limit "
+  const RunOutput Out = run("rule \"moving\" when true then buy 1 lots limit "
                             "close * 0.5 because \"подвижная\"\n"
                             "rule \"fixed\" when true then buy 1 lots limit 50 "
                             "because \"постоянная\"\n",
                             spec, timeline);
 
-  const auto fixedOrders = ordersOf(out, "fixed");
-  ASSERT_EQ(fixedOrders.size(), 1u);
-  EXPECT_EQ(fixedOrders[0]->placedStep, 0);
+  const auto FixedOrders = ordersOf(Out, "fixed");
+  ASSERT_EQ(FixedOrders.size(), 1u);
+  EXPECT_EQ(FixedOrders[0]->PlacedStep, 0);
 
-  const auto moving = ordersOf(out, "moving");
-  ASSERT_EQ(moving.size(),
+  const auto Moving = ordersOf(Out, "moving");
+  ASSERT_EQ(Moving.size(),
             9u); // шаги 0…8; на последнем шаге 9 сессия уже закончена
-  for (std::size_t i = 0; i < moving.size(); ++i) {
-    EXPECT_EQ(moving[i]->status, OrderStatus::Cancelled);
-    EXPECT_EQ(moving[i]->reason,
-              i + 1 < moving.size() ? Reason::RuleReplaced : Reason::SessionEnd)
-        << "заявка " << i;
+  for (std::size_t I = 0; I < Moving.size(); ++I) {
+    EXPECT_EQ(Moving[I]->Status, OrderStatus::Cancelled);
+    EXPECT_EQ(Moving[I]->ReasonCode,
+              I + 1 < Moving.size() ? Reason::RuleReplaced : Reason::SessionEnd)
+        << "заявка " << I;
   }
   // На любом шаге у правила не больше одной активной заявки.
-  for (std::int64_t step = 0; step <= out.lastStep; ++step) {
-    int active = 0;
-    for (const Order *o : moving)
-      active +=
-          o->placedStep <= step && (o->closedStep < 0 || o->closedStep > step);
-    EXPECT_LE(active, 1) << "шаг " << step;
+  for (std::int64_t Step = 0; Step <= Out.LastStep; ++Step) {
+    int Active = 0;
+    for (const Order *O : Moving)
+      Active +=
+          O->PlacedStep <= Step && (O->ClosedStep < 0 || O->ClosedStep > Step);
+    EXPECT_LE(Active, 1) << "шаг " << Step;
   }
 }
 
 TEST(Backtest, CancelActionCancelsRestingOrders) {
   const auto [spec, timeline] = testing::fixtureA();
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"lim\" when close < 103 then buy 1 lots limit 50 because "
           "\"лимит\"\n"
           "rule \"c\" when close >= 103 then cancel because \"отмена\"\n",
           spec, timeline);
-  const auto lim = ordersOf(out, "lim");
-  ASSERT_GE(lim.size(), 1u);
-  EXPECT_EQ(lim[0]->status, OrderStatus::Cancelled);
-  EXPECT_EQ(lim[0]->reason, Reason::CancelledByUser);
-  EXPECT_EQ(lim[0]->closedStep, 2);
+  const auto Lim = ordersOf(Out, "lim");
+  ASSERT_GE(Lim.size(), 1u);
+  EXPECT_EQ(Lim[0]->Status, OrderStatus::Cancelled);
+  EXPECT_EQ(Lim[0]->ReasonCode, Reason::CancelledByUser);
+  EXPECT_EQ(Lim[0]->ClosedStep, 2);
 }
 
 TEST(Backtest, EachInstrumentGetsOwnOrder) {
-  auto f = testing::fixture1();
-  const auto timeline = std::make_shared<const Timeline>(
-      Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments,
+  auto F = testing::fixture1();
+  const auto Line = std::make_shared<const Timeline>(
+      Timeline::load(F.Bars, F.Calendar, F.SnapshotId, F.Instruments,
                      Timeframe::D1, 20240109, 20240122));
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"b\" when position == 0 then buy 1 lots because \"вход\"\n",
-          testing::specFor(f.instruments), timeline);
-  bool a = false, b = false;
-  for (const Fill &fill : out.fills) {
-    a |= fill.instrument == 0;
-    b |= fill.instrument == 1;
+          testing::specFor(F.Instruments), Line);
+  bool A = false, B = false;
+  for (const Fill &Fill : Out.Fills) {
+    A |= Fill.Instrument == 0;
+    B |= Fill.Instrument == 1;
   }
-  EXPECT_TRUE(a);
-  EXPECT_TRUE(b);
-  EXPECT_EQ(out.fills.size(), 2u);
+  EXPECT_TRUE(A);
+  EXPECT_TRUE(B);
+  EXPECT_EQ(Out.Fills.size(), 2u);
 }
 
 TEST(Backtest, ProgressEveryThousandStepsAndAtEnd) {
   const auto [spec, timeline] =
       testing::syntheticTimeline(testing::randomWalk(2500));
-  std::vector<std::pair<std::int64_t, std::int64_t>> calls;
+  std::vector<std::pair<std::int64_t, std::int64_t>> Calls;
   run(kSimpleRules, spec, timeline, {},
-      [&](std::int64_t done, std::int64_t total) {
-        calls.emplace_back(done, total);
+      [&](std::int64_t Done, std::int64_t Total) {
+        Calls.emplace_back(Done, Total);
       });
-  const std::vector<std::pair<std::int64_t, std::int64_t>> expected{
+  const std::vector<std::pair<std::int64_t, std::int64_t>> Expected{
       {1000, 2500}, {2000, 2500}, {2500, 2500}};
-  EXPECT_EQ(calls, expected);
+  EXPECT_EQ(Calls, Expected);
 }
 
 TEST(Backtest, RefusesBadOverride) {
   // INV-1: экземпляр стратегии заново проверяет программу; значение вне
   // диапазона - отказ, не прогон.
   const auto [spec, timeline] = testing::fixtureA();
-  const std::string source = "param n = 2 range 1..5 step 1\n"
+  const std::string Source = "param n = 2 range 1..5 step 1\n"
                              "rule \"b\" when close > sma(close, n) then buy 1 "
                              "lots because \"выше средней\"\n";
-  EXPECT_THROW(run(source, spec, timeline, {{"n", 0}}), std::invalid_argument);
-  EXPECT_THROW(run(source, spec, timeline, {{"n", 100000}}),
+  EXPECT_THROW(run(Source, spec, timeline, {{"n", 0}}), std::invalid_argument);
+  EXPECT_THROW(run(Source, spec, timeline, {{"n", 100000}}),
                std::invalid_argument);
 }
 
 TEST(Backtest, StaticLevelCarriesIntoRunLevel) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kSimpleRules);
-  const RunOutput out =
-      runBacktest(spec, timeline, loaded.program, loaded.params, {},
+  const auto Loaded = loadProgram(kSimpleRules);
+  const RunOutput Out =
+      runBacktest(spec, timeline, Loaded.Program, Loaded.Params, {},
                   dsl::Level::Warning, nullptr);
-  EXPECT_EQ(out.level, dsl::Level::Warning);
-  EXPECT_TRUE(out.findings.empty());
+  EXPECT_EQ(Out.Severity, dsl::Level::Warning);
+  EXPECT_TRUE(Out.Findings.empty());
 }
 
 TEST(Backtest, CountsRejections) {
   // Покупка на сумму больше капитала не проходит проверку денег при подаче:
   // отказ попадает в счётчик.
   const auto [spec, timeline] = testing::fixtureA();
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"b\" when true then buy 99999999 lots because \"много\"\n",
           spec, timeline);
-  EXPECT_GT(out.rejections, 0);
-  EXPECT_EQ(out.fills.size(), 0u);
-  EXPECT_EQ(out.orders.front().status, OrderStatus::Rejected);
+  EXPECT_GT(Out.Rejections, 0);
+  EXPECT_EQ(Out.Fills.size(), 0u);
+  EXPECT_EQ(Out.Orders.front().Status, OrderStatus::Rejected);
 }
 
 // Правила «угадывателя»: купить на низком close (< 100), продать на высоком (>
@@ -273,10 +273,10 @@ constexpr const char *kFlipRules = "rule \"b\" when close < 100 and position "
                                    "rule \"s\" when close > 100 and position > "
                                    "0 then sell all because \"высоко\"\n";
 
-const Finding *finding(const RunOutput &out, const std::string &code) {
-  for (const Finding &f : out.findings) {
-    if (f.code == code)
-      return &f;
+const Finding *finding(const RunOutput &Out, const std::string &Code) {
+  for (const Finding &F : Out.Findings) {
+    if (F.Code == Code)
+      return &F;
   }
   return nullptr;
 }
@@ -284,27 +284,27 @@ const Finding *finding(const RunOutput &out, const std::string &code) {
 // Бары с гэпами: нечётные бары открываются с гэпом вверх (+4 % к close
 // предыдущего), чётные - с гэпом вниз.
 std::pair<SessionSpec, std::shared_ptr<const Timeline>>
-gappyTimeline(std::size_t bars, bool upThenDown) {
-  std::vector<std::string> closes, opens;
-  for (std::size_t i = 0; i < bars; ++i) {
-    const bool low = (i % 2 == 0) ==
-                     upThenDown; // «низкий» бар: close 99, «высокий»: close 104
-    closes.push_back(low ? "99" : "104");
-    opens.push_back(low ? "99" : "103");
+gappyTimeline(std::size_t Bars, bool UpThenDown) {
+  std::vector<std::string> Closes, Opens;
+  for (std::size_t I = 0; I < Bars; ++I) {
+    const bool Low = (I % 2 == 0) ==
+                     UpThenDown; // «низкий» бар: close 99, «высокий»: close 104
+    Closes.push_back(Low ? "99" : "104");
+    Opens.push_back(Low ? "99" : "103");
   }
-  return testing::syntheticTimeline(closes, opens);
+  return testing::syntheticTimeline(Closes, Opens);
 }
 
 TEST(RuntimeChecks, GapLuckWarning) {
   // Шесть гэпов вверх: покупка за бар до каждого (и продажи перед гэпами вниз
   // между ними).
   const auto [spec, timeline] = gappyTimeline(14, true);
-  const RunOutput out = run(kFlipRules, spec, timeline);
-  const Finding *f = finding(out, "W-RT01");
-  ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->level, dsl::Level::Warning);
-  EXPECT_EQ(out.level, dsl::Level::Warning);
-  EXPECT_EQ(out.status,
+  const RunOutput Out = run(kFlipRules, spec, timeline);
+  const Finding *F = finding(Out, "W-RT01");
+  ASSERT_NE(F, nullptr);
+  EXPECT_EQ(F->Severity, dsl::Level::Warning);
+  EXPECT_EQ(Out.Severity, dsl::Level::Warning);
+  EXPECT_EQ(Out.Status,
             RunStatus::Completed); // предупреждение прогон не останавливает
 }
 
@@ -312,74 +312,74 @@ TEST(RuntimeChecks, GapsNotGuessedGiveNoWarning) {
   // Тот же рисунок цен, но стратегия торгует против гэпов: покупка перед гэпом
   // вниз, продажа перед гэпом вверх.
   const auto [spec, timeline] = gappyTimeline(14, false);
-  const RunOutput out = run("rule \"b\" when close > 100 and position == 0 "
+  const RunOutput Out = run("rule \"b\" when close > 100 and position == 0 "
                             "then buy 1 lots because \"высоко\"\n"
                             "rule \"s\" when close < 100 and position > 0 then "
                             "sell all because \"низко\"\n",
                             spec, timeline);
-  EXPECT_GE(out.fills.size(), 5u);
-  EXPECT_EQ(finding(out, "W-RT01"), nullptr);
-  EXPECT_EQ(out.level, dsl::Level::Ok);
+  EXPECT_GE(Out.Fills.size(), 5u);
+  EXPECT_EQ(finding(Out, "W-RT01"), nullptr);
+  EXPECT_EQ(Out.Severity, dsl::Level::Ok);
 }
 
 TEST(RuntimeChecks, TooEvenResultWarning) {
   // Растущий рынок (+2 % за бар), сделка на каждом баре: все закрытые пары
   // прибыльные.
-  std::vector<std::string> closes;
-  double price = 100;
-  for (int i = 0; i < 90; ++i) {
-    char text[32];
-    std::snprintf(text, sizeof text, "%.2f", price);
-    closes.emplace_back(text);
-    price *= 1.02;
+  std::vector<std::string> Closes;
+  double Price = 100;
+  for (int I = 0; I < 90; ++I) {
+    char Text[32];
+    std::snprintf(Text, sizeof Text, "%.2f", Price);
+    Closes.emplace_back(Text);
+    Price *= 1.02;
   }
-  const auto [spec, timeline] = testing::syntheticTimeline(closes);
-  const std::string rules =
+  const auto [spec, timeline] = testing::syntheticTimeline(Closes);
+  const std::string Rules =
       "rule \"b\" when position == 0 then buy 1 lots because \"вход\"\n"
       "rule \"s\" when position > 0 then sell all because \"выход\"\n";
-  const RunOutput out = run(rules, spec, timeline);
-  ASSERT_GE(out.roundTrips.size(), 30u);
-  const Finding *f = finding(out, "W-RT02");
-  ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->level, dsl::Level::Warning);
+  const RunOutput Out = run(Rules, spec, timeline);
+  ASSERT_GE(Out.RoundTrips.size(), 30u);
+  const Finding *F = finding(Out, "W-RT02");
+  ASSERT_NE(F, nullptr);
+  EXPECT_EQ(F->Severity, dsl::Level::Warning);
 
   // Меньше 30 закрытых пар - предупреждения нет.
   const auto [shortSpec, shortTimeline] = testing::syntheticTimeline(
-      std::vector<std::string>(closes.begin(), closes.begin() + 30));
-  const RunOutput shortRun = run(rules, shortSpec, shortTimeline);
-  EXPECT_LT(shortRun.roundTrips.size(), 30u);
-  EXPECT_EQ(finding(shortRun, "W-RT02"), nullptr);
+      std::vector<std::string>(Closes.begin(), Closes.begin() + 30));
+  const RunOutput ShortRun = run(Rules, shortSpec, shortTimeline);
+  EXPECT_LT(ShortRun.RoundTrips.size(), 30u);
+  EXPECT_EQ(finding(ShortRun, "W-RT02"), nullptr);
 }
 
 // Гэпы на границах порогов: total гэпов вверх (close 100 -> open 103), перед
 // guessed из них - покупка, перед остальными - продажа. Фактически заявки и
 // сделки собраны вручную: проверяется сама проверка, не стратегия.
-std::vector<Finding> gapFindings(int guessed, int total) {
-  std::vector<std::string> closes, opens;
-  for (int j = 0; j < total; ++j) {
-    closes.insert(closes.end(), {"100", "103"});
-    opens.insert(opens.end(), {j == 0 ? "100" : "103", "103"});
+std::vector<Finding> gapFindings(int Guessed, int Total) {
+  std::vector<std::string> Closes, Opens;
+  for (int J = 0; J < Total; ++J) {
+    Closes.insert(Closes.end(), {"100", "103"});
+    Opens.insert(Opens.end(), {J == 0 ? "100" : "103", "103"});
   }
-  const auto [spec, timeline] = testing::syntheticTimeline(closes, opens);
-  std::vector<Order> orders;
-  std::vector<Fill> fills;
-  for (int j = 0; j < total; ++j) {
-    const Side side = j < guessed ? Side::Buy : Side::Sell;
-    Order order;
-    order.id = j * 2;
-    order.spec.side = side;
-    order.spec.lots = 1;
-    order.placedStep = 2 * j;
-    orders.push_back(order);
-    Fill fill;
-    fill.orderId = order.id;
-    fill.step = 2 * j + 1;
-    fill.side = side;
-    fill.lots = 1;
-    fill.basePrice = fill.price = dec("103");
-    fills.push_back(fill);
+  const auto [spec, timeline] = testing::syntheticTimeline(Closes, Opens);
+  std::vector<Order> Orders;
+  std::vector<Fill> Fills;
+  for (int J = 0; J < Total; ++J) {
+    const Side Side = J < Guessed ? Side::Buy : Side::Sell;
+    Order Order;
+    Order.Id = J * 2;
+    Order.Spec.OrderSide = Side;
+    Order.Spec.Lots = 1;
+    Order.PlacedStep = 2 * J;
+    Orders.push_back(Order);
+    Fill Fill;
+    Fill.OrderId = Order.Id;
+    Fill.Step = 2 * J + 1;
+    Fill.OrderSide = Side;
+    Fill.Lots = 1;
+    Fill.BasePrice = Fill.Price = dec("103");
+    Fills.push_back(Fill);
   }
-  return detail::runtimeFindings(*timeline, orders, fills, {});
+  return detail::runtimeFindings(*timeline, Orders, Fills, {});
 }
 
 TEST(RuntimeChecks, GapThresholdsAreInclusiveOnShareAndCount) {
@@ -389,16 +389,16 @@ TEST(RuntimeChecks, GapThresholdsAreInclusiveOnShareAndCount) {
   EXPECT_EQ(gapFindings(16, 20).size(), 1u); // ровно 80 %
 }
 
-std::vector<Finding> evenFindings(int trips, int wins) {
+std::vector<Finding> evenFindings(int Trips, int Wins) {
   const auto [spec, timeline] = testing::fixtureA();
-  std::vector<RoundTrip> roundTrips;
-  for (int i = 0; i < trips; ++i) {
-    RoundTrip trip{};
-    trip.exitStep = i;
-    trip.netPnl = i < wins ? dec("10") : dec("-10");
-    roundTrips.push_back(trip);
+  std::vector<RoundTrip> RoundTrips;
+  for (int I = 0; I < Trips; ++I) {
+    RoundTrip Trip{};
+    Trip.ExitStep = I;
+    Trip.NetPnl = I < Wins ? dec("10") : dec("-10");
+    RoundTrips.push_back(Trip);
   }
-  return detail::runtimeFindings(*timeline, {}, {}, roundTrips);
+  return detail::runtimeFindings(*timeline, {}, {}, RoundTrips);
 }
 
 TEST(RuntimeChecks, TooEvenThresholds) {
@@ -414,23 +414,23 @@ TEST(Backtest, RejectedReplacementKeepsOldOrder) {
   // остаётся: у правила не пропадает защита.
   const auto [spec, timeline] =
       testing::syntheticTimeline(std::vector<std::string>(9, "100"));
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"in\" when position == 0 then buy 1 lots because \"вход\"\n"
           "rule \"стоп\" when position > 0 then sell all stop close - 3 + "
           "bars_in_position * 2 because \"стоп\"\n",
           spec, timeline);
-  const auto stops = ordersOf(out, "стоп");
-  ASSERT_GE(stops.size(), 4u);
-  EXPECT_EQ(stops[0]->spec.stopPrice, dec("97"));
-  EXPECT_EQ(stops[0]->status, OrderStatus::Cancelled);
-  EXPECT_EQ(stops[0]->reason, Reason::RuleReplaced);
-  EXPECT_EQ(stops[1]->spec.stopPrice, dec("99"));
-  EXPECT_EQ(stops[1]->reason, Reason::SessionEnd); // дожила до конца сессии
-  for (std::size_t i = 2; i < stops.size(); ++i) {
-    EXPECT_EQ(stops[i]->status, OrderStatus::Rejected) << "заявка " << i;
-    EXPECT_EQ(stops[i]->reason, Reason::InvalidParams) << "заявка " << i;
+  const auto Stops = ordersOf(Out, "стоп");
+  ASSERT_GE(Stops.size(), 4u);
+  EXPECT_EQ(Stops[0]->Spec.StopPrice, dec("97"));
+  EXPECT_EQ(Stops[0]->Status, OrderStatus::Cancelled);
+  EXPECT_EQ(Stops[0]->ReasonCode, Reason::RuleReplaced);
+  EXPECT_EQ(Stops[1]->Spec.StopPrice, dec("99"));
+  EXPECT_EQ(Stops[1]->ReasonCode, Reason::SessionEnd); // дожила до конца сессии
+  for (std::size_t I = 2; I < Stops.size(); ++I) {
+    EXPECT_EQ(Stops[I]->Status, OrderStatus::Rejected) << "заявка " << I;
+    EXPECT_EQ(Stops[I]->ReasonCode, Reason::InvalidParams) << "заявка " << I;
   }
-  EXPECT_GE(out.rejections, 1);
+  EXPECT_GE(Out.Rejections, 1);
 }
 
 TEST(Backtest, StopOnSameBarAsMarketExitDoesNotSellTwice) {
@@ -439,22 +439,22 @@ TEST(Backtest, StopOnSameBarAsMarketExitDoesNotSellTwice) {
   // PositionClosed у уже сработавшего на баре стопа нет).
   const auto [spec, timeline] =
       testing::syntheticTimeline({"100", "100", "100", "100"});
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"in\" when position == 0 then buy 1 lots because \"вход\"\n"
           "rule \"выход\" when bars_in_position == 0 then sell all because "
           "\"выход\"\n"
           "rule \"стоп\" when position > 0 then sell all stop 99.9 because "
           "\"стоп\"\n",
           spec, timeline);
-  int sells = 0;
-  for (const Fill &f : out.fills)
-    sells += f.side == Side::Sell;
-  EXPECT_EQ(sells, 1);
-  const auto stops = ordersOf(out, "стоп");
-  ASSERT_EQ(stops.size(), 1u);
-  EXPECT_EQ(stops[0]->filledLots, 0);
-  EXPECT_EQ(stops[0]->status, OrderStatus::Cancelled);
-  EXPECT_EQ(stops[0]->reason, Reason::InsufficientPosition);
+  int Sells = 0;
+  for (const Fill &F : Out.Fills)
+    Sells += F.OrderSide == Side::Sell;
+  EXPECT_EQ(Sells, 1);
+  const auto Stops = ordersOf(Out, "стоп");
+  ASSERT_EQ(Stops.size(), 1u);
+  EXPECT_EQ(Stops[0]->FilledLots, 0);
+  EXPECT_EQ(Stops[0]->Status, OrderStatus::Cancelled);
+  EXPECT_EQ(Stops[0]->ReasonCode, Reason::InsufficientPosition);
 }
 
 TEST(Backtest, BarsInPositionResetsAfterExitAndReentry) {
@@ -463,37 +463,37 @@ TEST(Backtest, BarsInPositionResetsAfterExitAndReentry) {
   // на каждом новом входе.
   const auto [spec, timeline] =
       testing::syntheticTimeline(std::vector<std::string>(12, "100"));
-  const RunOutput out =
+  const RunOutput Out =
       run("rule \"in\" when position == 0 then buy 1 lots because \"вход\"\n"
           "rule \"out\" when bars_in_position >= 2 then sell all because "
           "\"выход\"\n"
           "rule \"mark\" when bars_in_position == 0 then sell 1 lots limit "
           "1000 because \"метка\"\n",
           spec, timeline);
-  std::vector<std::int64_t> marks;
-  for (const Order *o : ordersOf(out, "mark"))
-    marks.push_back(o->placedStep);
-  const std::vector<std::int64_t> expected{1, 5, 9};
-  EXPECT_EQ(marks, expected);
+  std::vector<std::int64_t> Marks;
+  for (const Order *O : ordersOf(Out, "mark"))
+    Marks.push_back(O->PlacedStep);
+  const std::vector<std::int64_t> Expected{1, 5, 9};
+  EXPECT_EQ(Marks, Expected);
 }
 
 TEST(RuntimeChecks, IntegrityViolationSendsFinalProgress) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kSimpleRules);
-  const detail::StepHook hook = [](const SessionEngine &engine) {
-    if (engine.currentStep() == 3)
+  const auto Loaded = loadProgram(kSimpleRules);
+  const detail::StepHook Hook = [](const SessionEngine &Engine) {
+    if (Engine.currentStep() == 3)
       throw IntegrityViolation("тест");
   };
-  std::vector<std::pair<std::int64_t, std::int64_t>> calls;
-  const RunOutput out = detail::runBacktestWithHook(
-      spec, timeline, loaded.program, loaded.params, {}, dsl::Level::Ok,
-      [&](std::int64_t done, std::int64_t total) {
-        calls.emplace_back(done, total);
+  std::vector<std::pair<std::int64_t, std::int64_t>> Calls;
+  const RunOutput Out = detail::runBacktestWithHook(
+      spec, timeline, Loaded.Program, Loaded.Params, {}, dsl::Level::Ok,
+      [&](std::int64_t Done, std::int64_t Total) {
+        Calls.emplace_back(Done, Total);
       },
-      hook);
-  EXPECT_EQ(out.status, RunStatus::Invalid);
-  const std::vector<std::pair<std::int64_t, std::int64_t>> expected{{4, 10}};
-  EXPECT_EQ(calls, expected);
+      Hook);
+  EXPECT_EQ(Out.Status, RunStatus::Invalid);
+  const std::vector<std::pair<std::int64_t, std::int64_t>> Expected{{4, 10}};
+  EXPECT_EQ(Calls, Expected);
 }
 
 // Обработка, а не обнаружение: IntegrityViolation бросает тестовый StepHook
@@ -502,24 +502,24 @@ TEST(RuntimeChecks, IntegrityViolationSendsFinalProgress) {
 // останавливается со статусом Invalid и находкой E-RT01.
 TEST(RuntimeChecks, EngineIntegrityViolationInvalidatesRun) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kSimpleRules);
-  const detail::StepHook hook = [](const SessionEngine &engine) {
-    if (engine.currentStep() == 3)
+  const auto Loaded = loadProgram(kSimpleRules);
+  const detail::StepHook Hook = [](const SessionEngine &Engine) {
+    if (Engine.currentStep() == 3)
       throw IntegrityViolation("тестовый движок нарушил целостность");
   };
-  const RunOutput out =
-      detail::runBacktestWithHook(spec, timeline, loaded.program, loaded.params,
-                                  {}, dsl::Level::Ok, nullptr, hook);
+  const RunOutput Out =
+      detail::runBacktestWithHook(spec, timeline, Loaded.Program, Loaded.Params,
+                                  {}, dsl::Level::Ok, nullptr, Hook);
 
-  EXPECT_EQ(out.status, RunStatus::Invalid);
-  EXPECT_EQ(out.level, dsl::Level::Error);
-  const Finding *f = finding(out, "E-RT01");
-  ASSERT_NE(f, nullptr);
-  EXPECT_EQ(f->level, dsl::Level::Error);
-  EXPECT_EQ(f->step, 3);
-  EXPECT_EQ(out.lastStep, 3);
-  EXPECT_EQ(out.equity.size(), 4u); // прогон остановлен на шаге 3
-  EXPECT_EQ(out.digest, digestOf(out));
+  EXPECT_EQ(Out.Status, RunStatus::Invalid);
+  EXPECT_EQ(Out.Severity, dsl::Level::Error);
+  const Finding *F = finding(Out, "E-RT01");
+  ASSERT_NE(F, nullptr);
+  EXPECT_EQ(F->Severity, dsl::Level::Error);
+  EXPECT_EQ(F->Step, 3);
+  EXPECT_EQ(Out.LastStep, 3);
+  EXPECT_EQ(Out.Equity.size(), 4u); // прогон остановлен на шаге 3
+  EXPECT_EQ(Out.Digest, digestOf(Out));
 }
 
 } // namespace

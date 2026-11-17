@@ -15,11 +15,11 @@ namespace core::dsl {
 // параметров) тоже дают E-SYN; кроме них - глубина вложенности выражений не
 // больше 100, иначе разбор рекурсивных обходов дерева опасен для стека.
 struct ParseResult {
-  std::optional<Program> program;
-  std::vector<Diagnostic> diagnostics;
+  std::optional<Program> Ast;
+  std::vector<Diagnostic> Diagnostics;
 };
 
 // source - текст в UTF-8. Чистая функция: без состояния и часов.
-ParseResult parse(std::string_view source);
+ParseResult parse(std::string_view Source);
 
 } // namespace core::dsl

@@ -6,8 +6,8 @@
 
 namespace worker::convert {
 
-pb::Level toProto(core::dsl::Level level) {
-  switch (level) {
+pb::Level toProto(core::dsl::Level Level) {
+  switch (Level) {
   case core::dsl::Level::Ok:
     return pb::OK;
   case core::dsl::Level::Warning:
@@ -18,50 +18,50 @@ pb::Level toProto(core::dsl::Level level) {
   return pb::LEVEL_UNSPECIFIED;
 }
 
-pb::Diagnostic toProto(const core::dsl::Diagnostic &diagnostic) {
-  pb::Diagnostic out;
-  out.set_code(diagnostic.code);
-  out.set_level(toProto(diagnostic.level));
-  out.set_start_line(diagnostic.range.startLine);
-  out.set_start_column(diagnostic.range.startColumn);
-  out.set_end_line(diagnostic.range.endLine);
-  out.set_end_column(diagnostic.range.endColumn);
-  out.set_message(diagnostic.message);
-  for (const core::dsl::TextEdit &edit : diagnostic.fix) {
-    pb::TextEdit *e = out.add_fix();
-    e->set_start_line(edit.range.startLine);
-    e->set_start_column(edit.range.startColumn);
-    e->set_end_line(edit.range.endLine);
-    e->set_end_column(edit.range.endColumn);
-    e->set_text(edit.text);
+pb::Diagnostic toProto(const core::dsl::Diagnostic &Diagnostic) {
+  pb::Diagnostic Out;
+  Out.set_code(Diagnostic.Code);
+  Out.set_level(toProto(Diagnostic.Severity));
+  Out.set_start_line(Diagnostic.Range.StartLine);
+  Out.set_start_column(Diagnostic.Range.StartColumn);
+  Out.set_end_line(Diagnostic.Range.EndLine);
+  Out.set_end_column(Diagnostic.Range.EndColumn);
+  Out.set_message(Diagnostic.Message);
+  for (const core::dsl::TextEdit &Edit : Diagnostic.Fix) {
+    pb::TextEdit *E = Out.add_fix();
+    E->set_start_line(Edit.Range.StartLine);
+    E->set_start_column(Edit.Range.StartColumn);
+    E->set_end_line(Edit.Range.EndLine);
+    E->set_end_column(Edit.Range.EndColumn);
+    E->set_text(Edit.Text);
   }
-  return out;
+  return Out;
 }
 
-pb::ParamDecl toProto(const core::dsl::ResolvedParam &param) {
-  pb::ParamDecl out;
-  out.set_name(param.name);
-  out.set_default_value(param.value);
-  out.set_integer(param.integer);
+pb::ParamDecl toProto(const core::dsl::ResolvedParam &Param) {
+  pb::ParamDecl Out;
+  Out.set_name(Param.Name);
+  Out.set_default_value(Param.Value);
+  Out.set_integer(Param.Integer);
   // Диапазон и шаг в DSL задаются вместе; без диапазона поля остаются нулевыми.
-  if (param.min && param.max && param.step) {
-    out.set_has_range(true);
-    out.set_min(*param.min);
-    out.set_max(*param.max);
-    out.set_step(*param.step);
+  if (Param.Min && Param.Max && Param.Step) {
+    Out.set_has_range(true);
+    Out.set_min(*Param.Min);
+    Out.set_max(*Param.Max);
+    Out.set_step(*Param.Step);
   }
-  return out;
+  return Out;
 }
 
 std::vector<core::dsl::Diagnostic>
-sortedByPosition(std::vector<core::dsl::Diagnostic> diagnostics) {
+sortedByPosition(std::vector<core::dsl::Diagnostic> Diagnostics) {
   std::stable_sort(
-      diagnostics.begin(), diagnostics.end(),
-      [](const core::dsl::Diagnostic &a, const core::dsl::Diagnostic &b) {
-        return std::tie(a.range.startLine, a.range.startColumn, a.code) <
-               std::tie(b.range.startLine, b.range.startColumn, b.code);
+      Diagnostics.begin(), Diagnostics.end(),
+      [](const core::dsl::Diagnostic &A, const core::dsl::Diagnostic &B) {
+        return std::tie(A.Range.StartLine, A.Range.StartColumn, A.Code) <
+               std::tie(B.Range.StartLine, B.Range.StartColumn, B.Code);
       });
-  return diagnostics;
+  return Diagnostics;
 }
 
 } // namespace worker::convert

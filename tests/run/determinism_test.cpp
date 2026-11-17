@@ -17,43 +17,43 @@ constexpr const char *kSmaCross =
     "rule \"s\" when close < sma(close, n) and position > 0 then sell all "
     "because \"ниже средней {n}\"\n";
 
-RunOutput runSma(const dsl::ParamValues &overrides) {
+RunOutput runSma(const dsl::ParamValues &Overrides) {
   const auto [spec, timeline] =
       testing::syntheticTimeline(testing::randomWalk(400));
-  const auto loaded = testing::loadProgram(kSmaCross);
-  return runBacktest(spec, timeline, loaded.program, loaded.params, overrides,
+  const auto Loaded = testing::loadProgram(kSmaCross);
+  return runBacktest(spec, timeline, Loaded.Program, Loaded.Params, Overrides,
                      dsl::Level::Ok, nullptr);
 }
 
 TEST(Determinism, SameDigestTwice) {
-  const RunOutput first = runSma({});
-  const RunOutput second = runSma({});
-  ASSERT_GT(first.fills.size(), 10u); // прогон содержательный
-  EXPECT_EQ(first.digest, second.digest);
-  EXPECT_EQ(first.digest, digestOf(first));
-  EXPECT_NE(first.digest, 0u);
+  const RunOutput First = runSma({});
+  const RunOutput Second = runSma({});
+  ASSERT_GT(First.Fills.size(), 10u); // прогон содержательный
+  EXPECT_EQ(First.Digest, Second.Digest);
+  EXPECT_EQ(First.Digest, digestOf(First));
+  EXPECT_NE(First.Digest, 0u);
 
-  const RunOutput other = runSma({{"n", 12}});
-  EXPECT_NE(first.digest, other.digest);
+  const RunOutput Other = runSma({{"n", 12}});
+  EXPECT_NE(First.Digest, Other.Digest);
 }
 
 TEST(Determinism, DigestCoversFillsEquityAndStatus) {
-  const RunOutput out = runSma({});
-  const std::uint64_t base = digestOf(out);
-  const Decimal kopeck = testing::dec("0.01");
+  const RunOutput Out = runSma({});
+  const std::uint64_t Base = digestOf(Out);
+  const Decimal Kopeck = testing::dec("0.01");
 
-  RunOutput changedFill = out;
-  changedFill.fills.front().fee = changedFill.fills.front().fee + kopeck;
-  EXPECT_NE(digestOf(changedFill), base);
+  RunOutput ChangedFill = Out;
+  ChangedFill.Fills.front().Fee = ChangedFill.Fills.front().Fee + Kopeck;
+  EXPECT_NE(digestOf(ChangedFill), Base);
 
-  RunOutput changedEquity = out;
-  changedEquity.equity.back().equity =
-      changedEquity.equity.back().equity + kopeck;
-  EXPECT_NE(digestOf(changedEquity), base);
+  RunOutput ChangedEquity = Out;
+  ChangedEquity.Equity.back().Equity =
+      ChangedEquity.Equity.back().Equity + Kopeck;
+  EXPECT_NE(digestOf(ChangedEquity), Base);
 
-  RunOutput changedStatus = out;
-  changedStatus.status = RunStatus::Invalid;
-  EXPECT_NE(digestOf(changedStatus), base);
+  RunOutput ChangedStatus = Out;
+  ChangedStatus.Status = RunStatus::Invalid;
+  EXPECT_NE(digestOf(ChangedStatus), Base);
 }
 
 } // namespace

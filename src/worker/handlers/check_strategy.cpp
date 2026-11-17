@@ -17,31 +17,31 @@ namespace {
 // Ответ по исходнику. Ошибка разбора - единственная диагностика, без
 // параметров. Иначе check + lint: уровень - худший по диагностикам check (L001
 // на него не влияет, ФТ-13), параметры - из check.
-void fillResponse(const std::string &source,
-                  pb::CheckStrategyResponse *response) {
-  const core::dsl::ParseResult parsed = core::dsl::parse(source);
-  if (!parsed.program) {
-    response->set_level(
-        convert::toProto(core::dsl::overallLevel(parsed.diagnostics)));
-    for (const auto &d : convert::sortedByPosition(parsed.diagnostics)) {
-      *response->add_diagnostics() = convert::toProto(d);
+void fillResponse(const std::string &Source,
+                  pb::CheckStrategyResponse *Response) {
+  const core::dsl::ParseResult Parsed = core::dsl::parse(Source);
+  if (!Parsed.Ast) {
+    Response->set_level(
+        convert::toProto(core::dsl::overallLevel(Parsed.Diagnostics)));
+    for (const auto &D : convert::sortedByPosition(Parsed.Diagnostics)) {
+      *Response->add_diagnostics() = convert::toProto(D);
     }
     return;
   }
 
-  const core::dsl::CheckResult checked = core::dsl::check(*parsed.program);
-  std::vector<core::dsl::Diagnostic> all = checked.diagnostics;
-  for (core::dsl::Diagnostic &d : core::dsl::lint(*parsed.program, source)) {
-    all.push_back(std::move(d));
+  const core::dsl::CheckResult Checked = core::dsl::check(*Parsed.Ast);
+  std::vector<core::dsl::Diagnostic> All = Checked.Diagnostics;
+  for (core::dsl::Diagnostic &D : core::dsl::lint(*Parsed.Ast, Source)) {
+    All.push_back(std::move(D));
   }
 
-  response->set_level(
-      convert::toProto(core::dsl::overallLevel(checked.diagnostics)));
-  for (const auto &d : convert::sortedByPosition(std::move(all))) {
-    *response->add_diagnostics() = convert::toProto(d);
+  Response->set_level(
+      convert::toProto(core::dsl::overallLevel(Checked.Diagnostics)));
+  for (const auto &D : convert::sortedByPosition(std::move(All))) {
+    *Response->add_diagnostics() = convert::toProto(D);
   }
-  for (const core::dsl::ResolvedParam &p : checked.params) {
-    *response->add_params() = convert::toProto(p);
+  for (const core::dsl::ResolvedParam &P : Checked.Params) {
+    *Response->add_params() = convert::toProto(P);
   }
 }
 
@@ -49,12 +49,12 @@ void fillResponse(const std::string &source,
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException).
 grpc::Status handleCheckStrategy(Context &,
-                                 const pb::CheckStrategyRequest &request,
-                                 pb::CheckStrategyResponse *response) {
+                                 const pb::CheckStrategyRequest &Request,
+                                 pb::CheckStrategyResponse *Response) {
   try {
-    pb::CheckStrategyResponse result;
-    fillResponse(request.source(), &result);
-    *response = std::move(result);
+    pb::CheckStrategyResponse Result;
+    fillResponse(Request.source(), &Result);
+    *Response = std::move(Result);
     return grpc::Status::OK;
   } catch (...) {
     return statusFromCurrentException();

@@ -18,27 +18,27 @@ using namespace worker_test;
 // Источник, который бросает заданное исключение при любом чтении.
 class ThrowingBarSource final : public core::BarSource {
 public:
-  explicit ThrowingBarSource(std::function<void()> thrower)
-      : thrower_(std::move(thrower)) {}
+  explicit ThrowingBarSource(std::function<void()> Action)
+      : Thrower(std::move(Action)) {}
   std::vector<core::Bar> load(const core::BarRequest &) override {
-    thrower_();
+    Thrower();
     return {};
   }
   core::Security security(const std::string &, const std::string &) override {
-    thrower_();
+    Thrower();
     return {};
   }
 
 private:
-  std::function<void()> thrower_;
+  std::function<void()> Thrower;
 };
 
 // fixture-1, только бумага A (лот 10): close 100, 101, 103, 106, 104, 101, 99,
 // 102, 105, 108 - шаги 0…9.
 pb::MarketSpec marketA() {
-  pb::MarketSpec market = fixtureMarket();
-  market.mutable_instruments()->RemoveLast();
-  return market;
+  pb::MarketSpec Market = fixtureMarket();
+  Market.mutable_instruments()->RemoveLast();
+  return Market;
 }
 
 constexpr const char *kSilent =
@@ -46,28 +46,28 @@ constexpr const char *kSilent =
 constexpr const char *kBuyAt3 =
     "rule \"r\" when close == 106 then buy 5 lots because \"цена 106\"\n";
 
-core::Decimal fromProto(const pb::Decimal &d) {
-  return core::Decimal::fromUnitsNano(d.units(), d.nano());
+core::Decimal fromProto(const pb::Decimal &D) {
+  return core::Decimal::fromUnitsNano(D.units(), D.nano());
 }
 
 class DivergenceRpc : public ::testing::Test {
 protected:
-  void addAlgorithm(const std::string &id, const std::string &source) {
-    pb::AlgorithmRef *ref = request_.add_algorithms();
-    ref->set_id(id);
-    ref->mutable_strategy()->set_source(source);
+  void addAlgorithm(const std::string &Id, const std::string &Source) {
+    pb::AlgorithmRef *Ref = Request.add_algorithms();
+    Ref->set_id(Id);
+    Ref->mutable_strategy()->set_source(Source);
   }
 
-  grpc::Status analyze(pb::DivergenceResponse *response) {
-    worker::Context context{fixture_.bars, fixture_.calendar};
-    *request_.mutable_market() = market_;
-    return worker::handleAnalyzeDivergences(context, request_, response);
+  grpc::Status analyze(pb::DivergenceResponse *Response) {
+    worker::Context Context{Fixture.Bars, Fixture.Calendar};
+    *Request.mutable_market() = Market;
+    return worker::handleAnalyzeDivergences(Context, Request, Response);
   }
 
-  core::testing::Fixture fixture_ = core::testing::fixture1();
-  pb::MarketSpec market_ = marketA();
-  pb::DivergenceRequest request_;
-  DivergenceRpc() { request_.set_last_step(9); }
+  core::testing::Fixture Fixture = core::testing::fixture1();
+  pb::MarketSpec Market = marketA();
+  pb::DivergenceRequest Request;
+  DivergenceRpc() { Request.set_last_step(9); }
 };
 
 } // namespace
@@ -76,170 +76,170 @@ protected:
 // ошибки - прибыль независимого портфеля.
 TEST_F(DivergenceRpc, MissedAction) {
   addAlgorithm("ref", kBuyAt3);
-  pb::DivergenceResponse response;
-  ASSERT_TRUE(analyze(&response).ok());
+  pb::DivergenceResponse Response;
+  ASSERT_TRUE(analyze(&Response).ok());
 
-  ASSERT_EQ(response.divergences_size(), 1);
-  const pb::Divergence &d = response.divergences(0);
-  EXPECT_EQ(d.algorithm_id(), "ref");
-  EXPECT_EQ(d.instrument_key(), "A");
-  EXPECT_EQ(d.type(), pb::MISSED);
-  EXPECT_EQ(d.human_step(), -1);
-  EXPECT_EQ(d.algo_step(), 3);
-  EXPECT_EQ(d.human_lots(), 0);
-  EXPECT_EQ(d.algo_lots(), 5);
-  EXPECT_EQ(d.horizon_step(), 9);
-  EXPECT_EQ(d.reason(), "цена 106");
+  ASSERT_EQ(Response.divergences_size(), 1);
+  const pb::Divergence &D = Response.divergences(0);
+  EXPECT_EQ(D.algorithm_id(), "ref");
+  EXPECT_EQ(D.instrument_key(), "A");
+  EXPECT_EQ(D.type(), pb::MISSED);
+  EXPECT_EQ(D.human_step(), -1);
+  EXPECT_EQ(D.algo_step(), 3);
+  EXPECT_EQ(D.human_lots(), 0);
+  EXPECT_EQ(D.algo_lots(), 5);
+  EXPECT_EQ(D.horizon_step(), 9);
+  EXPECT_EQ(D.reason(), "цена 106");
 
   // Человек в этом расхождении не действовал, портфель человека пуст, поэтому V
   // алгоритма совпадает с прибылью независимого прогона с теми же заявками (то
   // же исполнение, комиссия и сбор).
-  ASSERT_EQ(response.algorithm_portfolios_size(), 1);
-  const core::Decimal profit =
-      fromProto(response.algorithm_portfolios(0).report().final_equity()) -
+  ASSERT_EQ(Response.algorithm_portfolios_size(), 1);
+  const core::Decimal Profit =
+      fromProto(Response.algorithm_portfolios(0).report().final_equity()) -
       core::Decimal::fromUnits(1000000);
-  EXPECT_EQ(fromProto(d.cost()), profit.round(2, core::RoundingMode::HALF_UP));
-  EXPECT_NEAR(d.cost_percent(),
-              fromProto(d.cost()).toDouble() / 1000000.0 * 100.0, 1e-9);
-  EXPECT_EQ(response.algorithm_portfolios(0).total_steps(), 10);
+  EXPECT_EQ(fromProto(D.cost()), Profit.round(2, core::RoundingMode::HalfUp));
+  EXPECT_NEAR(D.cost_percent(),
+              fromProto(D.cost()).toDouble() / 1000000.0 * 100.0, 1e-9);
+  EXPECT_EQ(Response.algorithm_portfolios(0).total_steps(), 10);
 
-  ASSERT_EQ(response.consensus_size(), 1);
-  EXPECT_FALSE(response.consensus(0).human_action());
-  EXPECT_EQ(response.consensus(0).agreeing(), 1);
-  EXPECT_EQ(response.consensus(0).total(), 1);
-  EXPECT_EQ(response.consensus(0).side(), pb::BUY);
-  EXPECT_EQ(response.missed_profitable_size(), 0);
+  ASSERT_EQ(Response.consensus_size(), 1);
+  EXPECT_FALSE(Response.consensus(0).human_action());
+  EXPECT_EQ(Response.consensus(0).agreeing(), 1);
+  EXPECT_EQ(Response.consensus(0).total(), 1);
+  EXPECT_EQ(Response.consensus(0).side(), pb::BUY);
+  EXPECT_EQ(Response.missed_profitable_size(), 0);
 }
 
 // Человек купил и продал, алгоритм молчит: два «лишних действия» и пропущенная
 // прибыльная сделка (ФТ-20).
 TEST_F(DivergenceRpc, ExcessAndMissedProfitableTrade) {
   addAlgorithm("ref", kSilent);
-  *request_.add_journal() =
+  *Request.add_journal() =
       marketOrder(0, 5, "A", pb::BUY, 5); // исполнится по open шага 6 = 101
-  *request_.add_journal() =
+  *Request.add_journal() =
       marketOrder(1, 7, "A", pb::SELL, 5); // исполнится по open шага 8 = 102
-  pb::DivergenceResponse response;
-  ASSERT_TRUE(analyze(&response).ok());
+  pb::DivergenceResponse Response;
+  ASSERT_TRUE(analyze(&Response).ok());
 
-  ASSERT_EQ(response.divergences_size(), 2);
-  EXPECT_EQ(response.divergences(0).type(), pb::EXCESS);
-  EXPECT_EQ(response.divergences(0).human_step(), 5);
-  EXPECT_EQ(response.divergences(0).algo_step(), -1);
-  EXPECT_EQ(response.divergences(0).human_lots(), 5);
-  EXPECT_EQ(response.divergences(0).horizon_step(), 7);
-  EXPECT_EQ(response.divergences(1).human_lots(), -5);
-  EXPECT_EQ(response.divergences(1).horizon_step(), 9);
-  EXPECT_EQ(response.divergences(1).reason(),
+  ASSERT_EQ(Response.divergences_size(), 2);
+  EXPECT_EQ(Response.divergences(0).type(), pb::EXCESS);
+  EXPECT_EQ(Response.divergences(0).human_step(), 5);
+  EXPECT_EQ(Response.divergences(0).algo_step(), -1);
+  EXPECT_EQ(Response.divergences(0).human_lots(), 5);
+  EXPECT_EQ(Response.divergences(0).horizon_step(), 7);
+  EXPECT_EQ(Response.divergences(1).human_lots(), -5);
+  EXPECT_EQ(Response.divergences(1).horizon_step(), 9);
+  EXPECT_EQ(Response.divergences(1).reason(),
             "алгоритм здесь не действовал бы");
 
-  ASSERT_EQ(response.missed_profitable_size(), 1);
-  const pb::MissedProfitableTrade &trade = response.missed_profitable(0);
-  EXPECT_EQ(trade.instrument_key(), "A");
-  EXPECT_EQ(trade.entry_step(), 6);
-  EXPECT_EQ(trade.exit_step(), 8);
-  EXPECT_EQ(trade.lots(), 5);
-  EXPECT_GT(fromProto(trade.net_pnl()).sign(), 0);
-  ASSERT_EQ(trade.algorithm_ids_size(), 1);
-  EXPECT_EQ(trade.algorithm_ids(0), "ref");
+  ASSERT_EQ(Response.missed_profitable_size(), 1);
+  const pb::MissedProfitableTrade &Trade = Response.missed_profitable(0);
+  EXPECT_EQ(Trade.instrument_key(), "A");
+  EXPECT_EQ(Trade.entry_step(), 6);
+  EXPECT_EQ(Trade.exit_step(), 8);
+  EXPECT_EQ(Trade.lots(), 5);
+  EXPECT_GT(fromProto(Trade.net_pnl()).sign(), 0);
+  ASSERT_EQ(Trade.algorithm_ids_size(), 1);
+  EXPECT_EQ(Trade.algorithm_ids(0), "ref");
   // Цены пары - цены сделок человека (по одной на вход и выход), без издержек
   // сверх спреда и проскальзывания.
-  worker::Context context{fixture_.bars, fixture_.calendar};
-  pb::ReplaySessionRequest replay;
-  *replay.mutable_market() = market_;
-  *replay.mutable_journal() = request_.journal();
-  replay.set_up_to_step(9);
-  replay.set_events_from_step(-1);
-  pb::ReplaySessionResponse human;
-  ASSERT_TRUE(worker::handleReplaySession(context, replay, &human).ok());
-  ASSERT_EQ(human.fills_size(), 2);
-  EXPECT_EQ(trade.entry_price().SerializeAsString(),
-            human.fills(0).price().SerializeAsString());
-  EXPECT_EQ(trade.exit_price().SerializeAsString(),
-            human.fills(1).price().SerializeAsString());
-  EXPECT_GT(fromProto(trade.entry_price()),
+  worker::Context Context{Fixture.Bars, Fixture.Calendar};
+  pb::ReplaySessionRequest Replay;
+  *Replay.mutable_market() = Market;
+  *Replay.mutable_journal() = Request.journal();
+  Replay.set_up_to_step(9);
+  Replay.set_events_from_step(-1);
+  pb::ReplaySessionResponse Human;
+  ASSERT_TRUE(worker::handleReplaySession(Context, Replay, &Human).ok());
+  ASSERT_EQ(Human.fills_size(), 2);
+  EXPECT_EQ(Trade.entry_price().SerializeAsString(),
+            Human.fills(0).price().SerializeAsString());
+  EXPECT_EQ(Trade.exit_price().SerializeAsString(),
+            Human.fills(1).price().SerializeAsString());
+  EXPECT_GT(fromProto(Trade.entry_price()),
             core::Decimal::parse("101")); // open 101 + спред и проскальзывание
 
   // Независимый портфель молчащего алгоритма: ни одной сделки.
-  ASSERT_EQ(response.algorithm_portfolios_size(), 1);
-  EXPECT_EQ(response.algorithm_portfolios(0).fills_size(), 0);
+  ASSERT_EQ(Response.algorithm_portfolios_size(), 1);
+  EXPECT_EQ(Response.algorithm_portfolios(0).fills_size(), 0);
 }
 
 TEST_F(DivergenceRpc, SameActionHasNoDivergence) {
   addAlgorithm("ref", kBuyAt3);
-  *request_.add_journal() = marketOrder(0, 3, "A", pb::BUY, 5);
-  pb::DivergenceResponse response;
-  ASSERT_TRUE(analyze(&response).ok());
-  EXPECT_EQ(response.divergences_size(), 0);
-  EXPECT_EQ(response.consensus_size(), 0);
+  *Request.add_journal() = marketOrder(0, 3, "A", pb::BUY, 5);
+  pb::DivergenceResponse Response;
+  ASSERT_TRUE(analyze(&Response).ok());
+  EXPECT_EQ(Response.divergences_size(), 0);
+  EXPECT_EQ(Response.consensus_size(), 0);
 }
 
 TEST_F(DivergenceRpc, BadRequestsAreInvalidArgument) {
-  pb::DivergenceResponse response;
+  pb::DivergenceResponse Response;
   // lastStep вне шкалы.
   addAlgorithm("ref", kSilent);
-  request_.set_last_step(10);
-  EXPECT_EQ(analyze(&response).error_code(),
+  Request.set_last_step(10);
+  EXPECT_EQ(analyze(&Response).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
-  request_.set_last_step(9);
+  Request.set_last_step(9);
 
   // Исходник не разбирается.
-  pb::DivergenceRequest broken = request_;
-  broken.mutable_algorithms(0)->mutable_strategy()->set_source(
+  pb::DivergenceRequest Broken = Request;
+  Broken.mutable_algorithms(0)->mutable_strategy()->set_source(
       "rule без смысла");
-  request_ = broken;
-  EXPECT_EQ(analyze(&response).error_code(),
+  Request = Broken;
+  EXPECT_EQ(analyze(&Response).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
 
   // Больше пяти алгоритмов.
-  request_.clear_algorithms();
-  for (int i = 0; i < 6; ++i)
-    addAlgorithm("a" + std::to_string(i), kSilent);
-  EXPECT_EQ(analyze(&response).error_code(),
+  Request.clear_algorithms();
+  for (int I = 0; I < 6; ++I)
+    addAlgorithm("a" + std::to_string(I), kSilent);
+  EXPECT_EQ(analyze(&Response).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
 
   // Неизвестная бумага в журнале.
-  request_.clear_algorithms();
+  Request.clear_algorithms();
   addAlgorithm("ref", kSilent);
-  *request_.add_journal() = marketOrder(0, 2, "ZZZ", pb::BUY, 5);
-  EXPECT_EQ(analyze(&response).error_code(),
+  *Request.add_journal() = marketOrder(0, 2, "ZZZ", pb::BUY, 5);
+  EXPECT_EQ(analyze(&Response).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
-  EXPECT_EQ(response.divergences_size(), 0);
+  EXPECT_EQ(Response.divergences_size(), 0);
 }
 
 TEST_F(DivergenceRpc, UnknownSnapshotIsFailedPrecondition) {
   addAlgorithm("ref", kSilent);
-  market_.set_snapshot_id("нет-такого");
-  pb::DivergenceResponse response;
-  EXPECT_EQ(analyze(&response).error_code(),
+  Market.set_snapshot_id("нет-такого");
+  pb::DivergenceResponse Response;
+  EXPECT_EQ(analyze(&Response).error_code(),
             grpc::StatusCode::FAILED_PRECONDITION);
 }
 
 // Ни одно исключение не выходит из обработчика.
 TEST(DivergenceRpcExceptions, MappedToStatus) {
-  core::InMemoryCalendarSource calendar;
-  const auto statusOf = [&](std::function<void()> thrower) {
-    ThrowingBarSource bars(std::move(thrower));
-    worker::Context context{bars, calendar};
-    pb::DivergenceRequest request;
-    *request.mutable_market() = marketA();
-    request.set_last_step(9);
-    pb::DivergenceResponse response;
-    return worker::handleAnalyzeDivergences(context, request, &response);
+  core::InMemoryCalendarSource Calendar;
+  const auto StatusOf = [&](std::function<void()> Thrower) {
+    ThrowingBarSource Bars(std::move(Thrower));
+    worker::Context Context{Bars, Calendar};
+    pb::DivergenceRequest Request;
+    *Request.mutable_market() = marketA();
+    Request.set_last_step(9);
+    pb::DivergenceResponse Response;
+    return worker::handleAnalyzeDivergences(Context, Request, &Response);
   };
 
-  EXPECT_EQ(statusOf([] {
+  EXPECT_EQ(StatusOf([] {
               throw worker::ClickHouseError("секрет: пароль db");
             }).error_code(),
             grpc::StatusCode::UNAVAILABLE);
-  EXPECT_EQ(statusOf([] { throw core::SnapshotNotFound("нет"); }).error_code(),
+  EXPECT_EQ(StatusOf([] { throw core::SnapshotNotFound("нет"); }).error_code(),
             grpc::StatusCode::FAILED_PRECONDITION);
-  EXPECT_EQ(statusOf([] { throw std::invalid_argument("плохо"); }).error_code(),
+  EXPECT_EQ(StatusOf([] { throw std::invalid_argument("плохо"); }).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
-  const grpc::Status internal = statusOf(
+  const grpc::Status Internal = StatusOf(
       [] { throw std::runtime_error("внутренняя деталь /etc/passwd"); });
-  EXPECT_EQ(internal.error_code(), grpc::StatusCode::INTERNAL);
-  EXPECT_EQ(internal.error_message().find("passwd"), std::string::npos);
-  EXPECT_EQ(statusOf([] { throw 42; }).error_code(),
+  EXPECT_EQ(Internal.error_code(), grpc::StatusCode::INTERNAL);
+  EXPECT_EQ(Internal.error_message().find("passwd"), std::string::npos);
+  EXPECT_EQ(StatusOf([] { throw 42; }).error_code(),
             grpc::StatusCode::INTERNAL);
 }

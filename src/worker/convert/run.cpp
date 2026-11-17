@@ -7,38 +7,38 @@
 
 namespace worker {
 
-void toProto(const core::RunOutput &output, const core::Report &report,
-             const std::optional<core::CostBreakdown> &costBreakdown,
-             const core::Timeline &timeline, pb::RunResult *out) {
-  out->set_status(toProto(output.status));
-  out->set_level(convert::toProto(output.level));
-  pb::Report *r = out->mutable_report();
-  toProto(report, r);
-  r->set_level(convert::toProto(output.level));
-  for (const core::Finding &f : output.findings)
-    toProto(f, r->add_findings());
-  for (const core::Fill &f : output.fills)
-    toProto(f, timeline, out->add_fills());
-  for (const core::Order &o : output.orders)
-    toProto(o, timeline, out->add_orders());
-  if (costBreakdown) {
-    pb::CostBreakdown *cb = out->mutable_cost_breakdown();
-    for (const core::CostBreakdownStep &s : costBreakdown->steps) {
-      pb::CostBreakdownStep *step = cb->add_steps();
-      step->set_factor(toProto(s.factor));
-      core::toProto(s.netResult, step->mutable_net_result());
-      step->set_net_return(s.netReturn);
+void toProto(const core::RunOutput &Output, const core::Report &Report,
+             const std::optional<core::CostBreakdown> &CostBreakdown,
+             const core::Timeline &Timeline, pb::RunResult *Out) {
+  Out->set_status(toProto(Output.Status));
+  Out->set_level(convert::toProto(Output.Severity));
+  pb::Report *R = Out->mutable_report();
+  toProto(Report, R);
+  R->set_level(convert::toProto(Output.Severity));
+  for (const core::Finding &F : Output.Findings)
+    toProto(F, R->add_findings());
+  for (const core::Fill &F : Output.Fills)
+    toProto(F, Timeline, Out->add_fills());
+  for (const core::Order &O : Output.Orders)
+    toProto(O, Timeline, Out->add_orders());
+  if (CostBreakdown) {
+    pb::CostBreakdown *Cb = Out->mutable_cost_breakdown();
+    for (const core::CostBreakdownStep &S : CostBreakdown->Steps) {
+      pb::CostBreakdownStep *Step = Cb->add_steps();
+      Step->set_factor(toProto(S.Factor));
+      core::toProto(S.NetResult, Step->mutable_net_result());
+      Step->set_net_return(S.NetReturn);
     }
-    for (const core::CostFlag flag : costBreakdown->flags)
-      cb->add_flags(toProto(flag));
+    for (const core::CostFlag Flag : CostBreakdown->Flags)
+      Cb->add_flags(toProto(Flag));
   }
-  out->set_digest(output.digest);
-  out->set_last_step(output.lastStep);
-  out->set_total_steps(timeline.totalSteps());
+  Out->set_digest(Output.Digest);
+  Out->set_last_step(Output.LastStep);
+  Out->set_total_steps(Timeline.totalSteps());
 }
 
-pb::RunStatus toProto(core::RunStatus status) {
-  switch (status) {
+pb::RunStatus toProto(core::RunStatus Status) {
+  switch (Status) {
   case core::RunStatus::Completed:
     return pb::COMPLETED;
   case core::RunStatus::BankruptStop:
@@ -49,8 +49,8 @@ pb::RunStatus toProto(core::RunStatus status) {
   return pb::RUN_STATUS_UNSPECIFIED;
 }
 
-pb::CostFactor toProto(core::CostFactor factor) {
-  switch (factor) {
+pb::CostFactor toProto(core::CostFactor Factor) {
+  switch (Factor) {
   case core::CostFactor::Naive:
     return pb::NAIVE;
   case core::CostFactor::Delay:
@@ -67,8 +67,8 @@ pb::CostFactor toProto(core::CostFactor factor) {
   return pb::COST_FACTOR_UNSPECIFIED;
 }
 
-pb::CostFlag toProto(core::CostFlag flag) {
-  switch (flag) {
+pb::CostFlag toProto(core::CostFlag Flag) {
+  switch (Flag) {
   case core::CostFlag::CostsOverHalfProfit:
     return pb::COSTS_OVER_HALF_PROFIT;
   case core::CostFlag::SignChange:

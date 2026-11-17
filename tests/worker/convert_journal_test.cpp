@@ -17,116 +17,116 @@ namespace {
 namespace pb = pac::simulation::v1;
 
 struct JournalWorld {
-  core::SessionSpec spec;
-  core::Timeline timeline;
+  core::SessionSpec Spec;
+  core::Timeline Timeline;
 };
 
 JournalWorld journalWorld() {
-  auto f = core::testing::fixture1();
-  core::SessionSpec spec;
-  spec.instruments = f.instruments;
-  spec.costs = core::CostConfig::defaults();
-  spec.initialCash = core::Decimal::parse("1000000");
-  return JournalWorld{spec, core::Timeline::load(
-                                f.bars, f.calendar, f.snapshotId, f.instruments,
+  auto F = core::testing::fixture1();
+  core::SessionSpec Spec;
+  Spec.Instruments = F.Instruments;
+  Spec.Costs = core::CostConfig::defaults();
+  Spec.InitialCash = core::Decimal::parse("1000000");
+  return JournalWorld{Spec, core::Timeline::load(
+                                F.Bars, F.Calendar, F.SnapshotId, F.Instruments,
                                 core::Timeframe::D1, 20240109, 20240122)};
 }
 
-bool sameSpec(const core::OrderSpec &a, const core::OrderSpec &b) {
-  return a.instrument == b.instrument && a.side == b.side && a.type == b.type &&
-         a.lots == b.lots && a.limitPrice == b.limitPrice &&
-         a.stopPrice == b.stopPrice && a.trailingPercent == b.trailingPercent &&
-         a.tif == b.tif;
+bool sameSpec(const core::OrderSpec &A, const core::OrderSpec &B) {
+  return A.Instrument == B.Instrument && A.OrderSide == B.OrderSide &&
+         A.Type == B.Type && A.Lots == B.Lots && A.LimitPrice == B.LimitPrice &&
+         A.StopPrice == B.StopPrice && A.TrailingPercent == B.TrailingPercent &&
+         A.Tif == B.Tif;
 }
 
-core::JournalEntry roundTrip(const core::JournalEntry &e,
-                             const JournalWorld &s) {
-  pb::JournalEntry proto;
-  worker::toProto(e, s.timeline, &proto);
-  return worker::fromProto(proto, s.spec);
+core::JournalEntry roundTrip(const core::JournalEntry &E,
+                             const JournalWorld &S) {
+  pb::JournalEntry Proto;
+  worker::toProto(E, S.Timeline, &Proto);
+  return worker::fromProto(Proto, S.Spec);
 }
 
 } // namespace
 
 TEST(ConvertJournal, PlaceWithOcoAndRule) {
-  const JournalWorld s = journalWorld();
-  core::OrderSpec take;
-  take.instrument = 1;
-  take.side = core::Side::Sell;
-  take.type = core::OrderType::TakeProfit;
-  take.lots = 2;
-  take.limitPrice = core::Decimal::parse("0.025");
-  core::OrderSpec stop = take;
-  stop.type = core::OrderType::Stop;
-  stop.limitPrice.reset();
-  stop.stopPrice = core::Decimal::parse("0.015");
-  stop.tif = core::TimeInForce::Day;
-  core::JournalEntry e;
-  e.seq = 7;
-  e.step = 3;
-  e.command = core::PlaceCmd{take, stop};
-  e.ruleName = "защита";
-  e.because = "тейк и стоп";
+  const JournalWorld S = journalWorld();
+  core::OrderSpec Take;
+  Take.Instrument = 1;
+  Take.OrderSide = core::Side::Sell;
+  Take.Type = core::OrderType::TakeProfit;
+  Take.Lots = 2;
+  Take.LimitPrice = core::Decimal::parse("0.025");
+  core::OrderSpec Stop = Take;
+  Stop.Type = core::OrderType::Stop;
+  Stop.LimitPrice.reset();
+  Stop.StopPrice = core::Decimal::parse("0.015");
+  Stop.Tif = core::TimeInForce::Day;
+  core::JournalEntry E;
+  E.Seq = 7;
+  E.Step = 3;
+  E.Command = core::PlaceCmd{Take, Stop};
+  E.RuleName = "защита";
+  E.Because = "тейк и стоп";
 
-  const core::JournalEntry back = roundTrip(e, s);
-  EXPECT_EQ(back.seq, 7);
-  EXPECT_EQ(back.step, 3);
-  EXPECT_EQ(back.ruleName, "защита");
-  EXPECT_EQ(back.because, "тейк и стоп");
-  const auto &place = std::get<core::PlaceCmd>(back.command);
-  EXPECT_TRUE(sameSpec(place.order, take));
-  ASSERT_TRUE(place.ocoWith);
-  EXPECT_TRUE(sameSpec(*place.ocoWith, stop));
+  const core::JournalEntry Back = roundTrip(E, S);
+  EXPECT_EQ(Back.Seq, 7);
+  EXPECT_EQ(Back.Step, 3);
+  EXPECT_EQ(Back.RuleName, "защита");
+  EXPECT_EQ(Back.Because, "тейк и стоп");
+  const auto &Place = std::get<core::PlaceCmd>(Back.Command);
+  EXPECT_TRUE(sameSpec(Place.Order, Take));
+  ASSERT_TRUE(Place.OcoWith);
+  EXPECT_TRUE(sameSpec(*Place.OcoWith, Stop));
 }
 
 TEST(ConvertJournal, CancelKeepsReason) {
-  const JournalWorld s = journalWorld();
-  core::JournalEntry e;
-  e.seq = 1;
-  e.step = 4;
-  e.command = core::CancelCmd{5, core::Reason::PositionClosed};
-  e.ruleName = "s";
-  e.because = "позиция закрыта";
-  const core::JournalEntry back = roundTrip(e, s);
-  const auto &cancel = std::get<core::CancelCmd>(back.command);
-  EXPECT_EQ(cancel.orderId, 5);
-  EXPECT_EQ(cancel.reason, core::Reason::PositionClosed);
-  EXPECT_EQ(back.ruleName, "s");
+  const JournalWorld S = journalWorld();
+  core::JournalEntry E;
+  E.Seq = 1;
+  E.Step = 4;
+  E.Command = core::CancelCmd{5, core::Reason::PositionClosed};
+  E.RuleName = "s";
+  E.Because = "позиция закрыта";
+  const core::JournalEntry Back = roundTrip(E, S);
+  const auto &Cancel = std::get<core::CancelCmd>(Back.Command);
+  EXPECT_EQ(Cancel.OrderId, 5);
+  EXPECT_EQ(Cancel.ReasonCode, core::Reason::PositionClosed);
+  EXPECT_EQ(Back.RuleName, "s");
 
   // Отмена человека без причины - CANCELLED_BY_USER, как раньше.
-  pb::JournalEntry human;
-  human.set_seq(2);
-  human.set_step(4);
-  human.mutable_cancel()->set_order_id(5);
-  EXPECT_EQ(std::get<core::CancelCmd>(worker::fromProto(human, s.spec).command)
-                .reason,
+  pb::JournalEntry Human;
+  Human.set_seq(2);
+  Human.set_step(4);
+  Human.mutable_cancel()->set_order_id(5);
+  EXPECT_EQ(std::get<core::CancelCmd>(worker::fromProto(Human, S.Spec).Command)
+                .ReasonCode,
             core::Reason::CancelledByUser);
 }
 
 TEST(ConvertJournal, ReplaceWithTrailing) {
-  const JournalWorld s = journalWorld();
-  core::OrderSpec trailing;
-  trailing.instrument = 0;
-  trailing.side = core::Side::Sell;
-  trailing.type = core::OrderType::TrailingStop;
-  trailing.lots = 3;
-  trailing.trailingPercent = core::Decimal::parse("4");
-  core::JournalEntry e;
-  e.seq = 3;
-  e.step = 5;
-  e.command = core::ReplaceCmd{2, core::PlaceCmd{trailing, std::nullopt}};
-  e.ruleName = "r";
-  const core::JournalEntry back = roundTrip(e, s);
-  const auto &replace = std::get<core::ReplaceCmd>(back.command);
-  EXPECT_EQ(replace.orderId, 2);
-  EXPECT_TRUE(sameSpec(replace.replacement.order, trailing));
-  EXPECT_FALSE(replace.replacement.ocoWith);
+  const JournalWorld S = journalWorld();
+  core::OrderSpec Trailing;
+  Trailing.Instrument = 0;
+  Trailing.OrderSide = core::Side::Sell;
+  Trailing.Type = core::OrderType::TrailingStop;
+  Trailing.Lots = 3;
+  Trailing.TrailingPercent = core::Decimal::parse("4");
+  core::JournalEntry E;
+  E.Seq = 3;
+  E.Step = 5;
+  E.Command = core::ReplaceCmd{2, core::PlaceCmd{Trailing, std::nullopt}};
+  E.RuleName = "r";
+  const core::JournalEntry Back = roundTrip(E, S);
+  const auto &Replace = std::get<core::ReplaceCmd>(Back.Command);
+  EXPECT_EQ(Replace.OrderId, 2);
+  EXPECT_TRUE(sameSpec(Replace.Replacement.Order, Trailing));
+  EXPECT_FALSE(Replace.Replacement.OcoWith);
 }
 
 TEST(ConvertJournal, EveryReasonMapsBack) {
-  for (int i = static_cast<int>(core::Reason::None);
-       i <= static_cast<int>(core::Reason::DayExpired); ++i) {
-    const auto reason = static_cast<core::Reason>(i);
-    EXPECT_EQ(worker::reasonFromProto(worker::toProto(reason)), reason) << i;
+  for (int I = static_cast<int>(core::Reason::None);
+       I <= static_cast<int>(core::Reason::DayExpired); ++I) {
+    const auto Reason = static_cast<core::Reason>(I);
+    EXPECT_EQ(worker::reasonFromProto(worker::toProto(Reason)), Reason) << I;
   }
 }

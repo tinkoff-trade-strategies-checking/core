@@ -15,18 +15,18 @@ namespace worker {
 // Разобранная и проверенная стратегия: программа, параметры по check() и
 // уровень версии по статической проверке.
 struct Strategy {
-  core::dsl::Program program;
-  std::vector<core::dsl::ResolvedParam> params;
-  core::dsl::Level level = core::dsl::Level::Ok;
+  core::dsl::Program Program;
+  std::vector<core::dsl::ResolvedParam> Params;
+  core::dsl::Level Severity = core::dsl::Level::Ok;
 };
 
 // Коды диагностик уровня Error через ';' (контракт simulation.proto: описание
 // INVALID_ARGUMENT).
-std::string errorCodes(const std::vector<core::dsl::Diagnostic> &diagnostics);
+std::string errorCodes(const std::vector<core::dsl::Diagnostic> &Diagnostics);
 
 // parse + check. Ошибка разбора или проверки (уровень Error) -
 // std::invalid_argument с кодами диагностик (statusFromCurrentException
 // переводит в INVALID_ARGUMENT).
-Strategy loadStrategy(const std::string &source);
+Strategy loadStrategy(const std::string &Source);
 
 } // namespace worker

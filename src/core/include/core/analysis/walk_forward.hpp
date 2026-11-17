@@ -29,23 +29,23 @@ struct NoValidFitRun : std::runtime_error {
 };
 
 struct WalkForwardConfig {
-  std::int32_t fitDays = 250, testDays = 63, shiftDays = 63, maxGrid = 200;
+  std::int32_t FitDays = 250, TestDays = 63, ShiftDays = 63, MaxGrid = 200;
 };
 
 // Номера торговых дней - в исходной шкале, с 1, границы включительно.
 struct WalkForwardSegment {
-  std::int32_t index;
-  std::int32_t fitFromDay, fitToDay, testFromDay, testToDay;
-  dsl::ParamValues chosen; // выбранные значения всех параметров стратегии
-  double fitNetReturn; // net-доходность выбранного набора на окне подбора
-  RunOutput test; // прогон на окне проверки; шаги и сделки - в нумерации среза
+  std::int32_t Index;
+  std::int32_t FitFromDay, FitToDay, TestFromDay, TestToDay;
+  dsl::ParamValues Chosen; // выбранные значения всех параметров стратегии
+  double FitNetReturn; // net-доходность выбранного набора на окне подбора
+  RunOutput Test; // прогон на окне проверки; шаги и сделки - в нумерации среза
                   // шкалы (дни testFromDay…testToDay)
-  Report testReport; // без бенчмарка
+  Report TestReport; // без бенчмарка
 };
 
 struct WalkForwardResult {
-  std::vector<WalkForwardSegment> segments;
-  double chainedReturn = 0; // по цепочке проверочных окон: Π(1 + r_k) − 1
+  std::vector<WalkForwardSegment> Segments;
+  double ChainedReturn = 0; // по цепочке проверочных окон: Π(1 + r_k) − 1
 };
 
 // Сетка: декартово произведение значений параметров в порядке объявления,
@@ -54,10 +54,10 @@ struct WalkForwardResult {
 // одна пустая комбинация. Размер сетки больше maxGrid или maxGrid < 1 -
 // std::invalid_argument (до построения сетки).
 std::vector<dsl::ParamValues>
-paramGrid(const std::vector<dsl::ResolvedParam> &params, std::int32_t maxGrid);
+paramGrid(const std::vector<dsl::ResolvedParam> &Params, std::int32_t MaxGrid);
 
 // Доходность по цепочке: Π(1 + r_k) − 1; без окон - 0.
-double chainedReturn(const std::vector<double> &returns);
+double chainedReturn(const std::vector<double> &Returns);
 
 // Отрезок k: подбор [1 + shift·k; fit + shift·k], проверка - следующие testDays
 // дней; отрезков столько, сколько помещается в шкалу. Критерий подбора -
@@ -69,11 +69,11 @@ double chainedReturn(const std::vector<double> &returns);
 // отрезка, ошибка runBacktest (в том числе значение сетки, не прошедшее
 // повторную проверку StrategyInstance, INV-1). progress - по сумме шагов всех
 // прогонов (done монотонно растёт до total); может быть пустым.
-WalkForwardResult walkForward(const SessionSpec &spec,
-                              std::shared_ptr<const Timeline> timeline,
-                              const dsl::Program &program,
-                              const std::vector<dsl::ResolvedParam> &params,
-                              const WalkForwardConfig &config,
-                              const Progress &progress);
+WalkForwardResult walkForward(const SessionSpec &Spec,
+                              std::shared_ptr<const Timeline> Timeline,
+                              const dsl::Program &Program,
+                              const std::vector<dsl::ResolvedParam> &Params,
+                              const WalkForwardConfig &Config,
+                              const Progress &Progress);
 
 } // namespace core

@@ -13,12 +13,12 @@ namespace core {
 // >= startStep (t0), окно волатильности и объёма - её volBars баров с t0
 // (меньше, если баров не хватает).
 struct StressScenario {
-  std::int64_t startStep = 0; // шаг начала события, >= 0
-  Decimal gapPercent; // X, %: гэп -X % на все цены с t0 до конца; 0 <= X < 100
-  Decimal volMultiplier; // k: волатильность x k на окне; k >= 0
-  std::int32_t volBars =
+  std::int64_t StartStep = 0; // шаг начала события, >= 0
+  Decimal GapPercent; // X, %: гэп -X % на все цены с t0 до конца; 0 <= X < 100
+  Decimal VolMultiplier; // k: волатильность x k на окне; k >= 0
+  std::int32_t VolBars =
       0; // N: длина окна в барах, >= 0 (0 - без окна волатильности и объёма)
-  Decimal volumeShare; // q: объём окна до floor(V * q) лотов; 0 <= q <= 1
+  Decimal VolumeShare; // q: объём окна до floor(V * q) лотов; 0 <= q <= 1
 };
 
 // Копия шкалы со стрессом: гэп, затем волатильность, затем объём. Все операции
@@ -28,6 +28,6 @@ struct StressScenario {
 // после гэпа). Для бумаги без бара до t0 опорное закрытие - open её первого
 // бара t0. Исходная шкала не меняется. Неверные параметры -
 // std::invalid_argument.
-Timeline applyStress(const Timeline &timeline, const StressScenario &scenario);
+Timeline applyStress(const Timeline &Timeline, const StressScenario &Scenario);
 
 } // namespace core

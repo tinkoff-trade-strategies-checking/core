@@ -13,91 +13,91 @@
 namespace core {
 namespace {
 
-Decimal D(const char *text) { return Decimal::parse(text); }
+Decimal d(const char *Text) { return Decimal::parse(Text); }
 
 // fixture-1 по D1: 10 шагов, по шагу на день 2024-01-09…22.
 Timeline fixtureTimeline() {
-  auto f = testing::fixture1();
-  return Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments,
+  auto F = testing::fixture1();
+  return Timeline::load(F.Bars, F.Calendar, F.SnapshotId, F.Instruments,
                         Timeframe::D1, 20240109, 20240122);
 }
 
 // Индекс 1000 на открытии первого дня; close - 1010, 1020, … по дням, кроме
 // 2024-01-11 (у индекса нет бара).
 BenchmarkSeries series() {
-  BenchmarkSeries s;
-  s.firstOpen = D("1000");
-  const std::int32_t days[] = {20240109, 20240110, 20240112, 20240115, 20240116,
+  BenchmarkSeries S;
+  S.FirstOpen = d("1000");
+  const std::int32_t Days[] = {20240109, 20240110, 20240112, 20240115, 20240116,
                                20240117, 20240118, 20240119, 20240122};
-  int i = 1;
-  for (const std::int32_t day : days)
-    s.closes.push_back(DailyClose{day, Decimal::fromUnits(1000 + 10 * i++)});
-  return s;
+  int I = 1;
+  for (const std::int32_t Day : Days)
+    S.Closes.push_back(DailyClose{Day, Decimal::fromUnits(1000 + 10 * I++)});
+  return S;
 }
 
 TEST(Benchmark, RangeIsFirstOpenAndLastClose) {
-  const auto range = benchmarkRange(series());
-  ASSERT_TRUE(range);
-  EXPECT_EQ(range->first, D("1000"));
-  EXPECT_EQ(range->second, D("1090"));
-  EXPECT_FALSE(benchmarkRange(BenchmarkSeries{D("1000"), {}}));
+  const auto Range = benchmarkRange(series());
+  ASSERT_TRUE(Range);
+  EXPECT_EQ(Range->first, d("1000"));
+  EXPECT_EQ(Range->second, d("1090"));
+  EXPECT_FALSE(benchmarkRange(BenchmarkSeries{d("1000"), {}}));
 }
 
 TEST(Benchmark, EquityPerDayInCapitalRubles) {
-  const Timeline t = fixtureTimeline();
-  const std::vector<EquityPoint> curve =
-      benchmarkEquity(series(), D("1000000"), t, 9);
+  const Timeline T = fixtureTimeline();
+  const std::vector<EquityPoint> Curve =
+      benchmarkEquity(series(), d("1000000"), T, 9);
   // День без бара индекса (шаг 2) пропущен.
-  ASSERT_EQ(curve.size(), 9u);
-  EXPECT_EQ(curve[0].step, 0);
-  EXPECT_EQ(curve[0].equity, D("1010000"));
-  EXPECT_EQ(curve[1].step, 1);
-  EXPECT_EQ(curve[2].step, 3);
-  EXPECT_EQ(curve[2].equity, D("1030000"));
-  EXPECT_EQ(curve.back().step, 9);
-  EXPECT_EQ(curve.back().equity, D("1090000"));
+  ASSERT_EQ(Curve.size(), 9u);
+  EXPECT_EQ(Curve[0].Step, 0);
+  EXPECT_EQ(Curve[0].Equity, d("1010000"));
+  EXPECT_EQ(Curve[1].Step, 1);
+  EXPECT_EQ(Curve[2].Step, 3);
+  EXPECT_EQ(Curve[2].Equity, d("1030000"));
+  EXPECT_EQ(Curve.back().Step, 9);
+  EXPECT_EQ(Curve.back().Equity, d("1090000"));
 }
 
 TEST(Benchmark, StopsAtLastStepAndRounds) {
-  const Timeline t = fixtureTimeline();
-  BenchmarkSeries s = series();
-  s.firstOpen = D("3");
-  const std::vector<EquityPoint> curve = benchmarkEquity(s, D("1"), t, 1);
-  ASSERT_EQ(curve.size(), 2u);                    // шаги 0 и 1
-  EXPECT_EQ(curve[0].equity, D("336.666666667")); // 1010 / 3, 9 знаков HALF_UP
+  const Timeline T = fixtureTimeline();
+  BenchmarkSeries S = series();
+  S.FirstOpen = d("3");
+  const std::vector<EquityPoint> Curve = benchmarkEquity(S, d("1"), T, 1);
+  ASSERT_EQ(Curve.size(), 2u);                    // шаги 0 и 1
+  EXPECT_EQ(Curve[0].Equity, d("336.666666667")); // 1010 / 3, 9 знаков HALF_UP
 }
 
 TEST(Benchmark, BadInput) {
-  const Timeline t = fixtureTimeline();
-  EXPECT_THROW((void)benchmarkEquity(series(), D("1"), t, 10),
+  const Timeline T = fixtureTimeline();
+  EXPECT_THROW((void)benchmarkEquity(series(), d("1"), T, 10),
                std::invalid_argument);
-  EXPECT_THROW((void)benchmarkEquity(series(), D("1"), t, -1),
+  EXPECT_THROW((void)benchmarkEquity(series(), d("1"), T, -1),
                std::invalid_argument);
-  EXPECT_THROW((void)benchmarkEquity(BenchmarkSeries{D("0"), {}}, D("1"), t, 0),
+  EXPECT_THROW((void)benchmarkEquity(BenchmarkSeries{d("0"), {}}, d("1"), T, 0),
                std::invalid_argument);
 }
 
 TEST(Benchmark, ReportCarriesCurveAsIs) {
-  MetricsInput in;
-  in.initialCash = D("1000000");
-  in.equity = {{0, D("1000000")}};
-  in.tradingDayOfStep = {1};
-  in.benchmarkEquity = {{0, D("1010000")}};
-  const Report report = computeReport(in);
-  ASSERT_EQ(report.benchmarkEquity.size(), 1u);
-  EXPECT_EQ(report.benchmarkEquity[0].equity, D("1010000"));
+  MetricsInput In;
+  In.InitialCash = d("1000000");
+  In.Equity = {{0, d("1000000")}};
+  In.TradingDayOfStep = {1};
+  In.BenchmarkEquity = {{0, d("1010000")}};
+  const Report Report = computeReport(In);
+  ASSERT_EQ(Report.BenchmarkEquity.size(), 1u);
+  EXPECT_EQ(Report.BenchmarkEquity[0].Equity, d("1010000"));
 }
 
 TEST(Metrics, CountsStopAndTakeOnSameBar) {
-  MetricsInput in;
-  in.initialCash = D("1000000");
-  in.equity = {{0, D("1000000")}, {1, D("1000000")}};
-  in.tradingDayOfStep = {1, 2};
-  Fill plain;
-  Fill pessimistic;
-  pessimistic.stopAndTakeSameBar = true;
-  in.fills = {plain, pessimistic, pessimistic};
-  EXPECT_EQ(computeReport(in).metrics.stopTakeSameBar, 2);
+  MetricsInput In;
+  In.InitialCash = d("1000000");
+  In.Equity = {{0, d("1000000")}, {1, d("1000000")}};
+  In.TradingDayOfStep = {1, 2};
+  Fill Plain;
+  Fill Pessimistic;
+  Pessimistic.StopAndTakeSameBar = true;
+  In.Fills = {Plain, Pessimistic, Pessimistic};
+  EXPECT_EQ(computeReport(In).Stats.StopTakeSameBar, 2);
 }
 
 } // namespace

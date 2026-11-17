@@ -24,19 +24,19 @@ namespace worker {
 //    не выводит сам.
 class ClickHouseCalendarSource final : public core::CalendarSource {
 public:
-  explicit ClickHouseCalendarSource(std::unique_ptr<ClickHouseClient> client);
+  explicit ClickHouseCalendarSource(std::unique_ptr<ClickHouseClient> Client);
   // Боевая сборка: libcurl-клиент по настройкам.
-  explicit ClickHouseCalendarSource(const ClickHouseConfig &config);
+  explicit ClickHouseCalendarSource(const ClickHouseConfig &Config);
 
   // Дни с fromYmd по toYmd включительно. fromYmd > toYmd - пустой список;
   // неверная дата (не существует в григорианском календаре) -
   // std::invalid_argument.
-  std::vector<core::TradingDay> tradingDays(const std::string &snapshotId,
-                                            std::int32_t fromYmd,
-                                            std::int32_t toYmd) override;
+  std::vector<core::TradingDay> tradingDays(const std::string &SnapshotId,
+                                            std::int32_t FromYmd,
+                                            std::int32_t ToYmd) override;
 
 private:
-  std::unique_ptr<ClickHouseClient> client_;
+  std::unique_ptr<ClickHouseClient> Client;
 };
 
 } // namespace worker

@@ -7,32 +7,32 @@
 
 namespace core {
 
-void InMemoryCalendarSource::add(const std::string &snapshotId,
-                                 std::vector<TradingDay> days) {
-  std::stable_sort(days.begin(), days.end(),
-                   [](const TradingDay &a, const TradingDay &b) {
-                     return a.yyyymmdd < b.yyyymmdd;
+void InMemoryCalendarSource::add(const std::string &SnapshotId,
+                                 std::vector<TradingDay> SnapshotDays) {
+  std::stable_sort(SnapshotDays.begin(), SnapshotDays.end(),
+                   [](const TradingDay &A, const TradingDay &B) {
+                     return A.Yyyymmdd < B.Yyyymmdd;
                    });
-  for (std::size_t i = 1; i < days.size(); ++i) {
-    if (days[i].yyyymmdd == days[i - 1].yyyymmdd) {
+  for (std::size_t I = 1; I < SnapshotDays.size(); ++I) {
+    if (SnapshotDays[I].Yyyymmdd == SnapshotDays[I - 1].Yyyymmdd) {
       throw std::invalid_argument("InMemoryCalendarSource: дубликат даты");
     }
   }
-  days_[snapshotId] = std::move(days);
+  Days[SnapshotId] = std::move(SnapshotDays);
 }
 
 std::vector<TradingDay>
-InMemoryCalendarSource::tradingDays(const std::string &snapshotId,
-                                    std::int32_t fromYmd, std::int32_t toYmd) {
-  const auto it = days_.find(snapshotId);
-  if (it == days_.end())
-    throw SnapshotNotFound("календарь версии данных не найден: " + snapshotId);
-  std::vector<TradingDay> out;
-  for (const TradingDay &day : it->second) {
-    if (day.yyyymmdd >= fromYmd && day.yyyymmdd <= toYmd)
-      out.push_back(day);
+InMemoryCalendarSource::tradingDays(const std::string &SnapshotId,
+                                    std::int32_t FromYmd, std::int32_t ToYmd) {
+  const auto It = Days.find(SnapshotId);
+  if (It == Days.end())
+    throw SnapshotNotFound("календарь версии данных не найден: " + SnapshotId);
+  std::vector<TradingDay> Out;
+  for (const TradingDay &Day : It->second) {
+    if (Day.Yyyymmdd >= FromYmd && Day.Yyyymmdd <= ToYmd)
+      Out.push_back(Day);
   }
-  return out;
+  return Out;
 }
 
 } // namespace core

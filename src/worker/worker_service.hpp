@@ -13,34 +13,34 @@ namespace worker {
 class WorkerService final : public pb::SimulationWorker::Service {
 public:
   // Источники данных должны пережить сервис.
-  explicit WorkerService(Context context) : context_(context) {}
+  explicit WorkerService(Context Ctx) : HandlerContext(Ctx) {}
 
-  grpc::Status Ping(grpc::ServerContext *context,
-                    const pb::PingRequest *request,
-                    pb::PingResponse *response) override;
-  grpc::Status CheckStrategy(grpc::ServerContext *context,
-                             const pb::CheckStrategyRequest *request,
-                             pb::CheckStrategyResponse *response) override;
-  grpc::Status ReplaySession(grpc::ServerContext *context,
-                             const pb::ReplaySessionRequest *request,
-                             pb::ReplaySessionResponse *response) override;
-  grpc::Status GetBars(grpc::ServerContext *context,
-                       const pb::GetBarsRequest *request,
-                       pb::GetBarsResponse *response) override;
+  grpc::Status Ping(grpc::ServerContext *Context,
+                    const pb::PingRequest *Request,
+                    pb::PingResponse *Response) override;
+  grpc::Status CheckStrategy(grpc::ServerContext *Context,
+                             const pb::CheckStrategyRequest *Request,
+                             pb::CheckStrategyResponse *Response) override;
+  grpc::Status ReplaySession(grpc::ServerContext *Context,
+                             const pb::ReplaySessionRequest *Request,
+                             pb::ReplaySessionResponse *Response) override;
+  grpc::Status GetBars(grpc::ServerContext *Context,
+                       const pb::GetBarsRequest *Request,
+                       pb::GetBarsResponse *Response) override;
   grpc::Status
-  RunBacktest(grpc::ServerContext *context,
-              const pb::RunBacktestRequest *request,
-              grpc::ServerWriter<pb::RunBacktestUpdate> *writer) override;
+  RunBacktest(grpc::ServerContext *Context,
+              const pb::RunBacktestRequest *Request,
+              grpc::ServerWriter<pb::RunBacktestUpdate> *Writer) override;
   grpc::Status
-  RunWalkForward(grpc::ServerContext *context,
-                 const pb::WalkForwardRequest *request,
-                 grpc::ServerWriter<pb::WalkForwardUpdate> *writer) override;
-  grpc::Status AnalyzeDivergences(grpc::ServerContext *context,
-                                  const pb::DivergenceRequest *request,
-                                  pb::DivergenceResponse *response) override;
+  RunWalkForward(grpc::ServerContext *Context,
+                 const pb::WalkForwardRequest *Request,
+                 grpc::ServerWriter<pb::WalkForwardUpdate> *Writer) override;
+  grpc::Status AnalyzeDivergences(grpc::ServerContext *Context,
+                                  const pb::DivergenceRequest *Request,
+                                  pb::DivergenceResponse *Response) override;
 
 private:
-  Context context_;
+  Context HandlerContext;
 };
 
 } // namespace worker

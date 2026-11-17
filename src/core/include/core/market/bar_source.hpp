@@ -37,11 +37,11 @@ public:
   // Бары по возрастанию tsOpenMs, index = 0..n-1. См. BarRequest о границах.
   // SnapshotNotFound, если версия не найдена или не готова; SecurityNotFound,
   // если нет инструмента.
-  virtual std::vector<Bar> load(const BarRequest &request) = 0;
+  virtual std::vector<Bar> load(const BarRequest &Request) = 0;
 
   // Справочные данные инструмента. Исключения - как у load.
-  virtual Security security(const std::string &snapshotId,
-                            const std::string &secid) = 0;
+  virtual Security security(const std::string &SnapshotId,
+                            const std::string &Secid) = 0;
 };
 
 } // namespace core

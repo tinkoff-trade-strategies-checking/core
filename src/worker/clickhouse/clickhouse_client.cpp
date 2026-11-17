@@ -11,216 +11,216 @@ namespace worker {
 
 namespace {
 
-std::string percentDecode(const std::string &text) {
-  std::string out;
-  for (std::size_t i = 0; i < text.size(); ++i) {
-    if (text[i] == '%' && i + 2 < text.size() &&
-        std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
-        std::isxdigit(static_cast<unsigned char>(text[i + 2]))) {
-      out.push_back(
-          static_cast<char>(std::stoi(text.substr(i + 1, 2), nullptr, 16)));
-      i += 2;
+std::string percentDecode(const std::string &Text) {
+  std::string Out;
+  for (std::size_t I = 0; I < Text.size(); ++I) {
+    if (Text[I] == '%' && I + 2 < Text.size() &&
+        std::isxdigit(static_cast<unsigned char>(Text[I + 1])) &&
+        std::isxdigit(static_cast<unsigned char>(Text[I + 2]))) {
+      Out.push_back(
+          static_cast<char>(std::stoi(Text.substr(I + 1, 2), nullptr, 16)));
+      I += 2;
     } else {
-      out.push_back(text[i]);
+      Out.push_back(Text[I]);
     }
   }
-  return out;
+  return Out;
 }
 
 void ensureCurlGlobalInit() {
-  static std::once_flag once;
-  std::call_once(once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
+  static std::once_flag Once;
+  std::call_once(Once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
 }
 
-std::size_t appendToString(char *data, std::size_t size, std::size_t count,
-                           void *userdata) {
-  static_cast<std::string *>(userdata)->append(data, size * count);
-  return size * count;
+std::size_t appendToString(char *Data, std::size_t Size, std::size_t Count,
+                           void *Userdata) {
+  static_cast<std::string *>(Userdata)->append(Data, Size * Count);
+  return Size * Count;
 }
 
 struct CurlDeleter {
-  void operator()(CURL *h) const { curl_easy_cleanup(h); }
+  void operator()(CURL *H) const { curl_easy_cleanup(H); }
 };
 struct SlistDeleter {
-  void operator()(curl_slist *l) const { curl_slist_free_all(l); }
+  void operator()(curl_slist *L) const { curl_slist_free_all(L); }
 };
 
-std::string escapeUrl(CURL *handle, const std::string &text) {
-  char *escaped =
-      curl_easy_escape(handle, text.c_str(), static_cast<int>(text.size()));
-  if (escaped == nullptr)
+std::string escapeUrl(CURL *Handle, const std::string &Text) {
+  char *Escaped =
+      curl_easy_escape(Handle, Text.c_str(), static_cast<int>(Text.size()));
+  if (Escaped == nullptr)
     throw ClickHouseError("curl_easy_escape: нехватка памяти");
-  std::string out(escaped);
-  curl_free(escaped);
-  return out;
+  std::string Out(Escaped);
+  curl_free(Escaped);
+  return Out;
 }
 
-std::string trimmed(std::string text) {
-  while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
-    text.pop_back();
-  if (text.size() > 500)
-    text.resize(500);
-  return text;
+std::string trimmed(std::string Text) {
+  while (!Text.empty() && (Text.back() == '\n' || Text.back() == '\r'))
+    Text.pop_back();
+  if (Text.size() > 500)
+    Text.resize(500);
+  return Text;
 }
 
 } // namespace
 
-ClickHouseConfig ClickHouseConfig::fromUrl(const std::string &url) {
-  const auto schemeEnd = url.find("://");
-  if (schemeEnd == std::string::npos)
+ClickHouseConfig ClickHouseConfig::fromUrl(const std::string &Url) {
+  const auto SchemeEnd = Url.find("://");
+  if (SchemeEnd == std::string::npos)
     throw std::invalid_argument("ClickHouse URL без схемы (ожидается "
                                 "http://[user:password@]host[:port][/база])");
-  const std::string scheme = url.substr(0, schemeEnd);
-  if (scheme != "http" && scheme != "https") {
+  const std::string Scheme = Url.substr(0, SchemeEnd);
+  if (Scheme != "http" && Scheme != "https") {
     throw std::invalid_argument(
         "ClickHouse URL: допустимы только http и https");
   }
-  const std::string rest = url.substr(schemeEnd + 3);
-  const auto pathStart = rest.find('/');
-  const std::string authority = rest.substr(0, pathStart);
-  const std::string path =
-      pathStart == std::string::npos ? "" : rest.substr(pathStart + 1);
+  const std::string Rest = Url.substr(SchemeEnd + 3);
+  const auto PathStart = Rest.find('/');
+  const std::string Authority = Rest.substr(0, PathStart);
+  const std::string Path =
+      PathStart == std::string::npos ? "" : Rest.substr(PathStart + 1);
 
-  ClickHouseConfig config;
-  std::string hostPort = authority;
-  const auto at = authority.rfind('@');
-  if (at != std::string::npos) {
-    const std::string userInfo = authority.substr(0, at);
-    hostPort = authority.substr(at + 1);
-    const auto colon = userInfo.find(':');
-    config.user = percentDecode(userInfo.substr(0, colon));
-    if (colon != std::string::npos)
-      config.password = percentDecode(userInfo.substr(colon + 1));
+  ClickHouseConfig Config;
+  std::string HostPort = Authority;
+  const auto At = Authority.rfind('@');
+  if (At != std::string::npos) {
+    const std::string UserInfo = Authority.substr(0, At);
+    HostPort = Authority.substr(At + 1);
+    const auto Colon = UserInfo.find(':');
+    Config.User = percentDecode(UserInfo.substr(0, Colon));
+    if (Colon != std::string::npos)
+      Config.Password = percentDecode(UserInfo.substr(Colon + 1));
   }
-  if (hostPort.empty())
+  if (HostPort.empty())
     throw std::invalid_argument("ClickHouse URL без хоста");
-  config.baseUrl = scheme + "://" + hostPort;
-  if (!path.empty())
-    config.database = percentDecode(path.substr(0, path.find('?')));
-  return config;
+  Config.BaseUrl = Scheme + "://" + HostPort;
+  if (!Path.empty())
+    Config.Database = percentDecode(Path.substr(0, Path.find('?')));
+  return Config;
 }
 
-CurlClickHouseClient::CurlClickHouseClient(ClickHouseConfig config)
-    : config_(std::move(config)) {
+CurlClickHouseClient::CurlClickHouseClient(ClickHouseConfig Settings)
+    : Config(std::move(Settings)) {
   ensureCurlGlobalInit();
 }
 
-std::string CurlClickHouseClient::query(const std::string &sql,
-                                        const QueryParams &params) {
-  std::unique_ptr<CURL, CurlDeleter> handle(curl_easy_init());
-  if (!handle)
+std::string CurlClickHouseClient::query(const std::string &Sql,
+                                        const QueryParams &Params) {
+  std::unique_ptr<CURL, CurlDeleter> Handle(curl_easy_init());
+  if (!Handle)
     throw ClickHouseError("curl_easy_init не удался");
 
-  std::string url = config_.baseUrl +
+  std::string Url = Config.BaseUrl +
                     "/?readonly=1&wait_end_of_query=1&database=" +
-                    escapeUrl(handle.get(), config_.database);
-  for (const auto &[name, value] : params) {
-    url += "&param_" + escapeUrl(handle.get(), name) + "=" +
-           escapeUrl(handle.get(), value);
+                    escapeUrl(Handle.get(), Config.Database);
+  for (const auto &[name, value] : Params) {
+    Url += "&param_" + escapeUrl(Handle.get(), name) + "=" +
+           escapeUrl(Handle.get(), value);
   }
 
-  std::string response;
-  std::unique_ptr<curl_slist, SlistDeleter> headers;
-  if (!config_.user.empty()) {
-    curl_slist *list = nullptr;
-    for (const std::string &line : {"X-ClickHouse-User: " + config_.user,
-                                    "X-ClickHouse-Key: " + config_.password}) {
-      curl_slist *extended = curl_slist_append(list, line.c_str());
-      if (extended == nullptr) {
-        curl_slist_free_all(list);
+  std::string Response;
+  std::unique_ptr<curl_slist, SlistDeleter> Headers;
+  if (!Config.User.empty()) {
+    curl_slist *List = nullptr;
+    for (const std::string &Line : {"X-ClickHouse-User: " + Config.User,
+                                    "X-ClickHouse-Key: " + Config.Password}) {
+      curl_slist *Extended = curl_slist_append(List, Line.c_str());
+      if (Extended == nullptr) {
+        curl_slist_free_all(List);
         throw ClickHouseError("curl_slist_append: нехватка памяти");
       }
-      list = extended;
+      List = Extended;
     }
-    headers.reset(list);
+    Headers.reset(List);
   }
 
-  CURL *h = handle.get();
-  curl_easy_setopt(h, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(h, CURLOPT_POST, 1L);
-  curl_easy_setopt(h, CURLOPT_POSTFIELDS, sql.c_str());
-  curl_easy_setopt(h, CURLOPT_POSTFIELDSIZE_LARGE,
-                   static_cast<curl_off_t>(sql.size()));
-  curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, appendToString);
-  curl_easy_setopt(h, CURLOPT_WRITEDATA, &response);
-  curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT, 5L);
-  curl_easy_setopt(h, CURLOPT_TIMEOUT, config_.timeoutSec);
-  curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
-  if (headers)
-    curl_easy_setopt(h, CURLOPT_HTTPHEADER, headers.get());
+  CURL *H = Handle.get();
+  curl_easy_setopt(H, CURLOPT_URL, Url.c_str());
+  curl_easy_setopt(H, CURLOPT_POST, 1L);
+  curl_easy_setopt(H, CURLOPT_POSTFIELDS, Sql.c_str());
+  curl_easy_setopt(H, CURLOPT_POSTFIELDSIZE_LARGE,
+                   static_cast<curl_off_t>(Sql.size()));
+  curl_easy_setopt(H, CURLOPT_WRITEFUNCTION, appendToString);
+  curl_easy_setopt(H, CURLOPT_WRITEDATA, &Response);
+  curl_easy_setopt(H, CURLOPT_CONNECTTIMEOUT, 5L);
+  curl_easy_setopt(H, CURLOPT_TIMEOUT, Config.TimeoutSec);
+  curl_easy_setopt(H, CURLOPT_NOSIGNAL, 1L);
+  if (Headers)
+    curl_easy_setopt(H, CURLOPT_HTTPHEADER, Headers.get());
 
-  const CURLcode rc = curl_easy_perform(h);
-  if (rc != CURLE_OK) {
+  const CURLcode Rc = curl_easy_perform(H);
+  if (Rc != CURLE_OK) {
     throw ClickHouseError(std::string("ClickHouse недоступен: ") +
-                          curl_easy_strerror(rc));
+                          curl_easy_strerror(Rc));
   }
-  long status = 0;
-  curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &status);
-  if (status != 200) {
-    throw ClickHouseError("ClickHouse вернул HTTP " + std::to_string(status) +
-                          ": " + trimmed(response));
+  long Status = 0;
+  curl_easy_getinfo(H, CURLINFO_RESPONSE_CODE, &Status);
+  if (Status != 200) {
+    throw ClickHouseError("ClickHouse вернул HTTP " + std::to_string(Status) +
+                          ": " + trimmed(Response));
   }
-  return response;
+  return Response;
 }
 
 std::vector<std::vector<std::string>>
-parseTabSeparated(const std::string &body) {
-  std::vector<std::vector<std::string>> rows;
-  if (body.empty())
-    return rows;
+parseTabSeparated(const std::string &Body) {
+  std::vector<std::vector<std::string>> Rows;
+  if (Body.empty())
+    return Rows;
   // Каждая строка ответа заканчивается \n; иначе ответ оборван, и последняя
   // строка может быть неполной.
-  if (body.back() != '\n')
+  if (Body.back() != '\n')
     throw ClickHouseError(
         "ClickHouse: ответ оборван (нет завершающего перевода строки)");
-  std::vector<std::string> row;
-  std::string field;
-  for (std::size_t i = 0; i < body.size(); ++i) {
-    const char c = body[i];
-    if (c == '\t') {
-      row.push_back(std::move(field));
-      field.clear();
-    } else if (c == '\n') {
-      row.push_back(std::move(field));
-      field.clear();
-      rows.push_back(std::move(row));
-      row.clear();
-    } else if (c == '\\' && i + 1 < body.size()) {
-      const char n = body[++i];
-      switch (n) {
+  std::vector<std::string> Row;
+  std::string Field;
+  for (std::size_t I = 0; I < Body.size(); ++I) {
+    const char C = Body[I];
+    if (C == '\t') {
+      Row.push_back(std::move(Field));
+      Field.clear();
+    } else if (C == '\n') {
+      Row.push_back(std::move(Field));
+      Field.clear();
+      Rows.push_back(std::move(Row));
+      Row.clear();
+    } else if (C == '\\' && I + 1 < Body.size()) {
+      const char N = Body[++I];
+      switch (N) {
       case 't':
-        field.push_back('\t');
+        Field.push_back('\t');
         break;
       case 'n':
-        field.push_back('\n');
+        Field.push_back('\n');
         break;
       case 'r':
-        field.push_back('\r');
+        Field.push_back('\r');
         break;
       case 'b':
-        field.push_back('\b');
+        Field.push_back('\b');
         break;
       case 'f':
-        field.push_back('\f');
+        Field.push_back('\f');
         break;
       case 'a':
-        field.push_back('\a');
+        Field.push_back('\a');
         break;
       case 'v':
-        field.push_back('\v');
+        Field.push_back('\v');
         break;
       case '0':
-        field.push_back('\0');
+        Field.push_back('\0');
         break;
       default:
-        field.push_back(n);
+        Field.push_back(N);
         break; // \\ \' и прочее
       }
     } else {
-      field.push_back(c);
+      Field.push_back(C);
     }
   }
-  return rows;
+  return Rows;
 }
 
 } // namespace worker

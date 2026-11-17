@@ -17,105 +17,105 @@ using core::Security;
 
 constexpr const char *kSnap = "snap-1";
 
-Bar makeBar(std::int64_t tsOpenMs, const char *close) {
-  Bar b;
-  b.tsOpenMs = tsOpenMs;
-  b.availableAtMs = tsOpenMs + 60000;
-  b.open = b.high = b.low = b.close = Decimal::parse(close);
-  b.volume = 1;
-  b.value = Decimal::parse(close);
-  return b;
+Bar makeBar(std::int64_t TsOpenMs, const char *Close) {
+  Bar B;
+  B.TsOpenMs = TsOpenMs;
+  B.AvailableAtMs = TsOpenMs + 60000;
+  B.Open = B.High = B.Low = B.Close = Decimal::parse(Close);
+  B.Volume = 1;
+  B.Value = Decimal::parse(Close);
+  return B;
 }
 
 InMemoryBarSource makeSource() {
-  InMemoryBarSource source;
-  source.addSecurity(kSnap,
+  InMemoryBarSource Source;
+  Source.addSecurity(kSnap,
                      Security{"SBER", "Финансы", 10, Decimal::parse("0.01")});
   // Добавляем вразнобой: источник обязан отсортировать по tsOpenMs.
-  source.addSeries(kSnap, "SBER", 60,
+  Source.addSeries(kSnap, "SBER", 60,
                    {makeBar(180000, "3"), makeBar(0, "1"),
                     makeBar(120000, "2.5"), makeBar(60000, "1.5")});
-  return source;
+  return Source;
 }
 
 TEST(InMemoryBarSource, LoadsSortedWithZeroBasedIndex) {
-  auto source = makeSource();
-  const auto bars = source.load({kSnap, "SBER", 60, 0, 1000000});
-  ASSERT_EQ(bars.size(), 4u);
-  for (std::size_t i = 0; i < bars.size(); ++i) {
-    EXPECT_EQ(bars[i].index, static_cast<std::int64_t>(i));
-    if (i > 0) {
-      EXPECT_LT(bars[i - 1].tsOpenMs, bars[i].tsOpenMs);
+  auto Source = makeSource();
+  const auto Bars = Source.load({kSnap, "SBER", 60, 0, 1000000});
+  ASSERT_EQ(Bars.size(), 4u);
+  for (std::size_t I = 0; I < Bars.size(); ++I) {
+    EXPECT_EQ(Bars[I].Index, static_cast<std::int64_t>(I));
+    if (I > 0) {
+      EXPECT_LT(Bars[I - 1].TsOpenMs, Bars[I].TsOpenMs);
     }
   }
-  EXPECT_EQ(bars[2].close, Decimal::parse("2.5"));
+  EXPECT_EQ(Bars[2].Close, Decimal::parse("2.5"));
 }
 
 TEST(InMemoryBarSource, RangeIsHalfOpenAndReindexed) {
-  auto source = makeSource();
-  const auto bars = source.load({kSnap, "SBER", 60, 60000, 180000});
-  ASSERT_EQ(bars.size(), 2u);
-  EXPECT_EQ(bars[0].tsOpenMs, 60000);
-  EXPECT_EQ(bars[0].index, 0);
-  EXPECT_EQ(bars[1].tsOpenMs, 120000);
-  EXPECT_EQ(bars[1].index, 1);
+  auto Source = makeSource();
+  const auto Bars = Source.load({kSnap, "SBER", 60, 60000, 180000});
+  ASSERT_EQ(Bars.size(), 2u);
+  EXPECT_EQ(Bars[0].TsOpenMs, 60000);
+  EXPECT_EQ(Bars[0].Index, 0);
+  EXPECT_EQ(Bars[1].TsOpenMs, 120000);
+  EXPECT_EQ(Bars[1].Index, 1);
 }
 
 // INV-1: бар, который к toMs ещё не известен (availableAtMs > toMs), в
 // результат не попадает.
 TEST(InMemoryBarSource, ExcludesBarsNotYetAvailableByToMs) {
-  auto source = makeSource(); // бар i доступен в tsOpenMs + 60000
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 120000}).size(),
+  auto Source = makeSource(); // бар i доступен в tsOpenMs + 60000
+  EXPECT_EQ(Source.load({kSnap, "SBER", 60, 0, 120000}).size(),
             2u); // бары 0 и 60000 известны к 120000
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 119999}).size(),
+  EXPECT_EQ(Source.load({kSnap, "SBER", 60, 0, 119999}).size(),
             1u); // бар 60000 ещё не известен (доступен в 120000)
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 60000}).size(),
+  EXPECT_EQ(Source.load({kSnap, "SBER", 60, 0, 60000}).size(),
             1u); // только бар 0 (доступен в 60000)
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 59999}).size(), 0u);
+  EXPECT_EQ(Source.load({kSnap, "SBER", 60, 0, 59999}).size(), 0u);
 }
 
 TEST(InMemoryBarSource, OrderOfAdditionDoesNotMatter) {
-  InMemoryBarSource a;
-  InMemoryBarSource b;
-  const std::vector<Bar> forward{makeBar(0, "1"), makeBar(60000, "2"),
+  InMemoryBarSource A;
+  InMemoryBarSource B;
+  const std::vector<Bar> Forward{makeBar(0, "1"), makeBar(60000, "2"),
                                  makeBar(120000, "3")};
-  std::vector<Bar> backward(forward.rbegin(), forward.rend());
-  a.addSeries(kSnap, "X", 60, forward);
-  b.addSeries(kSnap, "X", 60, backward);
-  a.addSecurity(kSnap, Security{"X", "", 1, Decimal::one()});
-  b.addSecurity(kSnap, Security{"X", "", 1, Decimal::one()});
-  EXPECT_EQ(a.load({kSnap, "X", 60, 0, 1000000}),
-            b.load({kSnap, "X", 60, 0, 1000000}));
+  std::vector<Bar> Backward(Forward.rbegin(), Forward.rend());
+  A.addSeries(kSnap, "X", 60, Forward);
+  B.addSeries(kSnap, "X", 60, Backward);
+  A.addSecurity(kSnap, Security{"X", "", 1, Decimal::one()});
+  B.addSecurity(kSnap, Security{"X", "", 1, Decimal::one()});
+  EXPECT_EQ(A.load({kSnap, "X", 60, 0, 1000000}),
+            B.load({kSnap, "X", 60, 0, 1000000}));
 }
 
 TEST(InMemoryBarSource, EmptySeriesForKnownSecurity) {
-  auto source = makeSource();
-  EXPECT_TRUE(source.load({kSnap, "SBER", 60, 500000, 600000})
+  auto Source = makeSource();
+  EXPECT_TRUE(Source.load({kSnap, "SBER", 60, 500000, 600000})
                   .empty()); // вне диапазона
-  EXPECT_TRUE(source.load({kSnap, "SBER", 3600, 0, 1000000})
+  EXPECT_TRUE(Source.load({kSnap, "SBER", 3600, 0, 1000000})
                   .empty()); // нет такого интервала
 }
 
 TEST(InMemoryBarSource, UnknownSnapshotAndSecurityThrow) {
-  auto source = makeSource();
-  EXPECT_THROW(source.load({"nope", "SBER", 60, 0, 1}), core::SnapshotNotFound);
-  EXPECT_THROW(source.load({kSnap, "GAZP", 60, 0, 1}), core::SecurityNotFound);
-  EXPECT_THROW(source.security("nope", "SBER"), core::SnapshotNotFound);
-  EXPECT_THROW(source.security(kSnap, "GAZP"), core::SecurityNotFound);
+  auto Source = makeSource();
+  EXPECT_THROW(Source.load({"nope", "SBER", 60, 0, 1}), core::SnapshotNotFound);
+  EXPECT_THROW(Source.load({kSnap, "GAZP", 60, 0, 1}), core::SecurityNotFound);
+  EXPECT_THROW(Source.security("nope", "SBER"), core::SnapshotNotFound);
+  EXPECT_THROW(Source.security(kSnap, "GAZP"), core::SecurityNotFound);
 }
 
 TEST(InMemoryBarSource, SecurityLookup) {
-  auto source = makeSource();
-  const Security sec = source.security(kSnap, "SBER");
-  EXPECT_EQ(sec.sector, "Финансы");
-  EXPECT_EQ(sec.lotSize, 10);
-  EXPECT_EQ(sec.priceStep, Decimal::parse("0.01"));
+  auto Source = makeSource();
+  const Security Sec = Source.security(kSnap, "SBER");
+  EXPECT_EQ(Sec.Sector, "Финансы");
+  EXPECT_EQ(Sec.LotSize, 10);
+  EXPECT_EQ(Sec.PriceStep, Decimal::parse("0.01"));
 }
 
 TEST(InMemoryBarSource, DuplicateTimestampRejected) {
-  InMemoryBarSource source;
+  InMemoryBarSource Source;
   EXPECT_THROW(
-      source.addSeries(kSnap, "X", 60, {makeBar(0, "1"), makeBar(0, "2")}),
+      Source.addSeries(kSnap, "X", 60, {makeBar(0, "1"), makeBar(0, "2")}),
       std::invalid_argument);
 }
 

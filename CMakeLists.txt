@@ -25,7 +25,7 @@ endforeach()
 add_library(core_warnings INTERFACE)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   # -ffp-contract=off: без слияния a * b + c в FMA (на x86-64 GCC делает это при -march с FMA).
-  target_compile_options(core_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror -ffp-contract=off)
+  target_compile_options(core_warnings INTERFACE -Wall -Wextra -Wpedantic -Wshadow -Werror -ffp-contract=off)
 elseif(MSVC)
   target_compile_options(core_warnings INTERFACE /W4 /WX)
 endif()

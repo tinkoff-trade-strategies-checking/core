@@ -4,46 +4,46 @@
 
 namespace core {
 
-ExecutionEngine::ExecutionEngine(std::vector<Instrument> instruments,
-                                 CostConfig costs, bool naive)
-    : instruments_(std::move(instruments)), costs_(std::move(costs)),
-      naive_(naive) {}
+ExecutionEngine::ExecutionEngine(std::vector<Instrument> InstrumentList,
+                                 CostConfig CostModel, bool NaiveMode)
+    : Instruments(std::move(InstrumentList)), Costs(std::move(CostModel)),
+      Naive(NaiveMode) {}
 
-void ExecutionEngine::processStep(std::int64_t step, const Timeline &timeline,
-                                  std::vector<Order> &orders,
-                                  Portfolio &portfolio,
-                                  std::vector<Fill> &fills,
-                                  std::vector<std::int64_t> &changed) const {
+void ExecutionEngine::processStep(std::int64_t Step, const Timeline &Timeline,
+                                  std::vector<Order> &Orders,
+                                  Portfolio &Portfolio,
+                                  std::vector<Fill> &Fills,
+                                  std::vector<std::int64_t> &Changed) const {
   // Порядок на шаге: рыночные -> стоп-типы -> лимитные и тейк-профит; затем
   // снятие заявок «день» (всё - в processConditional). Бюджет ликвидности один
   // на шаг: условные заявки видят то, что уже израсходовали рыночные.
-  LiquidityBudget budget(instruments_.size());
-  processMarket(step, timeline, budget, orders, portfolio, fills, changed);
-  processConditional(step, timeline, budget, orders, portfolio, fills, changed);
+  LiquidityBudget Budget(Instruments.size());
+  processMarket(Step, Timeline, Budget, Orders, Portfolio, Fills, Changed);
+  processConditional(Step, Timeline, Budget, Orders, Portfolio, Fills, Changed);
 }
 
 std::optional<std::int64_t>
-LiquidityBudget::remaining(int instrument, const StepBar &bar,
-                           const CostConfig &costs) {
-  if (!costs.liquidityShare)
+LiquidityBudget::remaining(int Instrument, const StepBar &Bar,
+                           const CostConfig &Costs) {
+  if (!Costs.LiquidityShare)
     return std::nullopt;
-  auto &left = left_.at(static_cast<std::size_t>(instrument));
-  if (!left) {
+  auto &Slot = Left.at(static_cast<std::size_t>(Instrument));
+  if (!Slot) {
     // floor(p·V) лотов.
-    left = bar.volumeLots <= 0 ? 0
+    Slot = Bar.VolumeLots <= 0 ? 0
                                : static_cast<std::int64_t>(
-                                     costs.liquidityShare->times(bar.volumeLots)
+                                     Costs.LiquidityShare->times(Bar.VolumeLots)
                                          .round(0, RoundingMode::FLOOR)
                                          .raw() /
                                      Decimal::kUnit);
   }
-  return left;
+  return Slot;
 }
 
-void LiquidityBudget::consume(int instrument, std::int64_t lots) {
-  auto &left = left_.at(static_cast<std::size_t>(instrument));
-  if (left)
-    *left -= lots; // не задан - без лимита (remaining не вызывался) или бюджета
+void LiquidityBudget::consume(int Instrument, std::int64_t Lots) {
+  auto &Slot = Left.at(static_cast<std::size_t>(Instrument));
+  if (Slot)
+    *Slot -= Lots; // не задан - без лимита (remaining не вызывался) или бюджета
                    // не было
 }
 

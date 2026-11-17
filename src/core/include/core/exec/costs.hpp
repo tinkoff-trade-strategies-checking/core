@@ -13,10 +13,10 @@
 namespace core {
 
 struct CostConfig {
-  Decimal commissionRate, exchangeFeeRate, spread, slippageKappa;
+  Decimal CommissionRate, ExchangeFeeRate, Spread, SlippageKappa;
   // Доля объёма бара, доступная заявкам шага; nullopt - без лимита (только для
   // ФТ-24, «наивное» исполнение).
-  std::optional<Decimal> liquidityShare;
+  std::optional<Decimal> LiquidityShare;
 
   // Значения по умолчанию: комиссия 0,0005; сбор 0,0001; спред 0,001; κ = 0,1;
   // лимит ликвидности 0,10.
@@ -32,27 +32,27 @@ struct CostConfig {
 // barVolumeLots <= 0 (нет объёма, от которого его считать). Цена продажи не
 // опускается ниже одного шага цены (при q >> V множитель m мог бы стать
 // отрицательным). lots <= 0 - std::invalid_argument.
-Decimal fillPrice(Side side, const Decimal &base, std::int64_t lots,
-                  std::int64_t barVolumeLots, const CostConfig &costs,
-                  const Decimal &priceStep);
+Decimal fillPrice(Side Side, const Decimal &Base, std::int64_t Lots,
+                  std::int64_t BarVolumeLots, const CostConfig &Costs,
+                  const Decimal &PriceStep);
 
 struct Amounts {
-  Decimal value, commission, fee;
+  Decimal Value, Commission, Fee;
 };
 // value = price·lots·lotSize до копейки HALF_UP; комиссия и сбор - от value,
 // каждые до копейки CEILING.
-Amounts amounts(const Decimal &price, std::int64_t lots, std::int64_t lotSize,
-                const CostConfig &costs);
+Amounts amounts(const Decimal &Price, std::int64_t Lots, std::int64_t LotSize,
+                const CostConfig &Costs);
 
 // Разбивка разницы цены исполнения и базовой цены (для отчёта о сделке).
 struct CostSplit {
-  Decimal spreadCost, slippageCost;
+  Decimal SpreadCost, SlippageCost;
 };
 // spreadCost = base·s/2·lots·lotSize до копейки HALF_UP; slippageCost = |price
 // − base|·lots·lotSize до копейки HALF_UP минус spreadCost (может быть
 // отрицательным из-за округления цены до шага).
-CostSplit costSplit(const Decimal &base, const Decimal &price,
-                    std::int64_t lots, std::int64_t lotSize,
-                    const CostConfig &costs);
+CostSplit costSplit(const Decimal &Base, const Decimal &Price,
+                    std::int64_t Lots, std::int64_t LotSize,
+                    const CostConfig &Costs);
 
 } // namespace core

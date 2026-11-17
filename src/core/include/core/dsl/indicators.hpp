@@ -18,7 +18,7 @@ using Value = std::optional<double>;
 class Indicator {
 public:
   virtual ~Indicator() = default;
-  virtual Value update(const std::vector<Value> &inputs) = 0;
+  virtual Value update(const std::vector<Value> &Inputs) = 0;
 };
 
 // Имена и входы:
@@ -29,6 +29,6 @@ public:
 // std::invalid_argument. update с неверным числом входов тоже бросает
 // std::invalid_argument.
 std::unique_ptr<Indicator>
-makeIndicator(std::string_view name, const std::vector<std::int64_t> &intArgs);
+makeIndicator(std::string_view Name, const std::vector<std::int64_t> &IntArgs);
 
 } // namespace core::dsl

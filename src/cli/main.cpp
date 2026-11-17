@@ -9,8 +9,8 @@
 
 namespace {
 
-void print_usage(std::ostream &out) {
-  out << "Использование:\n"
+void printUsage(std::ostream &Out) {
+  Out << "Использование:\n"
          "  sim_cli version\n"
          "  sim_cli replay   пока не реализован (прогоны идут через воркер)\n";
 }
@@ -20,22 +20,22 @@ void print_usage(std::ostream &out) {
 int main(int argc, char **argv) {
   try {
     if (argc < 2) {
-      print_usage(std::cerr);
+      printUsage(std::cerr);
       return 2;
     }
-    const std::string_view command = argv[1];
-    if (command == "version") {
+    const std::string_view Command = argv[1];
+    if (Command == "version") {
       std::cout << core::version() << "\n";
       return 0;
     }
-    if (command == "replay") {
+    if (Command == "replay") {
       std::cerr << "replay пока не реализован\n";
       return 1;
     }
-    print_usage(std::cerr);
+    printUsage(std::cerr);
     return 2;
-  } catch (const std::exception &e) {
-    std::cerr << "Ошибка: " << e.what() << "\n";
+  } catch (const std::exception &E) {
+    std::cerr << "Ошибка: " << E.what() << "\n";
     return 1;
   }
 }
