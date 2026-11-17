@@ -16,22 +16,26 @@ namespace pb = pac::simulation::v1;
 
 // Сервис в процессе на свободном порту и клиент к нему.
 class HandlersScaffold : public ::testing::Test {
- protected:
+protected:
   void SetUp() override {
-    service_ = std::make_unique<worker::WorkerService>(worker::Context{bars_, calendar_});
+    service_ = std::make_unique<worker::WorkerService>(
+        worker::Context{bars_, calendar_});
     int port = 0;
     grpc::ServerBuilder builder;
-    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
+    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
+                             &port);
     builder.RegisterService(service_.get());
     server_ = builder.BuildAndStart();
     ASSERT_TRUE(server_);
     ASSERT_NE(port, 0);
-    stub_ = pb::SimulationWorker::NewStub(grpc::CreateChannel(
-        "127.0.0.1:" + std::to_string(port), grpc::InsecureChannelCredentials()));
+    stub_ = pb::SimulationWorker::NewStub(
+        grpc::CreateChannel("127.0.0.1:" + std::to_string(port),
+                            grpc::InsecureChannelCredentials()));
   }
 
   void TearDown() override {
-    if (server_) server_->Shutdown();
+    if (server_)
+      server_->Shutdown();
   }
 
   core::InMemoryBarSource bars_;
@@ -41,7 +45,7 @@ class HandlersScaffold : public ::testing::Test {
   std::unique_ptr<pb::SimulationWorker::Stub> stub_;
 };
 
-}  // namespace
+} // namespace
 
 TEST_F(HandlersScaffold, PingReturnsCoreVersion) {
   grpc::ClientContext context;

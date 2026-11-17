@@ -2,6 +2,4 @@
 
 #include "core/version.hpp"
 
-TEST(Version, IsNotEmpty) {
-  EXPECT_FALSE(core::version().empty());
-}
+TEST(Version, IsNotEmpty) { EXPECT_FALSE(core::version().empty()); }

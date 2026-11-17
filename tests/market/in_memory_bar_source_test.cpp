@@ -15,9 +15,9 @@ using core::Decimal;
 using core::InMemoryBarSource;
 using core::Security;
 
-constexpr const char* kSnap = "snap-1";
+constexpr const char *kSnap = "snap-1";
 
-Bar makeBar(std::int64_t tsOpenMs, const char* close) {
+Bar makeBar(std::int64_t tsOpenMs, const char *close) {
   Bar b;
   b.tsOpenMs = tsOpenMs;
   b.availableAtMs = tsOpenMs + 60000;
@@ -29,10 +29,12 @@ Bar makeBar(std::int64_t tsOpenMs, const char* close) {
 
 InMemoryBarSource makeSource() {
   InMemoryBarSource source;
-  source.addSecurity(kSnap, Security{"SBER", "Финансы", 10, Decimal::parse("0.01")});
+  source.addSecurity(kSnap,
+                     Security{"SBER", "Финансы", 10, Decimal::parse("0.01")});
   // Добавляем вразнобой: источник обязан отсортировать по tsOpenMs.
   source.addSeries(kSnap, "SBER", 60,
-                   {makeBar(180000, "3"), makeBar(0, "1"), makeBar(120000, "2.5"), makeBar(60000, "1.5")});
+                   {makeBar(180000, "3"), makeBar(0, "1"),
+                    makeBar(120000, "2.5"), makeBar(60000, "1.5")});
   return source;
 }
 
@@ -59,31 +61,39 @@ TEST(InMemoryBarSource, RangeIsHalfOpenAndReindexed) {
   EXPECT_EQ(bars[1].index, 1);
 }
 
-// INV-1: бар, который к toMs ещё не известен (availableAtMs > toMs), в результат не попадает.
+// INV-1: бар, который к toMs ещё не известен (availableAtMs > toMs), в
+// результат не попадает.
 TEST(InMemoryBarSource, ExcludesBarsNotYetAvailableByToMs) {
-  auto source = makeSource();  // бар i доступен в tsOpenMs + 60000
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 120000}).size(), 2u);    // бары 0 и 60000 известны к 120000
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 119999}).size(), 1u);    // бар 60000 ещё не известен (доступен в 120000)
-  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 60000}).size(), 1u);     // только бар 0 (доступен в 60000)
+  auto source = makeSource(); // бар i доступен в tsOpenMs + 60000
+  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 120000}).size(),
+            2u); // бары 0 и 60000 известны к 120000
+  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 119999}).size(),
+            1u); // бар 60000 ещё не известен (доступен в 120000)
+  EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 60000}).size(),
+            1u); // только бар 0 (доступен в 60000)
   EXPECT_EQ(source.load({kSnap, "SBER", 60, 0, 59999}).size(), 0u);
 }
 
 TEST(InMemoryBarSource, OrderOfAdditionDoesNotMatter) {
   InMemoryBarSource a;
   InMemoryBarSource b;
-  const std::vector<Bar> forward{makeBar(0, "1"), makeBar(60000, "2"), makeBar(120000, "3")};
+  const std::vector<Bar> forward{makeBar(0, "1"), makeBar(60000, "2"),
+                                 makeBar(120000, "3")};
   std::vector<Bar> backward(forward.rbegin(), forward.rend());
   a.addSeries(kSnap, "X", 60, forward);
   b.addSeries(kSnap, "X", 60, backward);
   a.addSecurity(kSnap, Security{"X", "", 1, Decimal::one()});
   b.addSecurity(kSnap, Security{"X", "", 1, Decimal::one()});
-  EXPECT_EQ(a.load({kSnap, "X", 60, 0, 1000000}), b.load({kSnap, "X", 60, 0, 1000000}));
+  EXPECT_EQ(a.load({kSnap, "X", 60, 0, 1000000}),
+            b.load({kSnap, "X", 60, 0, 1000000}));
 }
 
 TEST(InMemoryBarSource, EmptySeriesForKnownSecurity) {
   auto source = makeSource();
-  EXPECT_TRUE(source.load({kSnap, "SBER", 60, 500000, 600000}).empty());   // вне диапазона
-  EXPECT_TRUE(source.load({kSnap, "SBER", 3600, 0, 1000000}).empty());     // нет такого интервала
+  EXPECT_TRUE(source.load({kSnap, "SBER", 60, 500000, 600000})
+                  .empty()); // вне диапазона
+  EXPECT_TRUE(source.load({kSnap, "SBER", 3600, 0, 1000000})
+                  .empty()); // нет такого интервала
 }
 
 TEST(InMemoryBarSource, UnknownSnapshotAndSecurityThrow) {
@@ -104,7 +114,9 @@ TEST(InMemoryBarSource, SecurityLookup) {
 
 TEST(InMemoryBarSource, DuplicateTimestampRejected) {
   InMemoryBarSource source;
-  EXPECT_THROW(source.addSeries(kSnap, "X", 60, {makeBar(0, "1"), makeBar(0, "2")}), std::invalid_argument);
+  EXPECT_THROW(
+      source.addSeries(kSnap, "X", 60, {makeBar(0, "1"), makeBar(0, "2")}),
+      std::invalid_argument);
 }
 
-}  // namespace
+} // namespace

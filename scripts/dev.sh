@@ -6,6 +6,10 @@
 #   scripts/dev.sh test     сборка и ctest
 #   scripts/dev.sh all      image + test (по умолчанию)
 #   scripts/dev.sh shell    интерактивная оболочка в контейнере
+#   scripts/dev.sh format        переформатировать src/ и tests/ (clang-format, стиль LLVM)
+#   scripts/dev.sh format-check  проверить формат без изменений (--dry-run --Werror)
+#   scripts/dev.sh tidy          clang-tidy: именование (readability-identifier-naming)
+#   scripts/dev.sh tidy-fix      clang-tidy --fix: исправить именование автоматически
 #   scripts/dev.sh clean    удалить том со сборкой
 #
 # Переменные: PRESET (debug), JOBS (2), IMAGE (pac-core-dev).
@@ -47,6 +51,37 @@ cmd_test() {
   docker_run -- bash -euc "cmake --preset ${PRESET} && cmake --build --preset ${PRESET} -j${JOBS} && ctest --preset ${PRESET} -j${JOBS}"
 }
 
+# Исходники C++ под проверку стиля (сгенерированный код в build/ не входит).
+FORMAT_FILES='find src tests -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" -o -name "*.cc" \) -print0 | sort -z'
+
+cmd_format() {
+  docker_run -- bash -euc "${FORMAT_FILES} | xargs -0 clang-format -i"
+}
+
+cmd_format_check() {
+  docker_run -- bash -euc "${FORMAT_FILES} | xargs -0 clang-format --dry-run --Werror"
+}
+
+# clang-tidy читает compile_commands.json пресета; сначала конфигурация и генерируемые
+# заголовки protobuf/gRPC (*.pb.h), без полной сборки.
+cmd_tidy_run() {
+  local extra="$1"
+  docker_run -- bash -euc "
+    cmake --preset ${PRESET} >/dev/null
+    gen=\$(ninja -C build/${PRESET} -t targets all | grep -oE '^[^:]+\.pb\.h' || true)
+    if [ -n \"\$gen\" ]; then ninja -C build/${PRESET} -j${JOBS} \$gen; fi
+    run-clang-tidy -p build/${PRESET} -j ${JOBS} -quiet ${extra} '^/src/(src|tests)/'
+  "
+}
+
+cmd_tidy() {
+  cmd_tidy_run ""
+}
+
+cmd_tidy_fix() {
+  cmd_tidy_run "-fix"
+}
+
 cmd_shell() {
   docker_run -it -- bash
 }
@@ -59,8 +94,12 @@ case "${1:-all}" in
   image) cmd_image ;;
   build) cmd_build ;;
   test) cmd_test ;;
+  format) cmd_format ;;
+  format-check) cmd_format_check ;;
+  tidy) cmd_tidy ;;
+  tidy-fix) cmd_tidy_fix ;;
   shell) cmd_shell ;;
   clean) cmd_clean ;;
   all) cmd_image && cmd_test ;;
-  *) sed -n '2,12p' "$0"; exit 2 ;;
+  *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

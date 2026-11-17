@@ -18,30 +18,40 @@ CostConfig CostConfig::zero() { return CostConfig{}; }
 
 namespace {
 
-Decimal halfSpread(const CostConfig& costs) {
-  return costs.spread.div(Decimal::fromUnits(2), Decimal::kScale, RoundingMode::HALF_UP);
+Decimal halfSpread(const CostConfig &costs) {
+  return costs.spread.div(Decimal::fromUnits(2), Decimal::kScale,
+                          RoundingMode::HALF_UP);
 }
 
-}  // namespace
+} // namespace
 
-Decimal fillPrice(Side side, const Decimal& base, std::int64_t lots, std::int64_t barVolumeLots, const CostConfig& costs,
-                  const Decimal& priceStep) {
-  if (lots <= 0) throw std::invalid_argument("fillPrice: число лотов должно быть положительным");
+Decimal fillPrice(Side side, const Decimal &base, std::int64_t lots,
+                  std::int64_t barVolumeLots, const CostConfig &costs,
+                  const Decimal &priceStep) {
+  if (lots <= 0)
+    throw std::invalid_argument(
+        "fillPrice: число лотов должно быть положительным");
   const Decimal frac = (costs.slippageKappa.isZero() || barVolumeLots <= 0)
                            ? Decimal::zero()
-                           : costs.slippageKappa.times(lots).div(Decimal::fromUnits(barVolumeLots), Decimal::kScale,
-                                                                 RoundingMode::HALF_UP);
+                           : costs.slippageKappa.times(lots).div(
+                                 Decimal::fromUnits(barVolumeLots),
+                                 Decimal::kScale, RoundingMode::HALF_UP);
   const Decimal half = halfSpread(costs);
   const bool buy = side == Side::Buy;
-  const Decimal m = buy ? Decimal::one() + half + frac : Decimal::one() - half - frac;
-  // Покупка вверх, продажа вниз - оба шага округления одним режимом (`decisions.md`, п. 1).
+  const Decimal m =
+      buy ? Decimal::one() + half + frac : Decimal::one() - half - frac;
+  // Покупка вверх, продажа вниз - оба шага округления одним режимом
+  // (`decisions.md`, п. 1).
   const RoundingMode mode = buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
-  const Decimal price = base.mul(m, Decimal::kScale, mode).roundToStep(priceStep, mode);
-  // При q >> V множитель продажи может стать отрицательным: цена не ниже одного шага.
+  const Decimal price =
+      base.mul(m, Decimal::kScale, mode).roundToStep(priceStep, mode);
+  // При q >> V множитель продажи может стать отрицательным: цена не ниже одного
+  // шага.
   return (!buy && price < priceStep) ? priceStep : price;
 }
 
-Amounts amounts(const Decimal& price, std::int64_t lots, std::int64_t lotSize, const CostConfig& costs) {
+Amounts amounts(const Decimal &price, std::int64_t lots, std::int64_t lotSize,
+                const CostConfig &costs) {
   Amounts a;
   a.value = price.times(lots).times(lotSize).round(2, RoundingMode::HALF_UP);
   a.commission = a.value.mul(costs.commissionRate, 2, RoundingMode::CEILING);
@@ -49,14 +59,20 @@ Amounts amounts(const Decimal& price, std::int64_t lots, std::int64_t lotSize, c
   return a;
 }
 
-CostSplit costSplit(const Decimal& base, const Decimal& price, std::int64_t lots, std::int64_t lotSize,
-                    const CostConfig& costs) {
+CostSplit costSplit(const Decimal &base, const Decimal &price,
+                    std::int64_t lots, std::int64_t lotSize,
+                    const CostConfig &costs) {
   CostSplit s;
   // base·lots·lotSize·s/2 одним шагом округления.
-  s.spreadCost = base.times(lots).times(lotSize).mulDiv(costs.spread, Decimal::fromUnits(2), 2, RoundingMode::HALF_UP);
-  const Decimal total = (price - base).abs().times(lots).times(lotSize).round(2, RoundingMode::HALF_UP);
+  s.spreadCost = base.times(lots).times(lotSize).mulDiv(
+      costs.spread, Decimal::fromUnits(2), 2, RoundingMode::HALF_UP);
+  const Decimal total = (price - base)
+                            .abs()
+                            .times(lots)
+                            .times(lotSize)
+                            .round(2, RoundingMode::HALF_UP);
   s.slippageCost = total - s.spreadCost;
   return s;
 }
 
-}  // namespace core
+} // namespace core

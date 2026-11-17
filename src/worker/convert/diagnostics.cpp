@@ -8,17 +8,17 @@ namespace worker::convert {
 
 pb::Level toProto(core::dsl::Level level) {
   switch (level) {
-    case core::dsl::Level::Ok:
-      return pb::OK;
-    case core::dsl::Level::Warning:
-      return pb::WARNING;
-    case core::dsl::Level::Error:
-      return pb::ERROR;
+  case core::dsl::Level::Ok:
+    return pb::OK;
+  case core::dsl::Level::Warning:
+    return pb::WARNING;
+  case core::dsl::Level::Error:
+    return pb::ERROR;
   }
   return pb::LEVEL_UNSPECIFIED;
 }
 
-pb::Diagnostic toProto(const core::dsl::Diagnostic& diagnostic) {
+pb::Diagnostic toProto(const core::dsl::Diagnostic &diagnostic) {
   pb::Diagnostic out;
   out.set_code(diagnostic.code);
   out.set_level(toProto(diagnostic.level));
@@ -27,8 +27,8 @@ pb::Diagnostic toProto(const core::dsl::Diagnostic& diagnostic) {
   out.set_end_line(diagnostic.range.endLine);
   out.set_end_column(diagnostic.range.endColumn);
   out.set_message(diagnostic.message);
-  for (const core::dsl::TextEdit& edit : diagnostic.fix) {
-    pb::TextEdit* e = out.add_fix();
+  for (const core::dsl::TextEdit &edit : diagnostic.fix) {
+    pb::TextEdit *e = out.add_fix();
     e->set_start_line(edit.range.startLine);
     e->set_start_column(edit.range.startColumn);
     e->set_end_line(edit.range.endLine);
@@ -38,7 +38,7 @@ pb::Diagnostic toProto(const core::dsl::Diagnostic& diagnostic) {
   return out;
 }
 
-pb::ParamDecl toProto(const core::dsl::ResolvedParam& param) {
+pb::ParamDecl toProto(const core::dsl::ResolvedParam &param) {
   pb::ParamDecl out;
   out.set_name(param.name);
   out.set_default_value(param.value);
@@ -53,13 +53,15 @@ pb::ParamDecl toProto(const core::dsl::ResolvedParam& param) {
   return out;
 }
 
-std::vector<core::dsl::Diagnostic> sortedByPosition(std::vector<core::dsl::Diagnostic> diagnostics) {
-  std::stable_sort(diagnostics.begin(), diagnostics.end(),
-                   [](const core::dsl::Diagnostic& a, const core::dsl::Diagnostic& b) {
-                     return std::tie(a.range.startLine, a.range.startColumn, a.code) <
-                            std::tie(b.range.startLine, b.range.startColumn, b.code);
-                   });
+std::vector<core::dsl::Diagnostic>
+sortedByPosition(std::vector<core::dsl::Diagnostic> diagnostics) {
+  std::stable_sort(
+      diagnostics.begin(), diagnostics.end(),
+      [](const core::dsl::Diagnostic &a, const core::dsl::Diagnostic &b) {
+        return std::tie(a.range.startLine, a.range.startColumn, a.code) <
+               std::tie(b.range.startLine, b.range.startColumn, b.code);
+      });
   return diagnostics;
 }
 
-}  // namespace worker::convert
+} // namespace worker::convert

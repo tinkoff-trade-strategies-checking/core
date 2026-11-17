@@ -1,5 +1,6 @@
 // sim_cli — CLI для replay и ручных прогонов Simulation Core. Пока заглушка:
-// прогоны выполняет воркер (`runBacktest`, `replaySession`), CLI для них появится позже.
+// прогоны выполняет воркер (`runBacktest`, `replaySession`), CLI для них
+// появится позже.
 #include <exception>
 #include <iostream>
 #include <string_view>
@@ -8,15 +9,15 @@
 
 namespace {
 
-void print_usage(std::ostream& out) {
+void print_usage(std::ostream &out) {
   out << "Использование:\n"
          "  sim_cli version\n"
          "  sim_cli replay   пока не реализован (прогоны идут через воркер)\n";
 }
 
-}  // namespace
+} // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   try {
     if (argc < 2) {
       print_usage(std::cerr);
@@ -33,7 +34,7 @@ int main(int argc, char** argv) {
     }
     print_usage(std::cerr);
     return 2;
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     std::cerr << "Ошибка: " << e.what() << "\n";
     return 1;
   }

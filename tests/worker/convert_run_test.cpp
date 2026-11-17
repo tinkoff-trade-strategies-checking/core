@@ -15,16 +15,16 @@ namespace {
 
 namespace pb = pac::simulation::v1;
 
-core::Decimal D(const char* text) { return core::Decimal::parse(text); }
+core::Decimal D(const char *text) { return core::Decimal::parse(text); }
 
 core::Timeline fixtureTimeline() {
   auto f = core::testing::fixture1();
-  return core::Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments, core::Timeframe::D1, 20240109,
-                              20240122);
+  return core::Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments,
+                              core::Timeframe::D1, 20240109, 20240122);
 }
 
-core::Fill makeFill(std::int64_t orderId, std::int64_t step, int instrument, core::Side side, std::int64_t lots,
-                    const char* price) {
+core::Fill makeFill(std::int64_t orderId, std::int64_t step, int instrument,
+                    core::Side side, std::int64_t lots, const char *price) {
   core::Fill f;
   f.orderId = orderId;
   f.step = step;
@@ -47,7 +47,8 @@ core::RunOutput makeOutput() {
   out.status = core::RunStatus::BankruptStop;
   out.level = core::dsl::Level::Warning;
   out.lastStep = 7;
-  out.fills = {makeFill(0, 1, 0, core::Side::Buy, 5, "100.123456789"), makeFill(2, 6, 1, core::Side::Sell, 3, "0.02")};
+  out.fills = {makeFill(0, 1, 0, core::Side::Buy, 5, "100.123456789"),
+               makeFill(2, 6, 1, core::Side::Sell, 3, "0.02")};
   core::Order order;
   order.id = 0;
   order.spec.instrument = 0;
@@ -58,7 +59,8 @@ core::RunOutput makeOutput() {
   order.because = "пересечение";
   out.orders = {order};
   out.equity = {{0, D("1000000")}, {1, D("999000.5")}};
-  out.findings = {core::Finding{"W-RT01", core::dsl::Level::Warning, "сообщение", 4}};
+  out.findings = {
+      core::Finding{"W-RT01", core::dsl::Level::Warning, "сообщение", 4}};
   out.digest = 0xDEADBEEFCAFEF00DULL;
   out.finalEquity = D("999000.5");
   return out;
@@ -66,22 +68,26 @@ core::RunOutput makeOutput() {
 
 core::CostBreakdown makeBreakdown() {
   core::CostBreakdown cb;
-  const core::CostFactor factors[] = {core::CostFactor::Naive,  core::CostFactor::Delay,
-                                      core::CostFactor::Fees,   core::CostFactor::Spread,
-                                      core::CostFactor::Slippage, core::CostFactor::Liquidity};
-  const char* const results[] = {"150000.5", "140000", "120000.25", "100000", "80000.000000001", "-0.5"};
+  const core::CostFactor factors[] = {
+      core::CostFactor::Naive,    core::CostFactor::Delay,
+      core::CostFactor::Fees,     core::CostFactor::Spread,
+      core::CostFactor::Slippage, core::CostFactor::Liquidity};
+  const char *const results[] = {"150000.5", "140000",          "120000.25",
+                                 "100000",   "80000.000000001", "-0.5"};
   const double returns[] = {0.15, 0.14, 0.12, 0.10, 0.08, -0.0000005};
-  for (int i = 0; i < 6; ++i) cb.steps.push_back({factors[i], D(results[i]), returns[i]});
+  for (int i = 0; i < 6; ++i)
+    cb.steps.push_back({factors[i], D(results[i]), returns[i]});
   cb.flags = {core::CostFlag::CostsOverHalfProfit, core::CostFlag::SharpeOver3};
   return cb;
 }
 
-}  // namespace
+} // namespace
 
 TEST(ConvertRun, RoundTrip) {
   const core::Timeline timeline = fixtureTimeline();
   const core::RunOutput output = makeOutput();
-  core::MetricsInput in = worker::metricsInput(output, D("1000000"), timeline, std::nullopt);
+  core::MetricsInput in =
+      worker::metricsInput(output, D("1000000"), timeline, std::nullopt);
   const core::Report report = core::computeReport(in);
 
   pb::RunResult result;
@@ -95,7 +101,7 @@ TEST(ConvertRun, RoundTrip) {
 
   // Деньги - пары {units, nano}, отрицательные - с отрицательным nano.
   ASSERT_EQ(result.fills_size(), 2);
-  const pb::Fill& buy = result.fills(0);
+  const pb::Fill &buy = result.fills(0);
   EXPECT_EQ(buy.order_id(), 0);
   EXPECT_EQ(buy.step(), 1);
   EXPECT_EQ(buy.instrument_key(), "A");
@@ -110,7 +116,7 @@ TEST(ConvertRun, RoundTrip) {
   EXPECT_EQ(buy.slippage_cost().units(), 0);
   EXPECT_EQ(buy.slippage_cost().nano(), -10000000);
   EXPECT_FALSE(buy.stop_and_take_same_bar());
-  const pb::Fill& sell = result.fills(1);
+  const pb::Fill &sell = result.fills(1);
   EXPECT_EQ(sell.instrument_key(), "B");
   EXPECT_EQ(sell.side(), pb::SELL);
   EXPECT_TRUE(sell.stop_and_take_same_bar());
@@ -121,7 +127,7 @@ TEST(ConvertRun, RoundTrip) {
   EXPECT_EQ(result.orders(0).status(), pb::FILLED);
 
   // Отчёт: кривая стоимости, итог и находки прогона.
-  const pb::Report& r = result.report();
+  const pb::Report &r = result.report();
   EXPECT_EQ(r.level(), pb::WARNING);
   ASSERT_EQ(r.findings_size(), 1);
   EXPECT_EQ(r.findings(0).code(), "W-RT01");
@@ -135,14 +141,16 @@ TEST(ConvertRun, RoundTrip) {
   EXPECT_EQ(r.metrics().fills(), 2);
   EXPECT_NEAR(r.metrics().total_return(), 999000.5 / 1000000.0 - 1.0, 1e-12);
   EXPECT_FALSE(r.metrics().has_benchmark_return());
-  EXPECT_EQ(r.costs().commission().units(), 1);  // 0.50 + 0.50
+  EXPECT_EQ(r.costs().commission().units(), 1); // 0.50 + 0.50
 
   // Цепочка издержек: шесть шагов в порядке ядра.
   ASSERT_TRUE(result.has_cost_breakdown());
-  const pb::CostBreakdown& cb = result.cost_breakdown();
+  const pb::CostBreakdown &cb = result.cost_breakdown();
   ASSERT_EQ(cb.steps_size(), 6);
-  const pb::CostFactor order[] = {pb::NAIVE, pb::DELAY, pb::FEES, pb::SPREAD, pb::SLIPPAGE, pb::LIQUIDITY};
-  for (int i = 0; i < 6; ++i) EXPECT_EQ(cb.steps(i).factor(), order[i]) << i;
+  const pb::CostFactor order[] = {pb::NAIVE,  pb::DELAY,    pb::FEES,
+                                  pb::SPREAD, pb::SLIPPAGE, pb::LIQUIDITY};
+  for (int i = 0; i < 6; ++i)
+    EXPECT_EQ(cb.steps(i).factor(), order[i]) << i;
   EXPECT_EQ(cb.steps(0).net_result().units(), 150000);
   EXPECT_EQ(cb.steps(0).net_result().nano(), 500000000);
   EXPECT_EQ(cb.steps(4).net_result().units(), 80000);
@@ -161,7 +169,8 @@ TEST(ConvertRun, NoBreakdownWhenNotComputed) {
   output.status = core::RunStatus::Completed;
   output.level = core::dsl::Level::Ok;
   output.findings.clear();
-  const core::Report report = core::computeReport(worker::metricsInput(output, D("1000000"), timeline, std::nullopt));
+  const core::Report report = core::computeReport(
+      worker::metricsInput(output, D("1000000"), timeline, std::nullopt));
 
   pb::RunResult result;
   worker::toProto(output, report, std::nullopt, timeline, &result);
@@ -179,7 +188,8 @@ TEST(ConvertRun, InvalidRunStatus) {
 TEST(ConvertRun, Deterministic) {
   const core::Timeline timeline = fixtureTimeline();
   const core::RunOutput output = makeOutput();
-  const core::Report report = core::computeReport(worker::metricsInput(output, D("1000000"), timeline, std::nullopt));
+  const core::Report report = core::computeReport(
+      worker::metricsInput(output, D("1000000"), timeline, std::nullopt));
   pb::RunResult a;
   pb::RunResult b;
   worker::toProto(output, report, makeBreakdown(), timeline, &a);

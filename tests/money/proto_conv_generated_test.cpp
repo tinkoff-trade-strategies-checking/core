@@ -5,15 +5,18 @@
 #include "common.pb.h"
 #include "core/money/proto_conv.hpp"
 
-// Конвертация с настоящим сообщением pac.simulation.v1.Decimal (proto/common.proto),
-// включая проход через бинарную сериализацию protobuf (ADR-0008, раздел «Проверка»).
+// Конвертация с настоящим сообщением pac.simulation.v1.Decimal
+// (proto/common.proto), включая проход через бинарную сериализацию protobuf
+// (ADR-0008, раздел «Проверка»).
 
 using core::Decimal;
 using ProtoDecimal = pac::simulation::v1::Decimal;
 
 TEST(DecimalGeneratedProto, ExtremesRoundTripThroughWire) {
-  for (const char* text : {"0", "0.000000001", "-0.000000001", "-0.5", "100.16", "9223372036854775807",
-                           "9223372036854775807.999999999", "-9223372036854775807.999999999"}) {
+  for (const char *text :
+       {"0", "0.000000001", "-0.000000001", "-0.5", "100.16",
+        "9223372036854775807", "9223372036854775807.999999999",
+        "-9223372036854775807.999999999"}) {
     const Decimal d = Decimal::parse(text);
     const auto msg = core::toProto<ProtoDecimal>(d);
     std::string wire;
