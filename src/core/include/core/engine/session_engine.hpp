@@ -46,10 +46,6 @@ struct SessionSpec {
   std::vector<Instrument> Instruments;
   CostConfig Costs;
   Decimal InitialCash;
-  // ФТ-24: исполнение по close бара решения (единственное исключение из INV-2).
-  // Движок сам берёт CostConfig::zero(): рыночные заявки идут через
-  // processNaive, остальные (processStep) исполняются без издержек.
-  bool Naive = false;
 };
 
 // Нарушена целостность времени: исполнение не на текущем шаге, неизвестной
@@ -69,16 +65,9 @@ public:
   // Применяет запись на текущем шаге (действует с шага currentStep() + 1). Шаг
   // записи не равен currentStep() или seq не больше предыдущего -
   // std::invalid_argument. После остановки сессии принимаются записи и с более
-  // поздним шагом: они отклоняются с SessionNotActive. Запись на шаге, уже
-  // закрытом settleStep() (наивный режим), - std::logic_error.
+  // поздним шагом: они отклоняются с SessionNotActive.
   CommandResult apply(const JournalEntry &Entry);
-  // Наивный режим (ФТ-24): исполняет рыночные заявки шага по close бара решения
-  // - после всех записей шага, поэтому проверка каждой записи видит портфель до
-  // исполнений шага. Идемпотентна; advance() вызывает её сам, а чтение
-  // состояния шага после последней записи (portfolio(), fills(), ...) требует
-  // вызова вручную. Без naive - ничего не делает.
-  void settleStep();
-  // Обрабатывает шаг currentStep() + 1 (сначала settleStep()). Остановленная
+  // Обрабатывает шаг currentStep() + 1. Остановленная
   // сессия - std::logic_error.
   void advance();
 
@@ -105,8 +94,8 @@ private:
   Order *findOrder(std::int64_t Id);
   void closeOrder(Order &Order, OrderStatus Status, Reason Reason);
   void cancelActive(Reason Reason);
-  void recordStepState(bool ReplaceLast);
-  void checkIntegrity(std::size_t FromFill, bool SameStepAllowed) const;
+  void recordStepState();
+  void checkIntegrity(std::size_t FromFill) const;
 
   SessionSpec Spec;
   std::shared_ptr<const Timeline> TimelineRef;
@@ -120,9 +109,6 @@ private:
   std::size_t FillsBegin = 0; // начало исполнений текущего шага в fills_
   std::int64_t Step = 0;
   std::int64_t LastSeq = -1;
-  bool NaiveSettled = false; // settleStep() исполнил наивные заявки шага:
-                             // записи шага больше не принимаются
-  bool NaiveDue = false; // после записей шага ещё не вызван processNaive
   SessionStatus Status = SessionStatus::Running;
 };
 

@@ -12,7 +12,7 @@
 #include "core/market/timeline.hpp"
 #include "core/portfolio/portfolio.hpp"
 
-// Единая модель исполнения для человека и алгоритма (INV-2, INV-3): заявка,
+// Единая модель исполнения для всех заявок (INV-2, INV-3): заявка,
 // поданная на шаге s, исполняется не раньше open первого бара своей бумаги на
 // шаге > s.
 
@@ -45,12 +45,9 @@ private:
 
 class ExecutionEngine {
 public:
-  // instruments - бумаги сессии в порядке индексов; naive - признак режима
-  // ФТ-24 (вызывающий выбирает между processStep и processNaive сам).
-  ExecutionEngine(std::vector<Instrument> Instruments, CostConfig Costs,
-                  bool Naive);
+  // instruments - бумаги сессии в порядке индексов.
+  ExecutionEngine(std::vector<Instrument> Instruments, CostConfig Costs);
 
-  bool naive() const { return Naive; }
   const CostConfig &costs() const { return Costs; }
 
   // Проверка заявки при подаче на шаге step: параметры, затем деньги (по close
@@ -70,15 +67,6 @@ public:
                    std::vector<Fill> &Fills,
                    std::vector<std::int64_t> &Changed) const;
 
-  // ФТ-24: только для движка с naive = true, иначе std::logic_error (исключение
-  // из INV-2 доступно лишь за флагом). Рыночные заявки (поданные на шагах <=
-  // step) по close последнего бара бумаги не позже step; без издержек, спреда,
-  // проскальзывания и лимита ликвидности. Деньги и позиция ограничивают объём.
-  void processNaive(std::int64_t Step, const Timeline &Timeline,
-                    std::vector<Order> &Orders, Portfolio &Portfolio,
-                    std::vector<Fill> &Fills,
-                    std::vector<std::int64_t> &Changed) const;
-
 private:
   void processConditional(std::int64_t Step, const Timeline &Timeline,
                           LiquidityBudget &Budget, std::vector<Order> &Orders,
@@ -91,7 +79,6 @@ private:
 
   std::vector<Instrument> Instruments;
   CostConfig Costs;
-  bool Naive;
 };
 
 // Снимает активную заявку orderId с причиной reason на шаге step; у заявки OCO

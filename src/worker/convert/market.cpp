@@ -11,8 +11,6 @@
 #include <vector>
 
 #include "clickhouse/clickhouse_client.hpp"
-#include "core/analysis/stress.hpp"
-#include "core/analysis/walk_forward.hpp"
 #include "core/money/proto_conv.hpp"
 
 namespace worker {
@@ -95,7 +93,6 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
                          requirePositive(I.price_step(), "шаг цены")});
   }
 
-  Spec.Naive = Market.naive();
   if (Market.has_costs()) {
     const pb::CostConfig &C = Market.costs();
     Spec.Costs.CommissionRate = core::fromProto(C.commission_rate());
@@ -104,7 +101,7 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
     Spec.Costs.SlippageKappa = core::fromProto(C.slippage_kappa());
     if (C.has_liquidity_share())
       Spec.Costs.LiquidityShare = core::fromProto(C.liquidity_share());
-  } else if (!Spec.Naive) {
+  } else {
     throw std::invalid_argument("не заданы издержки исполнения");
   }
   Spec.InitialCash =
@@ -128,49 +125,6 @@ loadTimeline(Context &Context, const pb::MarketSpec &Market) {
   if (Timeline.totalSteps() == 0)
     throw core::SnapshotNotFound("в снапшоте нет баров за период");
   return std::make_shared<const core::Timeline>(std::move(Timeline));
-}
-
-namespace {
-
-std::optional<core::StressScenario> stressOf(const pb::StressScenario &Stress,
-                                             std::int64_t TotalSteps) {
-  core::StressScenario Scenario;
-  Scenario.GapPercent = core::fromProto(Stress.gap_percent());
-  Scenario.VolMultiplier = core::fromProto(Stress.vol_multiplier());
-  Scenario.VolBars = Stress.vol_bars();
-  Scenario.VolumeShare = core::fromProto(Stress.volume_share());
-  // Ненулевые отрицательные значения тоже идут в applyStress, он откажет
-  // (INVALID_ARGUMENT).
-  const bool Active = Scenario.VolBars != 0 ||
-                      Scenario.GapPercent != core::Decimal::zero() ||
-                      Scenario.VolumeShare != core::Decimal::zero() ||
-                      Scenario.VolMultiplier < core::Decimal::zero();
-  if (!Active)
-    return std::nullopt;
-  Scenario.StartStep =
-      Stress.start_step() < 0 ? TotalSteps / 2 : Stress.start_step();
-  if (Scenario.StartStep >= TotalSteps) {
-    throw std::invalid_argument(
-        "стресс: start_step " + std::to_string(Scenario.StartStep) +
-        " за пределами шкалы времени, шагов " + std::to_string(TotalSteps));
-  }
-  return Scenario;
-}
-
-} // namespace
-
-std::shared_ptr<const core::Timeline>
-loadStressedTimeline(Context &Context, const pb::MarketSpec &Market,
-                     const pb::StressScenario &Stress, bool HasStress) {
-  std::shared_ptr<const core::Timeline> Timeline =
-      loadTimeline(Context, Market);
-  if (HasStress) {
-    if (const auto Scenario = stressOf(Stress, Timeline->totalSteps())) {
-      Timeline = std::make_shared<const core::Timeline>(
-          core::applyStress(*Timeline, *Scenario));
-    }
-  }
-  return Timeline;
 }
 
 std::optional<core::BenchmarkSeries>
@@ -250,12 +204,6 @@ grpc::Status statusFromCurrentException() {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
   } catch (const core::SecurityNotFound &E) {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
-  } catch (const core::NoValidFitRun &) {
-    // Доменный исход для стратегии (повтор бессмыслен): общий текст без
-    // деталей.
-    return grpc::Status(
-        grpc::StatusCode::FAILED_PRECONDITION,
-        "walk-forward: ни один набор параметров не дал засчитываемого прогона");
   } catch (const IntervalUnavailable &E) {
     return grpc::Status(grpc::StatusCode::NOT_FOUND, E.what());
   } catch (const std::invalid_argument &E) {

@@ -47,12 +47,11 @@ std::shared_ptr<const Timeline> fixtureTimeline() {
                      Timeframe::D1, 20240109, 20240122));
 }
 
-SessionSpec fixtureSpec(bool Naive = false) {
+SessionSpec fixtureSpec() {
   SessionSpec Spec;
   Spec.Instruments = core::testing::fixture1().Instruments;
   Spec.Costs = CostConfig::defaults();
   Spec.InitialCash = d("1000000");
-  Spec.Naive = Naive;
   return Spec;
 }
 
@@ -100,9 +99,9 @@ JournalEntry replace(std::int64_t Seq, std::int64_t Step, std::int64_t OrderId,
 }
 
 ReplayResult replay(const std::vector<JournalEntry> &Journal, std::int64_t UpTo,
-                    std::int64_t EventsFrom = 0, bool Naive = false) {
-  return core::replaySession(fixtureSpec(Naive), fixtureTimeline(), Journal,
-                             UpTo, EventsFrom);
+                    std::int64_t EventsFrom = 0) {
+  return core::replaySession(fixtureSpec(), fixtureTimeline(), Journal, UpTo,
+                             EventsFrom);
 }
 
 const Order &orderById(const SessionEngine &Engine, std::int64_t Id) {
@@ -509,82 +508,6 @@ TEST(SessionEngine, AdvanceAfterStopThrows) {
   EXPECT_THROW(Engine.advance(), std::logic_error);
 }
 
-TEST(Replay, NaiveExecutesAtDecisionClose) {
-  const ReplayResult R =
-      replay({place(0, 2, market(Side::Buy, 10))}, 3, 0, true);
-  ASSERT_EQ(R.Engine.fills().size(), 1u);
-  const Fill &F = R.Engine.fills()[0];
-  EXPECT_EQ(F.Step, 2); // без задержки (ФТ-24)
-  EXPECT_EQ(F.Price, d("103")); // close бара решения, без издержек
-  EXPECT_TRUE(F.Commission.isZero());
-  EXPECT_EQ(R.Engine.positionValues()[2][0], d("10300"));
-  EXPECT_EQ(R.Engine.equity()[2].Equity, d("1000000"));
-}
-
-TEST(Replay, NaiveSessionForcesZeroCosts) {
-  // Издержки из spec в наивной сессии игнорируются: даже processStep исполняет
-  // без комиссии, спреда и сбора.
-  SessionSpec Spec = fixtureSpec(true);
-  Spec.Costs = CostConfig::defaults();
-  const ReplayResult R = core::replaySession(
-      Spec, fixtureTimeline(),
-      std::vector<JournalEntry>{place(0, 1, market(Side::Buy, 10))}, 3, 0);
-  ASSERT_EQ(R.Engine.fills().size(), 1u);
-  EXPECT_TRUE(R.Engine.fills()[0].Commission.isZero());
-  EXPECT_TRUE(R.Engine.fills()[0].Fee.isZero());
-  EXPECT_TRUE(R.Engine.fills()[0].SpreadCost.isZero());
-  EXPECT_EQ(R.Engine.fills()[0].Price, R.Engine.fills()[0].BasePrice);
-}
-
-TEST(Replay, NaiveCashCheckUsesZeroCosts) {
-  // 1 лот A на шаге 2 стоит ровно 103 * 10 = 1030; без издержек этих денег
-  // хватает.
-  SessionSpec Spec = fixtureSpec(true);
-  Spec.Costs = CostConfig::defaults();
-  Spec.InitialCash = d("1030");
-  const ReplayResult R = core::replaySession(
-      Spec, fixtureTimeline(),
-      std::vector<JournalEntry>{place(0, 2, market(Side::Buy, 1))}, 2, 0);
-  EXPECT_TRUE(R.CommandResults[0].Accepted);
-  ASSERT_EQ(R.Engine.fills().size(), 1u);
-  EXPECT_EQ(R.Engine.fills()[0].Value, d("1030"));
-  EXPECT_EQ(R.Engine.portfolio().cash(), d("0"));
-}
-
-TEST(Replay, NaiveStepClosedAfterSettle) {
-  ReplayResult R = replay({place(0, 2, market(Side::Buy, 10))}, 2, 0, true);
-  EXPECT_THROW(R.Engine.apply(place(1, 2, market(Side::Sell, 10))),
-               std::logic_error);
-  // Следующий шаг открыт.
-  R.Engine.advance();
-  EXPECT_NO_THROW(R.Engine.apply(place(1, 3, market(Side::Sell, 10))));
-}
-
-TEST(Replay, NaiveConditionalOrderFillsWithZeroCosts) {
-  // Лимитная покупка A по 101, поданная на шаге 1, исполняется на шаге 2 (open
-  // = 101) через processStep - без издержек.
-  SessionSpec Spec = fixtureSpec(true);
-  Spec.Costs = CostConfig::defaults();
-  const ReplayResult R = core::replaySession(
-      Spec, fixtureTimeline(),
-      std::vector<JournalEntry>{place(0, 1, limit(Side::Buy, 10, "101"))}, 3,
-      0);
-  ASSERT_EQ(R.Engine.fills().size(), 1u);
-  const Fill &F = R.Engine.fills()[0];
-  EXPECT_EQ(F.Step, 2);
-  EXPECT_EQ(F.Price, d("101"));
-  EXPECT_EQ(F.Value, d("10100"));
-  EXPECT_TRUE(F.Commission.isZero());
-  EXPECT_TRUE(F.Fee.isZero());
-  EXPECT_TRUE(F.SpreadCost.isZero());
-  EXPECT_TRUE(F.SlippageCost.isZero());
-  // Для сравнения: честная сессия берёт с той же заявки комиссию.
-  const ReplayResult Honest =
-      replay({place(0, 1, limit(Side::Buy, 10, "101"))}, 3);
-  ASSERT_EQ(Honest.Engine.fills().size(), 1u);
-  EXPECT_FALSE(Honest.Engine.fills()[0].Commission.isZero());
-}
-
 TEST(Replay, CancelOcoLegCancelsPair) {
   JournalEntry Pair;
   Pair.Seq = 0;
@@ -602,19 +525,6 @@ TEST(Replay, CancelOcoLegCancelsPair) {
       replay({Pair, cancel(1, 2, 1), cancel(2, 2, 0)}, 3);
   EXPECT_FALSE(Again.CommandResults[2].Accepted);
   EXPECT_EQ(Again.CommandResults[2].ReasonCode, Reason::OrderNotActive);
-}
-
-TEST(Replay, NaiveSettlesAfterAllEntriesOfStep) {
-  // Покупка и продажа на одном шаге: продажа проверяется до исполнения покупки
-  // шага.
-  const ReplayResult R = replay(
-      {place(0, 2, market(Side::Buy, 10)), place(1, 2, market(Side::Sell, 10))},
-      3, 0, true);
-  EXPECT_TRUE(R.CommandResults[0].Accepted);
-  EXPECT_FALSE(R.CommandResults[1].Accepted);
-  EXPECT_EQ(R.CommandResults[1].ReasonCode, Reason::InsufficientPosition);
-  ASSERT_EQ(R.Engine.fills().size(), 1u);
-  EXPECT_EQ(R.Events[2].Fills.size(), 1u); // исполнение попало в события шага 2
 }
 
 // Одна бумага, лот 1, шаг цены 0.01, 4 дня; close по списку (open = close

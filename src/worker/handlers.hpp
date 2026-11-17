@@ -22,22 +22,9 @@ struct Context {
 // только передаёт им запрос. Инварианты для всех обработчиков:
 //  - INV-1: наружу не уходят бары позже запрошенных up_to_step / курсора;
 //  - INV-7: в слепом режиме нет реальных дат и границ торговых дней.
-grpc::Status handleCheckStrategy(Context &Context,
-                                 const pb::CheckStrategyRequest &Request,
-                                 pb::CheckStrategyResponse *Response);
 grpc::Status handleReplaySession(Context &Context,
                                  const pb::ReplaySessionRequest &Request,
                                  pb::ReplaySessionResponse *Response);
 grpc::Status handleGetBars(Context &Context, const pb::GetBarsRequest &Request,
                            pb::GetBarsResponse *Response);
-grpc::Status
-handleRunBacktest(Context &Context, const pb::RunBacktestRequest &Request,
-                  grpc::ServerWriterInterface<pb::RunBacktestUpdate> *Writer);
-grpc::Status handleRunWalkForward(
-    Context &Context, const pb::WalkForwardRequest &Request,
-    grpc::ServerWriterInterface<pb::WalkForwardUpdate> *Writer);
-grpc::Status handleAnalyzeDivergences(Context &Context,
-                                      const pb::DivergenceRequest &Request,
-                                      pb::DivergenceResponse *Response);
-
 } // namespace worker

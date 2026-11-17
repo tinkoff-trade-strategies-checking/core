@@ -95,7 +95,7 @@ TEST(MarketOrders, NotBeforeNextBar) {
   // INV-2: заявка шага 0 исполняется на шаге 1 по open шага 1 (101), а не по
   // close шага 0.
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 100, 0));
@@ -127,7 +127,7 @@ TEST(MarketOrders, FillRecordsAmountsAndCostSplit) {
   std::vector<B> A = seriesA(50000);
   A[1].Open = "271.35";
   const Timeline T = Timeline::build({kA}, {bars(kA, A)}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 100, 0));
@@ -156,7 +156,7 @@ TEST(MarketOrders, WaitsForOwnInstrumentBar) {
   const Timeline T =
       Timeline::build({kA, kB}, {bars(kA, seriesA(50000)), bars(kB, B)}, {});
   ASSERT_EQ(T.barOf(1, 3), nullptr);
-  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 2);
   Book R;
   R.Orders.push_back(market(0, 1, Side::Buy, 300, 2));
@@ -180,7 +180,7 @@ TEST(MarketOrders, ZeroLiquidityBudget) {
   // V = 9 лотов: floor(0.1 * 9) = 0 - заявка снимается, исполнений нет,
   // портфель не тронут.
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(9))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 5, 0));
@@ -196,7 +196,7 @@ TEST(MarketOrders, ZeroLiquidityBudget) {
 
 TEST(MarketOrders, PartialByLiquidity) {
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(2000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 300, 0));
@@ -213,7 +213,7 @@ TEST(MarketOrders, LiquidityBudgetIsSharedByOrdersOfStep) {
   // Бюджет 200 лотов на два заявки: 150 + 50, вторая снимается с
   // LIQUIDITY_LIMIT; порядок - по id.
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(2000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(
@@ -235,7 +235,7 @@ TEST(MarketOrders, ReducedByCash) {
   // Денег на 3 лота с издержками (≈ 3033.6 ₽), четвёртый уже не проходит.
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
   const CostConfig Costs = CostConfig::defaults();
-  const ExecutionEngine Engine({kA}, Costs, false);
+  const ExecutionEngine Engine({kA}, Costs);
   Portfolio Pf(d("3500"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 10, 0));
@@ -255,7 +255,7 @@ TEST(MarketOrders, ReducedByCash) {
 
 TEST(MarketOrders, NoCashForSingleLot) {
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("500"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 10, 0));
@@ -268,7 +268,7 @@ TEST(MarketOrders, NoCashForSingleLot) {
 
 TEST(MarketOrders, SellReducedByPosition) {
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Pf.applyFill(0, Side::Buy, 5, d("100"), d("5000.00"), d("2.50"), d("0.50"), 0,
                99);
@@ -286,7 +286,7 @@ TEST(MarketOrders, SellReducedByPosition) {
 
 TEST(MarketOrders, SellWithoutPositionIsCancelled) {
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Sell, 1, 0));
@@ -298,7 +298,7 @@ TEST(MarketOrders, SellWithoutPositionIsCancelled) {
 
 TEST(MarketOrders, ClosedAndUnreachedConditionalOrdersAreUntouched) {
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 1, 0));
@@ -315,12 +315,12 @@ TEST(MarketOrders, ClosedAndUnreachedConditionalOrdersAreUntouched) {
 }
 
 TEST(MarketOrders, NoLiquidityLimitWhenShareUnset) {
-  // Без лимита ликвидности (ФТ-24) заявка идёт целиком, проскальзывание всё
+  // Без лимита ликвидности заявка идёт целиком, проскальзывание всё
   // равно считается от объёма.
   CostConfig Costs = CostConfig::defaults();
   Costs.LiquidityShare.reset();
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(2000))}, {});
-  const ExecutionEngine Engine({kA}, Costs, false);
+  const ExecutionEngine Engine({kA}, Costs);
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 300, 0));
@@ -331,12 +331,12 @@ TEST(MarketOrders, NoLiquidityLimitWhenShareUnset) {
 }
 
 TEST(MarketOrders, ZeroVolumeBarWithoutLiquidityLimitStillFills) {
-  // Без лимита ликвидности (ФТ-24) нулевой объём не снимает заявку:
+  // Без лимита ликвидности нулевой объём не снимает заявку:
   // проскальзывания нет, остаётся спред.
   CostConfig Costs = CostConfig::defaults();
   Costs.LiquidityShare.reset();
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(0))}, {});
-  const ExecutionEngine Engine({kA}, Costs, false);
+  const ExecutionEngine Engine({kA}, Costs);
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 100, 0));
@@ -350,7 +350,7 @@ TEST(MarketOrders, ZeroVolumeBarWithoutLiquidityLimitStillFills) {
 
 TEST(MarketOrders, ZeroVolumeBarWithLiquidityLimitIsCancelled) {
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(0))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA}, CostConfig::defaults());
   Portfolio Pf(d("1000000"), 1);
   Book R;
   R.Orders.push_back(market(0, 0, Side::Buy, 1, 0));
@@ -365,7 +365,7 @@ TEST(MarketOrders, SellFarAboveBarVolumeWithoutLimitDoesNotCrash) {
   CostConfig Costs = CostConfig::defaults();
   Costs.LiquidityShare.reset();
   const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(10))}, {});
-  const ExecutionEngine Engine({kA}, Costs, false);
+  const ExecutionEngine Engine({kA}, Costs);
   Portfolio Pf(d("1000000"), 1);
   Pf.applyFill(0, Side::Buy, 100, d("100"), d("100000.00"), d("50.00"),
                d("10.00"), 0, 99);
@@ -399,93 +399,6 @@ TEST(LiquidityBudget, UnlimitedWithoutShare) {
   EXPECT_FALSE(Budget.remaining(0, *T.barOf(0, 1), Costs).has_value());
   Budget.consume(0, 5);
   EXPECT_FALSE(Budget.remaining(0, *T.barOf(0, 1), Costs).has_value());
-}
-
-TEST(MarketOrders, ProcessNaiveRequiresNaiveEngine) {
-  // Исключение из INV-2 (исполнение по close решения) доступно только за флагом
-  // naive.
-  const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), false);
-  Portfolio Pf(d("1000000"), 1);
-  Book R;
-  R.Orders.push_back(market(0, 0, Side::Buy, 1, 0));
-  EXPECT_THROW(Engine.processNaive(0, T, R.Orders, Pf, R.Fills, R.Changed),
-               std::logic_error);
-  EXPECT_TRUE(R.Fills.empty());
-  EXPECT_EQ(R.Orders[0].Status, OrderStatus::Active);
-}
-
-TEST(MarketOrders, NaiveFillsAtCloseWithoutCosts) {
-  // Заявка шага 1 исполняется сразу по close шага 1 (101.5), без комиссии,
-  // сбора и спреда.
-  const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(9))},
-                                     {}); // объём 9 лотов: лимит не мешает
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), true);
-  EXPECT_TRUE(Engine.naive());
-  Portfolio Pf(d("1000000"), 1);
-  Book R;
-  R.Orders.push_back(market(0, 0, Side::Buy, 5, 1));
-  Engine.processNaive(1, T, R.Orders, Pf, R.Fills, R.Changed);
-  ASSERT_EQ(R.Fills.size(), 1u);
-  const Fill &F = R.Fills[0];
-  EXPECT_EQ(F.Step, 1);
-  EXPECT_EQ(F.Price, d("101.5"));
-  EXPECT_EQ(F.BasePrice, d("101.5"));
-  EXPECT_EQ(F.Value, d("5075.00"));
-  EXPECT_TRUE(F.Commission.isZero());
-  EXPECT_TRUE(F.Fee.isZero());
-  EXPECT_TRUE(F.SpreadCost.isZero());
-  EXPECT_TRUE(F.SlippageCost.isZero());
-  EXPECT_EQ(R.Orders[0].Status, OrderStatus::Filled);
-  EXPECT_EQ(Pf.cash(), d("1000000") - d("5075.00"));
-}
-
-TEST(MarketOrders, NaiveUsesLastCloseOfOwnInstrument) {
-  // У B нет бара на шаге 3: заявка B шага 3 исполняется по close последнего
-  // бара B (шаг 2).
-  std::vector<B> B = {{0, "0.0240", "0.0240", 90000},
-                      {1, "0.0242", "0.0242", 90000},
-                      {2, "0.0244", "0.0244", 90000},
-                      {4, "0.0245", "0.0245", 90000}};
-  const Timeline T =
-      Timeline::build({kA, kB}, {bars(kA, seriesA(50000)), bars(kB, B)}, {});
-  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults(), true);
-  Portfolio Pf(d("1000000"), 2);
-  Book R;
-  R.Orders.push_back(market(0, 1, Side::Buy, 10, 3));
-  Engine.processNaive(3, T, R.Orders, Pf, R.Fills, R.Changed);
-  ASSERT_EQ(R.Fills.size(), 1u);
-  EXPECT_EQ(R.Fills[0].Price, d("0.0244"));
-}
-
-TEST(MarketOrders, NaiveIsLimitedByCashAndPosition) {
-  const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), true);
-  Portfolio Pf(d("3050"),
-               1); // лот по close 100.5 стоит 1005: хватает на 3 лота
-  Book R;
-  R.Orders.push_back(market(0, 0, Side::Buy, 10, 0));
-  Engine.processNaive(0, T, R.Orders, Pf, R.Fills, R.Changed);
-  ASSERT_EQ(R.Fills.size(), 1u);
-  EXPECT_EQ(R.Fills[0].Lots, 3);
-  EXPECT_EQ(R.Orders[0].ReasonCode, Reason::InsufficientCash);
-
-  R.Orders.push_back(market(1, 0, Side::Sell, 10, 0));
-  Engine.processNaive(0, T, R.Orders, Pf, R.Fills, R.Changed);
-  ASSERT_EQ(R.Fills.size(), 2u);
-  EXPECT_EQ(R.Fills[1].Lots, 3);
-  EXPECT_EQ(R.Orders[1].ReasonCode, Reason::InsufficientPosition);
-}
-
-TEST(MarketOrders, NaiveDoesNotTouchOrdersPlacedLater) {
-  const Timeline T = Timeline::build({kA}, {bars(kA, seriesA(50000))}, {});
-  const ExecutionEngine Engine({kA}, CostConfig::defaults(), true);
-  Portfolio Pf(d("1000000"), 1);
-  Book R;
-  R.Orders.push_back(market(0, 0, Side::Buy, 1, 2));
-  Engine.processNaive(1, T, R.Orders, Pf, R.Fills, R.Changed);
-  EXPECT_TRUE(R.Fills.empty());
-  EXPECT_EQ(R.Orders[0].Status, OrderStatus::Active);
 }
 
 } // namespace

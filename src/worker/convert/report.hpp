@@ -8,10 +8,9 @@
 #include "core/money/decimal.hpp"
 #include "core/report/benchmark.hpp"
 #include "core/report/metrics.hpp"
-#include "core/run/backtest.hpp"
 #include "handlers.hpp"
 
-// Отчёт: вход метрик из состояния движка или результата прогона и перевод
+// Отчёт: вход метрик из состояния движка и перевод
 // отчёта в proto (ФТ-17). Чистые функции (INV-4).
 
 namespace worker {
@@ -26,16 +25,8 @@ metricsInput(const core::SessionEngine &Engine,
              const core::Decimal &InitialCash, const core::Timeline &Timeline,
              const std::optional<core::BenchmarkSeries> &Benchmark);
 
-// То же по результату прогона (RunOutput) и заданному начальному капиталу.
-core::MetricsInput
-metricsInput(const core::RunOutput &Output, const core::Decimal &InitialCash,
-             const core::Timeline &Timeline,
-             const std::optional<core::BenchmarkSeries> &Benchmark);
-
 // Метрики, издержки, кривая стоимости и итоговая стоимость; необязательные
-// метрики без значения не задаются. Уровень отчёта OK, находок нет: их
-// добавляет вызывающий (прогон - convert/run).
+// метрики без значения не задаются.
 void toProto(const core::Report &Report, pb::Report *Out);
-void toProto(const core::Finding &Finding, pb::Finding *Out);
 
 } // namespace worker

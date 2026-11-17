@@ -121,7 +121,7 @@ void step(const ExecutionEngine &Engine, std::int64_t S, const Timeline &T,
 }
 
 ExecutionEngine engineA() {
-  return ExecutionEngine({kA}, CostConfig::defaults(), false);
+  return ExecutionEngine({kA}, CostConfig::defaults());
 }
 
 // ---- Лимитные заявки
@@ -339,7 +339,7 @@ TEST(Limit, WaitsForOwnInstrumentBar) {
                        bars(kB, {B{0, 0, "100", "100", "100", "100"},
                                  B{0, 2, "99", "99.5", "98.5", "99"}})},
                       {});
-  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults());
   Portfolio Pf = holding(0);
   Book B;
   Order O = limitOrder(0, Side::Buy, "100.00");
@@ -588,7 +588,7 @@ TEST(Trailing, RejectedAtSubmissionWithoutBarOfInstrument) {
                                  B{0, 1, "100", "100", "100", "100"}}),
                        bars(kB, {B{0, 1, "100", "100", "100", "100"}})},
                       {});
-  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults(), false);
+  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults());
   Portfolio Pf = holding(10);
   core::OrderSpec Spec;
   Spec.Instrument = 1;

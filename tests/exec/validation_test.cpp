@@ -46,7 +46,7 @@ struct Fixture {
   Timeline Line = Timeline::build(
       {kA, kB},
       {{bar(0, "100"), bar(1, "100"), bar(2, "100")}, {bar(2, "0.0200")}}, {});
-  ExecutionEngine Engine{{kA, kB}, CostConfig::defaults(), false};
+  ExecutionEngine Engine{{kA, kB}, CostConfig::defaults()};
   Portfolio Folio{d("1000000"), 2};
 
   Validation check(const OrderSpec &Spec, std::int64_t Step = 2) const {

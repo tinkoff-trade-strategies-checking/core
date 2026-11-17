@@ -38,11 +38,9 @@ enum class Reason {
   OrderNotActive,
   LiquidityLimit,
   OcoSiblingFilled,
-  PositionClosed,
   Replaced,
   SessionEnd,
   CancelledByUser,
-  RuleReplaced,
   DayExpired
 };
 
@@ -69,8 +67,6 @@ struct Order {
   std::string InvalidField; // поле, из-за которого InvalidParams
   std::int64_t FilledLots = 0;
   std::int64_t OcoSiblingId = -1;
-  std::string RuleName,
-      Because; // правило стратегии и пояснение (для заявок алгоритма)
   std::optional<Decimal> TrailingPeak, TrailingStopLevel;
   bool Triggered = false; // стоп-лимит сработал
   std::int64_t ClosedStep = -1; // шаг, на котором заявка стала неактивной

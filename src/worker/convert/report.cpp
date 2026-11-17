@@ -4,7 +4,6 @@
 #include <utility>
 #include <vector>
 
-#include "convert/diagnostics.hpp"
 #include "core/money/proto_conv.hpp"
 
 namespace worker {
@@ -93,23 +92,6 @@ metricsInput(const core::SessionEngine &Engine,
   return In;
 }
 
-core::MetricsInput
-metricsInput(const core::RunOutput &Output, const core::Decimal &InitialCash,
-             const core::Timeline &Timeline,
-             const std::optional<core::BenchmarkSeries> &Benchmark) {
-  core::MetricsInput In;
-  In.InitialCash = InitialCash;
-  In.Equity = Output.Equity;
-  In.TradingDayOfStep = tradingDays(Timeline, Output.LastStep);
-  In.Fills = Output.Fills;
-  In.RoundTrips = Output.RoundTrips;
-  In.Rejections = Output.Rejections;
-  In.PartialFills = Output.PartialFills;
-  In.PositionValuesByStep = Output.PositionValuesByStep;
-  setBenchmark(Benchmark, Timeline, &In);
-  return In;
-}
-
 void toProto(const core::Report &Report, pb::Report *Out) {
   metricsToProto(Report.Stats, Out->mutable_metrics());
   pb::CostTotals *Costs = Out->mutable_costs();
@@ -122,20 +104,12 @@ void toProto(const core::Report &Report, pb::Report *Out) {
     Point->set_step(P.Step);
     core::toProto(P.Equity, Point->mutable_equity());
   }
-  Out->set_level(pb::OK);
   core::toProto(Report.FinalEquity, Out->mutable_final_equity());
   for (const core::EquityPoint &P : Report.BenchmarkEquity) {
     pb::EquityPoint *Point = Out->add_benchmark_equity();
     Point->set_step(P.Step);
     core::toProto(P.Equity, Point->mutable_equity());
   }
-}
-
-void toProto(const core::Finding &Finding, pb::Finding *Out) {
-  Out->set_code(Finding.Code);
-  Out->set_level(convert::toProto(Finding.Severity));
-  Out->set_message(Finding.Message);
-  Out->set_step(Finding.Step);
 }
 
 } // namespace worker

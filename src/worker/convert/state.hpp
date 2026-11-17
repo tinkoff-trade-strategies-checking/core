@@ -15,11 +15,10 @@ namespace worker {
 // Запись журнала. Неизвестный ключ бумаги, незаданная команда или перечисление
 // - std::invalid_argument. Необязательные цены (limit_price, stop_price,
 // trailing_percent) берутся только при наличии поля; oco_with с lots = 0 -
-// заявка без OCO. rule_name и because переносятся как есть; причина снятия не
-// задана - отмена пользователем.
+// заявка без OCO. Причина снятия не задана - отмена пользователем.
 core::JournalEntry fromProto(const pb::JournalEntry &Entry,
                              const core::SessionSpec &Spec);
-// Запись журнала ядра (в том числе стратегии) -> proto; fromProto(toProto(e))
+// Запись журнала ядра -> proto; fromProto(toProto(e))
 // == e.
 void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
              pb::JournalEntry *Out);

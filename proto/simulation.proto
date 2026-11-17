@@ -5,9 +5,8 @@
 // Количество — целые лоты. Объём бара — в лотах.
 //
 // Ошибки RPC:
-//   INVALID_ARGUMENT    — неверная спецификация, ошибки DSL (в описании — коды диагностик через ';');
-//   FAILED_PRECONDITION — нет данных снапшота на период; walk-forward: ни один набор параметров не дал засчитываемого
-//                         прогона (доменный исход для стратегии, повтор бессмыслен);
+//   INVALID_ARGUMENT    — неверная спецификация;
+//   FAILED_PRECONDITION — нет данных снапшота на период;
 //   INTERNAL            — нарушение целостности движка.
 //
 // Сентинелы: в полях-идентификаторах и шагах «нет» кодируется -1 (значение по умолчанию 0 — валидное: заявка с
@@ -24,18 +23,10 @@ import "common.proto";  // Decimal
 service SimulationWorker {
   // Проверка доступности воркера и версии ядра.
   rpc Ping(PingRequest) returns (PingResponse);
-  // Проверка исходника стратегии: диагностики, исправления, объявленные параметры.
-  rpc CheckStrategy(CheckStrategyRequest) returns (CheckStrategyResponse);
   // Воспроизведение сессии по журналу команд до курсора (INV-8).
   rpc ReplaySession(ReplaySessionRequest) returns (ReplaySessionResponse);
   // Бары по диапазону шагов общей шкалы времени сессии.
   rpc GetBars(GetBarsRequest) returns (GetBarsResponse);
-  // Прогон стратегии на истории: поток прогресса и итоговый результат.
-  rpc RunBacktest(RunBacktestRequest) returns (stream RunBacktestUpdate);
-  // Walk-forward: поток прогресса и итоговый результат по сегментам.
-  rpc RunWalkForward(WalkForwardRequest) returns (stream WalkForwardUpdate);
-  // Разбор расхождений между действиями человека и алгоритмов (ФТ-18…20).
-  rpc AnalyzeDivergences(DivergenceRequest) returns (DivergenceResponse);
 }
 
 message PingRequest {}
@@ -59,14 +50,6 @@ enum Timeframe {
   M15 = 6;
   H1 = 7;
   D1 = 8;
-}
-
-// Уровень диагностики или отчёта.
-enum Level {
-  LEVEL_UNSPECIFIED = 0;
-  OK = 1;
-  WARNING = 2;
-  ERROR = 3;
 }
 
 enum Side {
@@ -111,11 +94,11 @@ enum Reason {
   ORDER_NOT_ACTIVE = 5;
   LIQUIDITY_LIMIT = 6;
   OCO_SIBLING_FILLED = 7;
-  POSITION_CLOSED = 8;
+  reserved 8, 12;
+  reserved "POSITION_CLOSED", "RULE_REPLACED";
   REPLACED = 9;
   SESSION_END = 10;
   CANCELLED_BY_USER = 11;
-  RULE_REPLACED = 12;
   DAY_EXPIRED = 13;
 }
 
@@ -147,19 +130,20 @@ message CostConfig {
 
 message MarketSpec {
   string snapshot_id = 1;               // UUID снапшота ClickHouse
-  repeated Instrument instruments = 2;  // порядок = порядок обработки (dsl.md)
+  repeated Instrument instruments = 2;  // порядок = порядок обработки
   Timeframe timeframe = 3;
   string from_date = 4;                 // ISO yyyy-mm-dd, включительно, московская дата
   string to_date = 5;
   CostConfig costs = 6;
   Decimal initial_cash = 7;
   string benchmark_ticker = 8;          // "IMOEX" или пусто
-  bool naive = 9;                       // наивный прогон ФТ-24: нулевые издержки, исполнение по close бара решения
   // Прогрев: столько шагов истории до from_date (0…5000; 0 — без прогрева). Торговли и кривой стоимости на них нет;
-  // стратегия прогревает на них ряды и индикаторы, человек видит их на графике с самого начала (это прошлое, INV-1).
+  // человек видит их на графике с самого начала (это прошлое, INV-1).
   // Шаги прогрева — отрицательные (-W…-1), торговые дни — <= 0. Историю ищут не дальше ~20 лет до from_date; найдено
   // меньше W баров — берётся сколько есть (фактическое число — warmup_steps в ответах).
   int32 warmup_bars = 10;
+  reserved 9;
+  reserved "naive";
 }
 
 message Bar {
@@ -197,8 +181,7 @@ message PlaceOrder {
 
 message CancelOrder {
   int64 order_id = 1;
-  // Причина снятия: не задана — отмена пользователем (CANCELLED_BY_USER). Журнал стратегии (RunResult.journal) несёт
-  // свои причины (POSITION_CLOSED и др.), чтобы ReplaySession по нему повторил заявки прогона один в один.
+  // Причина снятия: не задана — отмена пользователем (CANCELLED_BY_USER).
   Reason reason = 2;
 }
 
@@ -215,8 +198,8 @@ message JournalEntry {
     CancelOrder cancel = 4;
     ReplaceOrder replace = 5;
   }
-  string rule_name = 6;   // правило DSL — только у записей стратегии (RunResult.journal); пусто — команда человека
-  string because = 7;
+  reserved 6, 7;
+  reserved "rule_name", "because";
 }
 
 // ---------------------------------------------------------------------------
@@ -232,8 +215,8 @@ message Order {
   string invalid_field = 6;
   int64 filled_lots = 7;
   int64 oco_sibling_id = 8;       // -1 — нет связанной заявки
-  string rule_name = 9;           // правило DSL, выставившее заявку; пусто — заявка человека
-  string because = 10;
+  reserved 9, 10;
+  reserved "rule_name", "because";
   Decimal trailing_stop_level = 11;
   int64 closed_step = 12;         // -1 — заявка ещё открыта
 }
@@ -321,19 +304,12 @@ message EquityPoint {
   Decimal equity = 2;
 }
 
-message Finding {
-  string code = 1;
-  Level level = 2;
-  string message = 3;
-  int64 step = 4;
-}
-
 message Report {
   Metrics metrics = 1;
   CostTotals costs = 2;
   repeated EquityPoint equity = 3;
-  repeated Finding findings = 4;
-  Level level = 5;
+  reserved 4, 5;
+  reserved "findings", "level";
   Decimal final_equity = 6;
   // Кривая бенчмарка (MarketSpec.benchmark_ticker) в рублях того же капитала: initial_cash * close дня / open первого
   // дня, точка на последнем шаге каждого полностью пройденного торгового дня. Пусто без бенчмарка.
@@ -351,9 +327,8 @@ message ReplaySessionRequest {
   int64 events_from_step = 4;    // события шагов (events_from_step; up_to_step]; < 0 — не нужны (события шага 0 не отдаются)
   bool include_history = 5;      // все бары шагов [0; last_step]
   bool include_report = 6;
-  // Стресс прогона (ФТ-23) — для воспроизведения журнала прогона со стрессом (RunResult.journal): бары те же, что видел
-  // RunBacktest (тот же applyStress). Не задан — бары снапшота без изменений, как у ручной сессии.
-  StressScenario stress = 7;
+  reserved 7;
+  reserved "stress";
 }
 
 message ReplaySessionResponse {
@@ -374,247 +349,12 @@ message GetBarsRequest {
   MarketSpec market = 1;
   int64 from_step = 2;           // от -warmup_steps (бары прогрева)
   int64 to_step = 3;
-  // Стресс прогона (ФТ-23): бары отдаются так, как их видел стрессовый RunBacktest (тот же applyStress). Не задан —
-  // бары снапшота без изменений.
-  StressScenario stress = 4;
+  reserved 4;
+  reserved "stress";
 }
 
 message GetBarsResponse {
   int64 total_steps = 1;
   repeated Bar bars = 2;
   int64 warmup_steps = 3;        // шагов прогрева: допустимый from_step начинается с -warmup_steps
-}
-
-// ---------------------------------------------------------------------------
-// Стратегии (dsl.md)
-// ---------------------------------------------------------------------------
-
-message ParamValue {
-  string name = 1;
-  double value = 2;
-}
-
-message StrategySource {
-  string source = 1;
-  repeated ParamValue params = 2;
-}
-
-message TextEdit {
-  int32 start_line = 1;
-  int32 start_column = 2;
-  int32 end_line = 3;
-  int32 end_column = 4;
-  string text = 5;
-}
-
-message Diagnostic {
-  string code = 1;
-  Level level = 2;
-  int32 start_line = 3;
-  int32 start_column = 4;
-  int32 end_line = 5;
-  int32 end_column = 6;
-  string message = 7;
-  repeated TextEdit fix = 8;
-}
-
-message ParamDecl {
-  string name = 1;
-  double default_value = 2;
-  bool has_range = 3;
-  double min = 4;
-  double max = 5;
-  double step = 6;
-  bool integer = 7;
-}
-
-message CheckStrategyRequest {
-  string source = 1;
-}
-
-message CheckStrategyResponse {
-  Level level = 1;
-  repeated Diagnostic diagnostics = 2;
-  repeated ParamDecl params = 3;
-}
-
-// ---------------------------------------------------------------------------
-// Прогоны (ФТ-14, 22, 23, 24)
-// ---------------------------------------------------------------------------
-
-message StressScenario {
-  int64 start_step = 1;   // < 0 — середина периода
-  Decimal gap_percent = 2;
-  Decimal vol_multiplier = 3;
-  int32 vol_bars = 4;
-  Decimal volume_share = 5;
-}
-
-enum CostFactor {
-  COST_FACTOR_UNSPECIFIED = 0;
-  NAIVE = 1;
-  DELAY = 2;
-  FEES = 3;
-  SPREAD = 4;
-  SLIPPAGE = 5;
-  LIQUIDITY = 6;
-}
-
-enum CostFlag {
-  COST_FLAG_UNSPECIFIED = 0;
-  COSTS_OVER_HALF_PROFIT = 1;
-  SIGN_CHANGE = 2;
-  SHARPE_OVER_3 = 3;
-}
-
-message CostBreakdownStep {
-  CostFactor factor = 1;
-  Decimal net_result = 2;
-  double net_return = 3;
-}
-
-message CostBreakdown {
-  repeated CostBreakdownStep steps = 1;
-  repeated CostFlag flags = 2;
-}
-
-enum RunStatus {
-  RUN_STATUS_UNSPECIFIED = 0;
-  COMPLETED = 1;
-  BANKRUPT_STOP = 2;
-  INVALID = 3;
-}
-
-message RunResult {
-  RunStatus status = 1;
-  Level level = 2;
-  Report report = 3;
-  repeated Fill fills = 4;
-  repeated Order orders = 5;
-  CostBreakdown cost_breakdown = 6;
-  fixed64 digest = 7;
-  int64 last_step = 8;
-  int64 total_steps = 9;
-  // Журнал команд стратегии — только в ответе RunBacktest (в отрезках walk-forward и портфелях разбора расхождений пуст).
-  // ReplaySession с ним (тот же MarketSpec и stress, записи с шагом <= up_to_step) даёт те же сделки и заявки на любом
-  // шаге (INV-3), и у честного, и у наивного прогона — так воспроизведение прогона показывает портфель, заявки и издержки
-  // на курсоре, как у ручной сессии.
-  repeated JournalEntry journal = 10;
-}
-
-message RunProgress {
-  int64 done_steps = 1;
-  int64 total_steps = 2;
-}
-
-message RunBacktestRequest {
-  MarketSpec market = 1;
-  StrategySource strategy = 2;
-  StressScenario stress = 3;
-  bool with_cost_breakdown = 4;
-}
-
-message RunBacktestUpdate {
-  oneof update {
-    RunProgress progress = 1;
-    RunResult result = 2;
-  }
-}
-
-message WalkForwardRequest {
-  MarketSpec market = 1;
-  string source = 2;
-  int32 fit_days = 3;
-  int32 test_days = 4;
-  int32 shift_days = 5;
-  int32 max_grid = 6;
-}
-
-message WalkForwardSegment {
-  int32 index = 1;
-  string fit_from = 2;
-  string fit_to = 3;
-  string test_from = 4;
-  string test_to = 5;
-  repeated ParamValue chosen = 6;
-  double fit_net_return = 7;
-  RunResult test_result = 8;
-}
-
-message WalkForwardResult {
-  repeated WalkForwardSegment segments = 1;
-  double chained_return = 2;
-}
-
-message WalkForwardUpdate {
-  oneof update {
-    RunProgress progress = 1;
-    WalkForwardResult result = 2;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Разбор расхождений (ФТ-18…20)
-// ---------------------------------------------------------------------------
-
-message AlgorithmRef {
-  string id = 1;
-  StrategySource strategy = 2;
-}
-
-message DivergenceRequest {
-  MarketSpec market = 1;
-  repeated JournalEntry journal = 2;
-  int64 last_step = 3;
-  repeated AlgorithmRef algorithms = 4;
-}
-
-enum DivergenceType {
-  DIVERGENCE_TYPE_UNSPECIFIED = 0;
-  EXCESS = 1;
-  MISSED = 2;
-  SIZE = 3;
-  TIMING = 4;
-}
-
-message Divergence {
-  string algorithm_id = 1;
-  string instrument_key = 2;
-  DivergenceType type = 3;
-  int64 human_step = 4;    // -1 — нет действия
-  int64 algo_step = 5;     // -1 — нет действия
-  int64 human_lots = 6;    // со знаком: + покупка, − продажа
-  int64 algo_lots = 7;     // со знаком: + покупка, − продажа
-  int64 horizon_step = 8;
-  Decimal cost = 9;
-  double cost_percent = 10;
-  string reason = 11;
-}
-
-message MissedProfitableTrade {
-  string instrument_key = 1;
-  int64 entry_step = 2;
-  int64 exit_step = 3;
-  int64 lots = 4;
-  Decimal net_pnl = 5;
-  repeated string algorithm_ids = 6;
-  Decimal entry_price = 7;       // средняя цена входа за штуку: стоимость сделок входа без издержек / (лоты × лот), HALF_UP
-  Decimal exit_price = 8;        // то же для выхода
-}
-
-message ConsensusItem {
-  string instrument_key = 1;
-  int64 step = 2;
-  Side side = 3;
-  bool human_action = 4;
-  int32 agreeing = 5;
-  int32 total = 6;
-  Decimal median_cost = 7;
-}
-
-message DivergenceResponse {
-  repeated Divergence divergences = 1;
-  repeated MissedProfitableTrade missed_profitable = 2;
-  repeated ConsensusItem consensus = 3;
-  repeated RunResult algorithm_portfolios = 4;
 }

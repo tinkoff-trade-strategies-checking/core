@@ -6,7 +6,6 @@
 #include <utility>
 #include <vector>
 
-#include "core/dsl/diagnostic.hpp"
 #include "core/exec/order.hpp" // Fill
 #include "core/money/decimal.hpp"
 #include "core/portfolio/portfolio.hpp" // EquityPoint, RoundTrip
@@ -74,30 +73,6 @@ struct Report {
   Decimal
       FinalEquity; // стоимость на последнем шаге; без точек - начальный капитал
   std::vector<EquityPoint> BenchmarkEquity; // из MetricsInput::benchmarkEquity
-};
-
-// Находка проверок прогона (ФТ-14): код, уровень, сообщение, шаг.
-struct Finding {
-  std::string Code;
-  dsl::Level Severity = dsl::Level::Warning;
-  std::string Message;
-  std::int64_t Step = 0;
-};
-
-// Факторы цепочки «наивный -> честный» (ФТ-24); цепочку считает задача 27.
-enum class CostFactor { Naive, Delay, Fees, Spread, Slippage, Liquidity };
-// Флаги ФТ-24: издержки > 50 % прибыли, смена знака результата, Sharpe честного
-// прогона > 3.
-enum class CostFlag { CostsOverHalfProfit, SignChange, SharpeOver3 };
-
-struct CostBreakdownStep {
-  CostFactor Factor;
-  Decimal NetResult;
-  double NetReturn;
-};
-struct CostBreakdown {
-  std::vector<CostBreakdownStep> Steps;
-  std::vector<CostFlag> Flags;
 };
 
 // Считает отчёт. std::invalid_argument: initialCash <= 0, шаг точки вне

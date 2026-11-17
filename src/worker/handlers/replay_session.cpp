@@ -50,10 +50,8 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
           pb::ReplaySessionResponse *Out) {
   const pb::MarketSpec &Market = Request.market();
   const core::SessionSpec Spec = toSessionSpec(Market);
-  // Стресс - только для воспроизведения журнала прогона со стрессом; бенчмарк,
-  // как и в прогоне, не преобразуется.
-  const std::shared_ptr<const core::Timeline> Timeline = loadStressedTimeline(
-      Context, Market, Request.stress(), Request.has_stress());
+  const std::shared_ptr<const core::Timeline> Timeline =
+      loadTimeline(Context, Market);
 
   if (Request.up_to_step() < 0 ||
       Request.up_to_step() >= Timeline->totalSteps()) {

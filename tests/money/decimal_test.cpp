@@ -268,7 +268,7 @@ TEST(DecimalRounding, InvalidScaleThrows) {
 }
 
 TEST(DecimalRounding, ToPriceStep) {
-  // decisions.md, п. 1-2: покупка - CEILING, продажа - FLOOR, DSL и слепой
+  // decisions.md, п. 1-2: покупка - CEILING, продажа - FLOOR, слепой
   // масштаб - HALF_UP.
   const Decimal Step = d("0.01");
   EXPECT_EQ(
@@ -462,7 +462,7 @@ TEST(DecimalReference, TradeCycleByRules) {
   // 7001.043.
   EXPECT_EQ(d("100.0149").times(70).round(2, RoundingMode::HalfUp).toString(2),
             "7001.04");
-  // Количество из DSL вниз до целого лота (п. 7): 73 бумаги при лоте 10 -> 7
+  // Количество вниз до целого лота (п. 7): 73 бумаги при лоте 10 -> 7
   // лотов.
   EXPECT_EQ(
       d("73").div(Decimal::fromUnits(10), 0, RoundingMode::FLOOR).toString(),
