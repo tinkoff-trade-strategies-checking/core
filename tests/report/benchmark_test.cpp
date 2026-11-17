@@ -13,22 +13,25 @@
 namespace core {
 namespace {
 
-Decimal D(const char* text) { return Decimal::parse(text); }
+Decimal D(const char *text) { return Decimal::parse(text); }
 
 // fixture-1 по D1: 10 шагов, по шагу на день 2024-01-09…22.
 Timeline fixtureTimeline() {
   auto f = testing::fixture1();
-  return Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments, Timeframe::D1, 20240109, 20240122);
+  return Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments,
+                        Timeframe::D1, 20240109, 20240122);
 }
 
-// Индекс 1000 на открытии первого дня; close - 1010, 1020, … по дням, кроме 2024-01-11 (у индекса нет бара).
+// Индекс 1000 на открытии первого дня; close - 1010, 1020, … по дням, кроме
+// 2024-01-11 (у индекса нет бара).
 BenchmarkSeries series() {
   BenchmarkSeries s;
   s.firstOpen = D("1000");
   const std::int32_t days[] = {20240109, 20240110, 20240112, 20240115, 20240116,
                                20240117, 20240118, 20240119, 20240122};
   int i = 1;
-  for (const std::int32_t day : days) s.closes.push_back(DailyClose{day, Decimal::fromUnits(1000 + 10 * i++)});
+  for (const std::int32_t day : days)
+    s.closes.push_back(DailyClose{day, Decimal::fromUnits(1000 + 10 * i++)});
   return s;
 }
 
@@ -42,7 +45,8 @@ TEST(Benchmark, RangeIsFirstOpenAndLastClose) {
 
 TEST(Benchmark, EquityPerDayInCapitalRubles) {
   const Timeline t = fixtureTimeline();
-  const std::vector<EquityPoint> curve = benchmarkEquity(series(), D("1000000"), t, 9);
+  const std::vector<EquityPoint> curve =
+      benchmarkEquity(series(), D("1000000"), t, 9);
   // День без бара индекса (шаг 2) пропущен.
   ASSERT_EQ(curve.size(), 9u);
   EXPECT_EQ(curve[0].step, 0);
@@ -59,15 +63,18 @@ TEST(Benchmark, StopsAtLastStepAndRounds) {
   BenchmarkSeries s = series();
   s.firstOpen = D("3");
   const std::vector<EquityPoint> curve = benchmarkEquity(s, D("1"), t, 1);
-  ASSERT_EQ(curve.size(), 2u);  // шаги 0 и 1
-  EXPECT_EQ(curve[0].equity, D("336.666666667"));  // 1010 / 3, 9 знаков HALF_UP
+  ASSERT_EQ(curve.size(), 2u);                    // шаги 0 и 1
+  EXPECT_EQ(curve[0].equity, D("336.666666667")); // 1010 / 3, 9 знаков HALF_UP
 }
 
 TEST(Benchmark, BadInput) {
   const Timeline t = fixtureTimeline();
-  EXPECT_THROW((void)benchmarkEquity(series(), D("1"), t, 10), std::invalid_argument);
-  EXPECT_THROW((void)benchmarkEquity(series(), D("1"), t, -1), std::invalid_argument);
-  EXPECT_THROW((void)benchmarkEquity(BenchmarkSeries{D("0"), {}}, D("1"), t, 0), std::invalid_argument);
+  EXPECT_THROW((void)benchmarkEquity(series(), D("1"), t, 10),
+               std::invalid_argument);
+  EXPECT_THROW((void)benchmarkEquity(series(), D("1"), t, -1),
+               std::invalid_argument);
+  EXPECT_THROW((void)benchmarkEquity(BenchmarkSeries{D("0"), {}}, D("1"), t, 0),
+               std::invalid_argument);
 }
 
 TEST(Benchmark, ReportCarriesCurveAsIs) {
@@ -93,5 +100,5 @@ TEST(Metrics, CountsStopAndTakeOnSameBar) {
   EXPECT_EQ(computeReport(in).metrics.stopTakeSameBar, 2);
 }
 
-}  // namespace
-}  // namespace core
+} // namespace
+} // namespace core

@@ -11,28 +11,33 @@
 namespace core::dsl {
 namespace {
 
-std::string readFile(const std::string& relativePath) {
-  std::ifstream in(std::string(CORE_TESTDATA_DIR) + "/" + relativePath, std::ios::binary);
+std::string readFile(const std::string &relativePath) {
+  std::ifstream in(std::string(CORE_TESTDATA_DIR) + "/" + relativePath,
+                   std::ios::binary);
   EXPECT_TRUE(in.good()) << relativePath;
   std::ostringstream out;
   out << in.rdbuf();
   return out.str();
 }
 
-std::vector<Diagnostic> lintText(const std::string& source) {
+std::vector<Diagnostic> lintText(const std::string &source) {
   const ParseResult parsed = parse(source);
-  EXPECT_TRUE(parsed.program.has_value()) << (parsed.diagnostics.empty() ? "" : parsed.diagnostics[0].message);
-  if (!parsed.program) return {};
+  EXPECT_TRUE(parsed.program.has_value())
+      << (parsed.diagnostics.empty() ? "" : parsed.diagnostics[0].message);
+  if (!parsed.program)
+    return {};
   return lint(*parsed.program, source);
 }
 
 // Правило с одним условием и пустым действием: литералы тестируются в условии.
-std::string ruleWhen(const std::string& condition) {
+std::string ruleWhen(const std::string &condition) {
   return "rule \"r\" when " + condition + " then cancel because \"x\"";
 }
 
-// Диапазон первого вхождения фрагмента в однострочный текст (столбцы с 1, конец исключающий).
-SourceRange rangeOf(const std::string& source, const std::string& fragment, int line = 1) {
+// Диапазон первого вхождения фрагмента в однострочный текст (столбцы с 1, конец
+// исключающий).
+SourceRange rangeOf(const std::string &source, const std::string &fragment,
+                    int line = 1) {
   const auto pos = static_cast<int>(source.find(fragment));
   EXPECT_GE(pos, 0) << fragment;
   return {line, pos + 1, line, pos + 1 + static_cast<int>(fragment.size())};
@@ -46,7 +51,7 @@ TEST(Linter, FunctionArgument) {
   const std::string source = ruleWhen("sma(close, 20) > close");
   const auto diagnostics = lintText(source);
   ASSERT_EQ(diagnostics.size(), 1u);
-  const Diagnostic& d = diagnostics[0];
+  const Diagnostic &d = diagnostics[0];
   EXPECT_EQ(d.code, "L001");
   EXPECT_EQ(d.level, Level::Warning);
   EXPECT_EQ(d.range, rangeOf(source, "20"));
@@ -61,11 +66,13 @@ TEST(Linter, FunctionArgument) {
 }
 
 TEST(Linter, ComparedWithCall) {
-  const auto diagnostics = lintText("param rsi_n = 14\n" + ruleWhen("rsi(close, rsi_n) > 70"));
+  const auto diagnostics =
+      lintText("param rsi_n = 14\n" + ruleWhen("rsi(close, rsi_n) > 70"));
   ASSERT_EQ(diagnostics.size(), 1u);
   ASSERT_EQ(diagnostics[0].fix.size(), 2u);
   EXPECT_EQ(diagnostics[0].fix[0].text, "param rsi_level = 70\n");
-  EXPECT_EQ(diagnostics[0].fix[0].range, (SourceRange{2, 1, 2, 1}));  // первое правило на второй строке
+  EXPECT_EQ(diagnostics[0].fix[0].range,
+            (SourceRange{2, 1, 2, 1})); // первое правило на второй строке
   EXPECT_EQ(diagnostics[0].fix[1].text, "rsi_level");
 }
 
@@ -86,27 +93,34 @@ TEST(Linter, FallbackNamesAndSuffix) {
   EXPECT_EQ(plain[1].fix[1].text, "p2");
 
   // p1 занят параметром: p1_2.
-  const auto taken = lintText("param p1 = 5\n" + ruleWhen("close * 2 > open * 3"));
+  const auto taken =
+      lintText("param p1 = 5\n" + ruleWhen("close * 2 > open * 3"));
   ASSERT_EQ(taken.size(), 2u);
   EXPECT_EQ(taken[0].fix[1].text, "p1_2");
   EXPECT_EQ(taken[1].fix[1].text, "p2");
 }
 
 TEST(Linter, GeneratedNamesDoNotCollideWithEachOther) {
-  const auto diagnostics = lintText(ruleWhen("sma(close, 20) > sma(close, 50)"));
+  const auto diagnostics =
+      lintText(ruleWhen("sma(close, 20) > sma(close, 50)"));
   ASSERT_EQ(diagnostics.size(), 2u);
   EXPECT_EQ(diagnostics[0].fix[1].text, "sma_n");
   EXPECT_EQ(diagnostics[1].fix[1].text, "sma_n_2");
 }
 
 TEST(Linter, AllowsZeroOneHundred) {
-  EXPECT_TRUE(lintText(ruleWhen("position > 0 and close > open * 1 and rsi(close, 1) < 100")).empty());
-  EXPECT_TRUE(lintText(ruleWhen("close > 0.0 and close < 100.00 and open == 1.0")).empty());
+  EXPECT_TRUE(
+      lintText(
+          ruleWhen("position > 0 and close > open * 1 and rsi(close, 1) < 100"))
+          .empty());
+  EXPECT_TRUE(
+      lintText(ruleWhen("close > 0.0 and close < 100.00 and open == 1.0"))
+          .empty());
 }
 
 TEST(Linter, ActionAndBecauseAreChecked) {
-  const std::string source =
-      "rule \"r\" when position == 0 then buy 95 % cash limit close * 0.99 because \"price {close + 7}\"";
+  const std::string source = "rule \"r\" when position == 0 then buy 95 % cash "
+                             "limit close * 0.99 because \"price {close + 7}\"";
   const auto diagnostics = lintText(source);
   ASSERT_EQ(diagnostics.size(), 3u);
   EXPECT_EQ(diagnostics[0].range, rangeOf(source, "95"));
@@ -124,19 +138,21 @@ TEST(Linter, NegativeLiteralKeepsSign) {
 }
 
 TEST(Linter, ColumnsAreCodePoints) {
-  const std::string source = "rule \"правило\" when close > 7 then cancel because \"x\"";
+  const std::string source =
+      "rule \"правило\" when close > 7 then cancel because \"x\"";
   const auto diagnostics = lintText(source);
   ASSERT_EQ(diagnostics.size(), 1u);
   EXPECT_EQ(diagnostics[0].range, (SourceRange{1, 29, 1, 30}));
 }
 
 TEST(Linter, FixInsertsBeforeFirstRuleLine) {
-  const std::string source = "# комментарий\nparam a = 3\n\n  rule \"r\" when close > 7 then cancel because \"x\"\n";
+  const std::string source = "# комментарий\nparam a = 3\n\n  rule \"r\" when "
+                             "close > 7 then cancel because \"x\"\n";
   const auto diagnostics = lintText(source);
   ASSERT_EQ(diagnostics.size(), 1u);
   EXPECT_EQ(diagnostics[0].fix[0].range, (SourceRange{4, 1, 4, 1}));
   EXPECT_EQ(diagnostics[0].range.startLine, 4);
 }
 
-}  // namespace
-}  // namespace core::dsl
+} // namespace
+} // namespace core::dsl

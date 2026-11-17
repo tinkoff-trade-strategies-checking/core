@@ -16,7 +16,8 @@ TEST(WorkerPing, ReturnsCoreVersion) {
   worker::WorkerService service(worker::Context{bars, calendar});
   int port = 0;
   grpc::ServerBuilder builder;
-  builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
+  builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
+                           &port);
   builder.RegisterService(&service);
   std::unique_ptr<grpc::Server> server = builder.BuildAndStart();
   ASSERT_TRUE(server);
@@ -40,11 +41,12 @@ TEST(ProtoContract, CompilesAndRoundTrips) {
   namespace pb = pac::simulation::v1;
 
   pb::ReplaySessionRequest request;
-  request.mutable_market()->set_snapshot_id("11111111-2222-3333-4444-555555555555");
+  request.mutable_market()->set_snapshot_id(
+      "11111111-2222-3333-4444-555555555555");
   request.mutable_market()->set_timeframe(pb::M5);
   request.mutable_market()->set_from_date("2024-01-09");
   request.mutable_market()->set_to_date("2024-03-29");
-  pb::Instrument* instrument = request.mutable_market()->add_instruments();
+  pb::Instrument *instrument = request.mutable_market()->add_instruments();
   instrument->set_key("SBER");
   instrument->set_lot_size(10);
   instrument->mutable_price_step()->set_units(0);
@@ -53,10 +55,10 @@ TEST(ProtoContract, CompilesAndRoundTrips) {
   request.set_up_to_step(42);
   request.set_events_from_step(-1);
 
-  pb::JournalEntry* entry = request.add_journal();
+  pb::JournalEntry *entry = request.add_journal();
   entry->set_seq(7);
   entry->set_step(41);
-  pb::OrderSpec* order = entry->mutable_place()->mutable_order();
+  pb::OrderSpec *order = entry->mutable_place()->mutable_order();
   order->set_instrument_key("SBER");
   order->set_side(pb::BUY);
   order->set_type(pb::LIMIT);
@@ -70,7 +72,8 @@ TEST(ProtoContract, CompilesAndRoundTrips) {
   pb::ReplaySessionRequest parsed;
   ASSERT_TRUE(parsed.ParseFromString(bytes));
 
-  EXPECT_EQ(parsed.market().snapshot_id(), "11111111-2222-3333-4444-555555555555");
+  EXPECT_EQ(parsed.market().snapshot_id(),
+            "11111111-2222-3333-4444-555555555555");
   EXPECT_EQ(parsed.market().timeframe(), pb::M5);
   EXPECT_EQ(parsed.market().instruments(0).key(), "SBER");
   EXPECT_EQ(parsed.market().instruments(0).price_step().nano(), 10000000);
@@ -78,7 +81,7 @@ TEST(ProtoContract, CompilesAndRoundTrips) {
   EXPECT_EQ(parsed.up_to_step(), 42);
   EXPECT_EQ(parsed.events_from_step(), -1);
   ASSERT_EQ(parsed.journal_size(), 1);
-  const pb::JournalEntry& got = parsed.journal(0);
+  const pb::JournalEntry &got = parsed.journal(0);
   EXPECT_EQ(got.seq(), 7);
   EXPECT_EQ(got.step(), 41);
   ASSERT_EQ(got.command_case(), pb::JournalEntry::kPlace);

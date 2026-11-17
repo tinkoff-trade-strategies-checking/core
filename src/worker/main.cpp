@@ -1,6 +1,7 @@
 // simulation_worker — gRPC-сервер Simulation Worker.
 // Адрес: --listen host:port, иначе $WORKER_ADDRESS, иначе 0.0.0.0:50051.
-// Бары и календарь: ClickHouse по $CLICKHOUSE_URL (http://user:password@host:8123/база).
+// Бары и календарь: ClickHouse по $CLICKHOUSE_URL
+// (http://user:password@host:8123/база).
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -21,15 +22,14 @@ namespace {
 
 std::atomic<bool> g_stop_requested{false};
 
-extern "C" void handle_signal(int /*signal*/) {
-  g_stop_requested.store(true);
-}
+extern "C" void handle_signal(int /*signal*/) { g_stop_requested.store(true); }
 
-}  // namespace
+} // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   std::string address = "0.0.0.0:50051";
-  if (const char* env = std::getenv("WORKER_ADDRESS"); env != nullptr && *env != '\0') {
+  if (const char *env = std::getenv("WORKER_ADDRESS");
+      env != nullptr && *env != '\0') {
     address = env;
   }
   if (argc == 3 && std::string(argv[1]) == "--listen") {
@@ -40,16 +40,19 @@ int main(int argc, char** argv) {
   }
 
   worker::ClickHouseConfig clickhouse;
-  if (const char* env = std::getenv("CLICKHOUSE_URL"); env != nullptr && *env != '\0') {
+  if (const char *env = std::getenv("CLICKHOUSE_URL");
+      env != nullptr && *env != '\0') {
     try {
       clickhouse = worker::ClickHouseConfig::fromUrl(env);
-    } catch (const std::invalid_argument& error) {
+    } catch (const std::invalid_argument &error) {
       std::cerr << "Неверный CLICKHOUSE_URL: " << error.what() << '\n';
       return 2;
     }
   } else {
-    std::cerr << "ВНИМАНИЕ: CLICKHOUSE_URL не задан, бары и календарь читаются с "
-              << clickhouse.baseUrl << " (база " << clickhouse.database << ", без учётных данных)" << '\n';
+    std::cerr
+        << "ВНИМАНИЕ: CLICKHOUSE_URL не задан, бары и календарь читаются с "
+        << clickhouse.baseUrl << " (база " << clickhouse.database
+        << ", без учётных данных)" << '\n';
   }
   worker::ClickHouseBarSource bars(clickhouse);
   worker::ClickHouseCalendarSource calendar(clickhouse);

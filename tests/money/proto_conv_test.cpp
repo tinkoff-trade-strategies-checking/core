@@ -7,8 +7,9 @@
 #include "core/money/decimal.hpp"
 #include "core/money/proto_conv.hpp"
 
-// Заглушка с теми же методами, что у сгенерированного pac.simulation.v1.Decimal:
-// проверяем правила знаков ADR-0008 без protobuf. Настоящий тип - в worker_tests.
+// Заглушка с теми же методами, что у сгенерированного
+// pac.simulation.v1.Decimal: проверяем правила знаков ADR-0008 без protobuf.
+// Настоящий тип - в worker_tests.
 namespace {
 
 struct FakeProtoDecimal {
@@ -25,10 +26,14 @@ using core::UnitsNano;
 
 constexpr std::int64_t kInt64Max = std::numeric_limits<std::int64_t>::max();
 
-}  // namespace
+} // namespace
 
 TEST(DecimalUnitsNano, SignRulesAndExtremes) {
-  struct Case { const char* text; std::int64_t units; std::int32_t nano; };
+  struct Case {
+    const char *text;
+    std::int64_t units;
+    std::int32_t nano;
+  };
   const Case cases[] = {
       {"0", 0, 0},
       {"0.000000001", 0, 1},
@@ -43,7 +48,7 @@ TEST(DecimalUnitsNano, SignRulesAndExtremes) {
       {"9223372036854775807", kInt64Max, 0},
       {"-9223372036854775808", std::numeric_limits<std::int64_t>::min(), 0},
   };
-  for (const auto& c : cases) {
+  for (const auto &c : cases) {
     const Decimal d = Decimal::parse(c.text);
     EXPECT_EQ(d.toUnitsNano(), (UnitsNano{c.units, c.nano})) << c.text;
     EXPECT_EQ(Decimal::fromUnitsNano(c.units, c.nano), d) << c.text;
@@ -51,23 +56,29 @@ TEST(DecimalUnitsNano, SignRulesAndExtremes) {
 }
 
 TEST(DecimalUnitsNano, RejectsInvalidPairs) {
-  EXPECT_THROW(Decimal::fromUnitsNano(1, -1), std::invalid_argument);   // знаки разные
+  EXPECT_THROW(Decimal::fromUnitsNano(1, -1),
+               std::invalid_argument); // знаки разные
   EXPECT_THROW(Decimal::fromUnitsNano(-1, 1), std::invalid_argument);
-  EXPECT_THROW(Decimal::fromUnitsNano(0, 1000000000), std::invalid_argument);   // |nano| > 999 999 999
+  EXPECT_THROW(Decimal::fromUnitsNano(0, 1000000000),
+               std::invalid_argument); // |nano| > 999 999 999
   EXPECT_THROW(Decimal::fromUnitsNano(0, -1000000000), std::invalid_argument);
-  EXPECT_THROW(Decimal::fromUnitsNano(0, std::numeric_limits<std::int32_t>::min()),
-               std::invalid_argument);
+  EXPECT_THROW(
+      Decimal::fromUnitsNano(0, std::numeric_limits<std::int32_t>::min()),
+      std::invalid_argument);
   EXPECT_NO_THROW(Decimal::fromUnitsNano(0, -999999999));
 }
 
 TEST(DecimalUnitsNano, ValueOutsideInt64UnitsOverflows) {
-  EXPECT_THROW(Decimal::parse("9223372036854775808").toUnitsNano(), core::DecimalOverflow);
-  EXPECT_THROW(Decimal::parse("-9223372036854775809").toUnitsNano(), core::DecimalOverflow);
+  EXPECT_THROW(Decimal::parse("9223372036854775808").toUnitsNano(),
+               core::DecimalOverflow);
+  EXPECT_THROW(Decimal::parse("-9223372036854775809").toUnitsNano(),
+               core::DecimalOverflow);
 }
 
 TEST(DecimalProtoTemplate, RoundTripThroughAccessors) {
-  for (const char* text : {"0", "123.45", "-0.000000001", "9223372036854775807.999999999",
-                           "-9223372036854775807.999999999"}) {
+  for (const char *text :
+       {"0", "123.45", "-0.000000001", "9223372036854775807.999999999",
+        "-9223372036854775807.999999999"}) {
     const Decimal d = Decimal::parse(text);
     const auto msg = core::toProto<FakeProtoDecimal>(d);
     EXPECT_EQ(core::fromProto(msg), d) << text;

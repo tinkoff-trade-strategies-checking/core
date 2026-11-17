@@ -14,13 +14,16 @@ namespace worker {
 
 namespace {
 
-// Ответ по исходнику. Ошибка разбора - единственная диагностика, без параметров. Иначе check + lint:
-// уровень - худший по диагностикам check (L001 на него не влияет, ФТ-13), параметры - из check.
-void fillResponse(const std::string& source, pb::CheckStrategyResponse* response) {
+// Ответ по исходнику. Ошибка разбора - единственная диагностика, без
+// параметров. Иначе check + lint: уровень - худший по диагностикам check (L001
+// на него не влияет, ФТ-13), параметры - из check.
+void fillResponse(const std::string &source,
+                  pb::CheckStrategyResponse *response) {
   const core::dsl::ParseResult parsed = core::dsl::parse(source);
   if (!parsed.program) {
-    response->set_level(convert::toProto(core::dsl::overallLevel(parsed.diagnostics)));
-    for (const auto& d : convert::sortedByPosition(parsed.diagnostics)) {
+    response->set_level(
+        convert::toProto(core::dsl::overallLevel(parsed.diagnostics)));
+    for (const auto &d : convert::sortedByPosition(parsed.diagnostics)) {
       *response->add_diagnostics() = convert::toProto(d);
     }
     return;
@@ -28,24 +31,26 @@ void fillResponse(const std::string& source, pb::CheckStrategyResponse* response
 
   const core::dsl::CheckResult checked = core::dsl::check(*parsed.program);
   std::vector<core::dsl::Diagnostic> all = checked.diagnostics;
-  for (core::dsl::Diagnostic& d : core::dsl::lint(*parsed.program, source)) {
+  for (core::dsl::Diagnostic &d : core::dsl::lint(*parsed.program, source)) {
     all.push_back(std::move(d));
   }
 
-  response->set_level(convert::toProto(core::dsl::overallLevel(checked.diagnostics)));
-  for (const auto& d : convert::sortedByPosition(std::move(all))) {
+  response->set_level(
+      convert::toProto(core::dsl::overallLevel(checked.diagnostics)));
+  for (const auto &d : convert::sortedByPosition(std::move(all))) {
     *response->add_diagnostics() = convert::toProto(d);
   }
-  for (const core::dsl::ResolvedParam& p : checked.params) {
+  for (const core::dsl::ResolvedParam &p : checked.params) {
     *response->add_params() = convert::toProto(p);
   }
 }
 
-}  // namespace
+} // namespace
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException).
-grpc::Status handleCheckStrategy(Context&, const pb::CheckStrategyRequest& request,
-                                 pb::CheckStrategyResponse* response) {
+grpc::Status handleCheckStrategy(Context &,
+                                 const pb::CheckStrategyRequest &request,
+                                 pb::CheckStrategyResponse *response) {
   try {
     pb::CheckStrategyResponse result;
     fillResponse(request.source(), &result);
@@ -56,4 +61,4 @@ grpc::Status handleCheckStrategy(Context&, const pb::CheckStrategyRequest& reque
   }
 }
 
-}  // namespace worker
+} // namespace worker

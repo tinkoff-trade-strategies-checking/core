@@ -19,8 +19,9 @@ using detail::TokenKind;
 constexpr std::size_t kMaxSourceBytes = 64 * 1024;
 constexpr std::size_t kMaxRules = 100;
 constexpr std::size_t kMaxParams = 50;
-// Рекурсивные обходы дерева (проверка, интерпретатор, деструктор) не должны падать на тексте
-// из 64 КиБ: вложенность скобок и вызовов при разборе и высота готового дерева (цепочки `1+1+…`) ограничены.
+// Рекурсивные обходы дерева (проверка, интерпретатор, деструктор) не должны
+// падать на тексте из 64 КиБ: вложенность скобок и вызовов при разборе и высота
+// готового дерева (цепочки `1+1+…`) ограничены.
 constexpr int kMaxDepth = 100;
 
 struct Pos {
@@ -29,81 +30,104 @@ struct Pos {
 };
 
 class Parser {
- public:
+public:
   explicit Parser(std::string_view source) : lexer_(source) {}
 
   Program parseProgram() {
     advance();
     Program program;
     while (isKeyword("param")) {
-      if (program.params.size() == kMaxParams) fail(cur_, "слишком много параметров: не более 50");
+      if (program.params.size() == kMaxParams)
+        fail(cur_, "слишком много параметров: не более 50");
       program.params.push_back(parseParam());
     }
-    if (!isKeyword("rule")) fail(cur_, "ожидалось `param` или `rule`");
+    if (!isKeyword("rule"))
+      fail(cur_, "ожидалось `param` или `rule`");
     while (isKeyword("rule")) {
-      if (program.rules.size() == kMaxRules) fail(cur_, "слишком много правил: не более 100");
+      if (program.rules.size() == kMaxRules)
+        fail(cur_, "слишком много правил: не более 100");
       program.rules.push_back(parseRule());
     }
-    if (cur_.kind != TokenKind::End) fail(cur_, "ожидалось `rule` или конец текста");
+    if (cur_.kind != TokenKind::End)
+      fail(cur_, "ожидалось `rule` или конец текста");
     return program;
   }
 
- private:
+private:
   // ---- чтение лексем ----
 
   void advance() {
     prevEnd_ = {cur_.range.endLine, cur_.range.endColumn};
     if (substitution_ != nullptr) {
-      cur_ = (*substitution_)[std::min(substitutionIndex_, substitution_->size() - 1)];
+      cur_ = (*substitution_)[std::min(substitutionIndex_,
+                                       substitution_->size() - 1)];
       ++substitutionIndex_;
     } else {
       cur_ = lexer_.next();
     }
   }
 
-  bool isKeyword(std::string_view word) const { return cur_.kind == TokenKind::Keyword && cur_.text == word; }
-  bool isPunct(std::string_view symbol) const { return cur_.kind == TokenKind::Punct && cur_.text == symbol; }
-
-  [[noreturn]] static void failAt(const SourceRange& range, std::string message) {
-    throw SyntaxError{Diagnostic{"E-SYN", Level::Error, range, std::move(message), {}}};
+  bool isKeyword(std::string_view word) const {
+    return cur_.kind == TokenKind::Keyword && cur_.text == word;
   }
-  [[noreturn]] static void fail(const Token& at, std::string message) { failAt(at.range, std::move(message)); }
+  bool isPunct(std::string_view symbol) const {
+    return cur_.kind == TokenKind::Punct && cur_.text == symbol;
+  }
+
+  [[noreturn]] static void failAt(const SourceRange &range,
+                                  std::string message) {
+    throw SyntaxError{
+        Diagnostic{"E-SYN", Level::Error, range, std::move(message), {}}};
+  }
+  [[noreturn]] static void fail(const Token &at, std::string message) {
+    failAt(at.range, std::move(message));
+  }
 
   void expectKeyword(std::string_view word) {
-    if (!isKeyword(word)) fail(cur_, "ожидалось `" + std::string(word) + "`");
+    if (!isKeyword(word))
+      fail(cur_, "ожидалось `" + std::string(word) + "`");
     advance();
   }
-  void expectPunct(std::string_view symbol, const std::string& message) {
-    if (!isPunct(symbol)) fail(cur_, message);
+  void expectPunct(std::string_view symbol, const std::string &message) {
+    if (!isPunct(symbol))
+      fail(cur_, message);
     advance();
   }
 
-  static Pos startOf(const Token& token) { return {token.range.startLine, token.range.startColumn}; }
-  SourceRange rangeFrom(Pos start) const { return {start.line, start.column, prevEnd_.line, prevEnd_.column}; }
+  static Pos startOf(const Token &token) {
+    return {token.range.startLine, token.range.startColumn};
+  }
+  SourceRange rangeFrom(Pos start) const {
+    return {start.line, start.column, prevEnd_.line, prevEnd_.column};
+  }
 
-  static constexpr const char* kTooDeep = "слишком глубокая вложенность выражения: не более 100 уровней";
+  static constexpr const char *kTooDeep =
+      "слишком глубокая вложенность выражения: не более 100 уровней";
 
   void checkDepth() const {
-    if (depth_ > kMaxDepth) fail(cur_, kTooDeep);
+    if (depth_ > kMaxDepth)
+      fail(cur_, kTooDeep);
   }
 
   // ---- числа ----
 
-  double numberValue(const Token& token) const {
+  double numberValue(const Token &token) const {
     double value = 0;
-    const char* first = token.text.data();
-    const char* last = first + token.text.size();
+    const char *first = token.text.data();
+    const char *last = first + token.text.size();
     const auto [end, error] = std::from_chars(first, last, value);
-    if (error != std::errc() || end != last) fail(token, "число вне диапазона");
+    if (error != std::errc() || end != last)
+      fail(token, "число вне диапазона");
     return value;
   }
 
-  std::int64_t integerValue(const Token& token) const {
+  std::int64_t integerValue(const Token &token) const {
     std::int64_t value = 0;
-    const char* first = token.text.data();
-    const char* last = first + token.text.size();
+    const char *first = token.text.data();
+    const char *last = first + token.text.size();
     const auto [end, error] = std::from_chars(first, last, value);
-    if (error != std::errc() || end != last) fail(token, "число вне диапазона");
+    if (error != std::errc() || end != last)
+      fail(token, "число вне диапазона");
     return value;
   }
 
@@ -114,7 +138,8 @@ class Parser {
       negative = true;
       advance();
     }
-    if (cur_.kind != TokenKind::Number) fail(cur_, "ожидалось число");
+    if (cur_.kind != TokenKind::Number)
+      fail(cur_, "ожидалось число");
     const double value = numberValue(cur_);
     advance();
     return negative ? -value : value;
@@ -125,7 +150,8 @@ class Parser {
   ParamDecl parseParam() {
     const Pos start = startOf(cur_);
     expectKeyword("param");
-    if (cur_.kind != TokenKind::Ident) fail(cur_, "ожидалось имя параметра");
+    if (cur_.kind != TokenKind::Ident)
+      fail(cur_, "ожидалось имя параметра");
     ParamDecl param;
     param.name = cur_.text;
     advance();
@@ -137,7 +163,8 @@ class Parser {
       expectPunct("..", "ожидалось `..`");
       param.max = parseSignedNumber();
       expectKeyword("step");
-      if (cur_.kind != TokenKind::Number) fail(cur_, "ожидалось число");
+      if (cur_.kind != TokenKind::Number)
+        fail(cur_, "ожидалось число");
       param.step = numberValue(cur_);
       advance();
     }
@@ -148,10 +175,12 @@ class Parser {
   Rule parseRule() {
     const Pos start = startOf(cur_);
     expectKeyword("rule");
-    if (cur_.kind != TokenKind::String) fail(cur_, "ожидалась строка с названием правила");
+    if (cur_.kind != TokenKind::String)
+      fail(cur_, "ожидалась строка с названием правила");
     Rule rule;
-    for (const auto& part : cur_.parts) {
-      if (part.isExpr) failAt(part.range, "в названии правила подстановки не допускаются");
+    for (const auto &part : cur_.parts) {
+      if (part.isExpr)
+        failAt(part.range, "в названии правила подстановки не допускаются");
       rule.name += part.text;
     }
     advance();
@@ -212,8 +241,11 @@ class Parser {
     // order = "market" | "limit" expr | "stop" expr | "take_profit" expr
     if (isKeyword("market")) {
       advance();
-    } else if (isKeyword("limit") || isKeyword("stop") || isKeyword("take_profit")) {
-      action.orderKind = isKeyword("limit") ? OrderKind::Limit : isKeyword("stop") ? OrderKind::Stop : OrderKind::TakeProfit;
+    } else if (isKeyword("limit") || isKeyword("stop") ||
+               isKeyword("take_profit")) {
+      action.orderKind = isKeyword("limit")  ? OrderKind::Limit
+                         : isKeyword("stop") ? OrderKind::Stop
+                                             : OrderKind::TakeProfit;
       advance();
       action.price = parseExpr();
     }
@@ -226,13 +258,15 @@ class Parser {
     return action;
   }
 
-  // Строка с подстановками. Выражения подстановок читаются из лексем, которые лексер уже собрал.
+  // Строка с подстановками. Выражения подстановок читаются из лексем, которые
+  // лексер уже собрал.
   StringTemplate parseTemplate() {
-    if (cur_.kind != TokenKind::String) fail(cur_, "ожидалась строка с причиной");
+    if (cur_.kind != TokenKind::String)
+      fail(cur_, "ожидалась строка с причиной");
     Token string = std::move(cur_);
     StringTemplate result;
     result.range = string.range;
-    for (auto& part : string.parts) {
+    for (auto &part : string.parts) {
       if (!part.isExpr) {
         result.parts.emplace_back(std::move(part.text));
         continue;
@@ -241,45 +275,53 @@ class Parser {
       substitutionIndex_ = 0;
       advance();
       ExprPtr expr = parseExpr();
-      if (cur_.kind != TokenKind::End) fail(cur_, "ожидалось `}`");
+      if (cur_.kind != TokenKind::End)
+        fail(cur_, "ожидалось `}`");
       substitution_ = nullptr;
       result.parts.emplace_back(std::move(expr));
     }
-    cur_.range = string.range;  // prevEnd_ после advance() - конец строки
+    cur_.range = string.range; // prevEnd_ после advance() - конец строки
     advance();
     return result;
   }
 
   // ---- выражения ----
 
-  static int heightOf(const ExprPtr& child) { return child ? child->height : 0; }
+  static int heightOf(const ExprPtr &child) {
+    return child ? child->height : 0;
+  }
 
-  // Высота узла - 1 + наибольшая высота потомков; больше kMaxDepth - ошибка. Только вложенность
-  // скобок не ограничила бы высоту: `(…(1+1+1)+1+1…)` растёт цепочками внутри каждого уровня.
-  ExprPtr make(auto&& node, const SourceRange& range) const {
+  // Высота узла - 1 + наибольшая высота потомков; больше kMaxDepth - ошибка.
+  // Только вложенность скобок не ограничила бы высоту: `(…(1+1+1)+1+1…)` растёт
+  // цепочками внутри каждого уровня.
+  ExprPtr make(auto &&node, const SourceRange &range) const {
     auto expr = std::make_unique<Expr>();
     expr->node = std::forward<decltype(node)>(node);
     expr->range = range;
     int children = 0;
-    if (const auto* unary = std::get_if<Unary>(&expr->node)) {
+    if (const auto *unary = std::get_if<Unary>(&expr->node)) {
       children = heightOf(unary->operand);
-    } else if (const auto* binary = std::get_if<Binary>(&expr->node)) {
+    } else if (const auto *binary = std::get_if<Binary>(&expr->node)) {
       children = std::max(heightOf(binary->left), heightOf(binary->right));
-    } else if (const auto* call = std::get_if<Call>(&expr->node)) {
-      for (const ExprPtr& arg : call->args) children = std::max(children, heightOf(arg));
+    } else if (const auto *call = std::get_if<Call>(&expr->node)) {
+      for (const ExprPtr &arg : call->args)
+        children = std::max(children, heightOf(arg));
     }
     expr->height = children + 1;
-    if (expr->height > kMaxDepth) failAt(range, kTooDeep);
+    if (expr->height > kMaxDepth)
+      failAt(range, kTooDeep);
     return expr;
   }
 
-  static SourceRange span(const Expr& first, const Expr& last) {
-    return {first.range.startLine, first.range.startColumn, last.range.endLine, last.range.endColumn};
+  static SourceRange span(const Expr &first, const Expr &last) {
+    return {first.range.startLine, first.range.startColumn, last.range.endLine,
+            last.range.endColumn};
   }
 
   ExprPtr binary(std::string op, ExprPtr left, ExprPtr right) const {
     const SourceRange range = span(*left, *right);
-    return make(Binary{std::move(op), std::move(left), std::move(right)}, range);
+    return make(Binary{std::move(op), std::move(left), std::move(right)},
+                range);
   }
 
   // expr = and_expr , { "or" , and_expr }
@@ -307,18 +349,21 @@ class Parser {
 
   // not_expr = [ "not" ] , cmp_expr
   ExprPtr parseNot() {
-    if (!isKeyword("not")) return parseCmp();
+    if (!isKeyword("not"))
+      return parseCmp();
     const Pos start = startOf(cur_);
     advance();
     ExprPtr operand = parseCmp();
     return make(Unary{'!', std::move(operand)}, rangeFrom(start));
   }
 
-  // cmp_expr = add_expr , [ ( "<" | "<=" | ">" | ">=" | "==" | "!=" ) , add_expr ]
+  // cmp_expr = add_expr , [ ( "<" | "<=" | ">" | ">=" | "==" | "!=" ) ,
+  // add_expr ]
   ExprPtr parseCmp() {
     ExprPtr left = parseAdd();
     if (cur_.kind == TokenKind::Punct &&
-        (cur_.text == "<" || cur_.text == "<=" || cur_.text == ">" || cur_.text == ">=" || cur_.text == "==" || cur_.text == "!=")) {
+        (cur_.text == "<" || cur_.text == "<=" || cur_.text == ">" ||
+         cur_.text == ">=" || cur_.text == "==" || cur_.text == "!=")) {
       std::string op = cur_.text;
       advance();
       return binary(std::move(op), std::move(left), parseAdd());
@@ -350,7 +395,8 @@ class Parser {
 
   // unary = [ "-" ] , postfix
   ExprPtr parseUnary() {
-    if (!isPunct("-")) return parsePostfix();
+    if (!isPunct("-"))
+      return parsePostfix();
     const Pos start = startOf(cur_);
     advance();
     ExprPtr operand = parsePostfix();
@@ -359,7 +405,8 @@ class Parser {
 
   // [ "[" , [ "-" ] , ( integer | ident ) , "]" ]
   std::optional<Offset> parseOffset() {
-    if (!isPunct("[")) return std::nullopt;
+    if (!isPunct("["))
+      return std::nullopt;
     const Pos start = startOf(cur_);
     advance();
     Offset offset;
@@ -368,7 +415,8 @@ class Parser {
       advance();
     }
     if (cur_.kind == TokenKind::Number) {
-      if (!cur_.isInteger) fail(cur_, "ожидалось целое число или имя параметра");
+      if (!cur_.isInteger)
+        fail(cur_, "ожидалось целое число или имя параметра");
       offset.value = integerValue(cur_);
     } else if (cur_.kind == TokenKind::Ident) {
       offset.value = cur_.text;
@@ -381,11 +429,14 @@ class Parser {
     return offset;
   }
 
-  // postfix = ( ident | call ) , [ offset ] | number | "true" | "false" | "na" | "(" , expr , ")"
+  // postfix = ( ident | call ) , [ offset ] | number | "true" | "false" | "na"
+  // | "(" , expr , ")"
   ExprPtr parsePostfix() {
     const Pos start = startOf(cur_);
-    // `position`, `cash`, `equity` - ключевые слова в действиях, но в выражениях это показатели портфеля.
-    const bool portfolioName = isKeyword("position") || isKeyword("cash") || isKeyword("equity");
+    // `position`, `cash`, `equity` - ключевые слова в действиях, но в
+    // выражениях это показатели портфеля.
+    const bool portfolioName =
+        isKeyword("position") || isKeyword("cash") || isKeyword("equity");
     if (cur_.kind == TokenKind::Number) {
       Number number{numberValue(cur_), cur_.text};
       const SourceRange range = cur_.range;
@@ -407,7 +458,7 @@ class Parser {
       advance();
       ExprPtr inner = parseExpr();
       expectPunct(")", "ожидалось `)`");
-      inner->range = rangeFrom(start);  // скобки входят в диапазон выражения
+      inner->range = rangeFrom(start); // скобки входят в диапазон выражения
       return inner;
     }
     if (cur_.kind == TokenKind::Ident || portfolioName) {
@@ -420,7 +471,8 @@ class Parser {
         if (!isPunct(")")) {
           for (;;) {
             call.args.push_back(parseExpr());
-            if (!isPunct(",")) break;
+            if (!isPunct(","))
+              break;
             advance();
           }
           expectPunct(")", "ожидалось `,` или `)`");
@@ -440,27 +492,29 @@ class Parser {
 
   Lexer lexer_;
   Token cur_;
-  const std::vector<Token>* substitution_ = nullptr;  // не null - читаем лексемы подстановки, а не текст
+  const std::vector<Token> *substitution_ =
+      nullptr; // не null - читаем лексемы подстановки, а не текст
   std::size_t substitutionIndex_ = 0;
   Pos prevEnd_{1, 1};
   int depth_ = 0;
 };
 
-}  // namespace
+} // namespace
 
 ParseResult parse(std::string_view source) {
   ParseResult result;
   try {
     if (source.size() > kMaxSourceBytes) {
-      throw SyntaxError{Diagnostic{"E-SYN", Level::Error, {1, 1, 1, 2}, "текст длиннее 64 КиБ", {}}};
+      throw SyntaxError{Diagnostic{
+          "E-SYN", Level::Error, {1, 1, 1, 2}, "текст длиннее 64 КиБ", {}}};
     }
     Parser parser(source);
     result.program = parser.parseProgram();
-  } catch (SyntaxError& error) {
+  } catch (SyntaxError &error) {
     result.program.reset();
     result.diagnostics.push_back(std::move(error.diagnostic));
   }
   return result;
 }
 
-}  // namespace core::dsl
+} // namespace core::dsl

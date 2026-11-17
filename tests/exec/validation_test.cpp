@@ -23,7 +23,7 @@ using core::Side;
 using core::Timeline;
 using core::Validation;
 
-Decimal D(const char* text) { return Decimal::parse(text); }
+Decimal D(const char *text) { return Decimal::parse(text); }
 
 constexpr std::int64_t kMinuteMs = 60'000;
 constexpr std::int64_t kStart = 1'704'747'600'000 + 10 * 3'600'000;
@@ -31,7 +31,7 @@ constexpr std::int64_t kStart = 1'704'747'600'000 + 10 * 3'600'000;
 const Instrument kA{"A", "FIXA", 10, Decimal::parse("0.01")};
 const Instrument kB{"B", "FIXB", 10000, Decimal::parse("0.000005")};
 
-Bar bar(int minute, const char* price) {
+Bar bar(int minute, const char *price) {
   Bar b;
   b.tsOpenMs = kStart + minute * kMinuteMs;
   b.availableAtMs = b.tsOpenMs + kMinuteMs;
@@ -40,22 +40,26 @@ Bar bar(int minute, const char* price) {
   return b;
 }
 
-// A: close 100.00 на шагах 0…2; B: первый бар на шаге 2 (до этого цены нет), close 0.0200.
+// A: close 100.00 на шагах 0…2; B: первый бар на шаге 2 (до этого цены нет),
+// close 0.0200.
 struct Fixture {
-  Timeline timeline =
-      Timeline::build({kA, kB}, {{bar(0, "100"), bar(1, "100"), bar(2, "100")}, {bar(2, "0.0200")}}, {});
+  Timeline timeline = Timeline::build(
+      {kA, kB},
+      {{bar(0, "100"), bar(1, "100"), bar(2, "100")}, {bar(2, "0.0200")}}, {});
   ExecutionEngine engine{{kA, kB}, CostConfig::defaults(), false};
   Portfolio portfolio{D("1000000"), 2};
 
-  Validation check(const OrderSpec& spec, std::int64_t step = 2) const {
+  Validation check(const OrderSpec &spec, std::int64_t step = 2) const {
     return engine.validate(spec, portfolio, timeline, step);
   }
   void hold(std::int64_t lots) {
-    portfolio.applyFill(0, Side::Buy, lots, D("100"), D("5000.00"), D("2.50"), D("0.50"), 0, 1);
+    portfolio.applyFill(0, Side::Buy, lots, D("100"), D("5000.00"), D("2.50"),
+                        D("0.50"), 0, 1);
   }
 };
 
-OrderSpec spec(Side side, OrderType type, std::int64_t lots, int instrument = 0) {
+OrderSpec spec(Side side, OrderType type, std::int64_t lots,
+               int instrument = 0) {
   OrderSpec s;
   s.instrument = instrument;
   s.side = side;
@@ -64,7 +68,7 @@ OrderSpec spec(Side side, OrderType type, std::int64_t lots, int instrument = 0)
   return s;
 }
 
-void expectInvalid(const Validation& v, const char* field) {
+void expectInvalid(const Validation &v, const char *field) {
   EXPECT_FALSE(v.ok);
   EXPECT_EQ(v.reason, Reason::InvalidParams);
   EXPECT_EQ(v.field, field);
@@ -173,7 +177,8 @@ TEST(Validation, TakeProfitMustBeAboveClose) {
 }
 
 TEST(Validation, InsufficientCashUsesLastCloseWithCommissionAndFee) {
-  // 100 лотов * 10 * 100 = 100 000; с комиссией и сбором 100 000 * 1.0006 = 100 060.
+  // 100 лотов * 10 * 100 = 100 000; с комиссией и сбором 100 000 * 1.0006 = 100
+  // 060.
   Fixture f;
   const OrderSpec order = spec(Side::Buy, OrderType::Market, 100);
   Portfolio enough(D("100060"), 2);
@@ -186,7 +191,8 @@ TEST(Validation, InsufficientCashUsesLastCloseWithCommissionAndFee) {
 
 TEST(Validation, CashCheckAlsoForLimitOrdersAtLastClose) {
   Fixture f;
-  OrderSpec limit = spec(Side::Buy, OrderType::Limit, 100000);  // 100 000 000 ₽ при close 100
+  OrderSpec limit =
+      spec(Side::Buy, OrderType::Limit, 100000); // 100 000 000 ₽ при close 100
   limit.limitPrice = D("1");
   const Validation v = f.check(limit);
   EXPECT_FALSE(v.ok);
@@ -195,7 +201,8 @@ TEST(Validation, CashCheckAlsoForLimitOrdersAtLastClose) {
 
 TEST(Validation, HugeOrderIsInsufficientCashNotOverflow) {
   Fixture f;
-  const Validation v = f.check(spec(Side::Buy, OrderType::Market, std::numeric_limits<std::int64_t>::max()));
+  const Validation v = f.check(spec(Side::Buy, OrderType::Market,
+                                    std::numeric_limits<std::int64_t>::max()));
   EXPECT_FALSE(v.ok);
   EXPECT_EQ(v.reason, Reason::InsufficientCash);
 }
@@ -212,21 +219,26 @@ TEST(Validation, InsufficientPosition) {
 
 TEST(Validation, UnknownOrUntradedInstrument) {
   Fixture f;
-  expectInvalid(f.check(spec(Side::Buy, OrderType::Market, 1, 2)), "instrument");
-  expectInvalid(f.check(spec(Side::Buy, OrderType::Market, 1, -1)), "instrument");
+  expectInvalid(f.check(spec(Side::Buy, OrderType::Market, 1, 2)),
+                "instrument");
+  expectInvalid(f.check(spec(Side::Buy, OrderType::Market, 1, -1)),
+                "instrument");
   // У B на шаге 1 ещё не было баров - цены для проверки нет.
-  expectInvalid(f.check(spec(Side::Buy, OrderType::Market, 1, 1), 1), "instrument");
+  expectInvalid(f.check(spec(Side::Buy, OrderType::Market, 1, 1), 1),
+                "instrument");
   EXPECT_TRUE(f.check(spec(Side::Buy, OrderType::Market, 1, 1), 2).ok);
 }
 
 TEST(Validation, UsesLastCloseOfOwnInstrument) {
-  // Цена B - 0.0200 (бар шага 2): 1 лот = 10 000 штук = 200 ₽, с издержками 200.12.
+  // Цена B - 0.0200 (бар шага 2): 1 лот = 10 000 штук = 200 ₽, с издержками
+  // 200.12.
   Fixture f;
   const OrderSpec order = spec(Side::Buy, OrderType::Market, 1, 1);
   Portfolio poor(D("200.11"), 2);
-  EXPECT_EQ(f.engine.validate(order, poor, f.timeline, 2).reason, Reason::InsufficientCash);
+  EXPECT_EQ(f.engine.validate(order, poor, f.timeline, 2).reason,
+            Reason::InsufficientCash);
   Portfolio enough(D("200.12"), 2);
   EXPECT_TRUE(f.engine.validate(order, enough, f.timeline, 2).ok);
 }
 
-}  // namespace
+} // namespace

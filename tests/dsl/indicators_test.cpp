@@ -21,11 +21,13 @@ const std::vector<double> kClose = {10, 11, 12, 11, 13, 14, 13, 15, 16, 15};
 
 std::vector<double> shifted(double delta) {
   std::vector<double> out;
-  for (double c : kClose) out.push_back(c + delta);
+  for (double c : kClose)
+    out.push_back(c + delta);
   return out;
 }
 
-void expectSeries(const std::vector<Value>& actual, const std::vector<Value>& expected) {
+void expectSeries(const std::vector<Value> &actual,
+                  const std::vector<Value> &expected) {
   ASSERT_EQ(actual.size(), expected.size());
   for (std::size_t i = 0; i < expected.size(); ++i) {
     ASSERT_EQ(actual[i].has_value(), expected[i].has_value()) << "бар " << i;
@@ -35,27 +37,30 @@ void expectSeries(const std::vector<Value>& actual, const std::vector<Value>& ex
   }
 }
 
-std::vector<Value> runSingle(const char* name, std::int64_t n, const std::vector<double>& x) {
+std::vector<Value> runSingle(const char *name, std::int64_t n,
+                             const std::vector<double> &x) {
   auto ind = makeIndicator(name, {n});
   std::vector<Value> out;
-  for (double v : x) out.push_back(ind->update({v}));
+  for (double v : x)
+    out.push_back(ind->update({v}));
   return out;
 }
 
 TEST(Indicators, Sma) {
   expectSeries(runSingle("sma", 3, kClose),
-               {kNa, kNa, 11, 11.3333333333, 12, 12.6666666667, 13.3333333333, 14, 14.6666666667,
-                15.3333333333});
+               {kNa, kNa, 11, 11.3333333333, 12, 12.6666666667, 13.3333333333,
+                14, 14.6666666667, 15.3333333333});
 }
 
 TEST(Indicators, Ema) {
-  expectSeries(runSingle("ema", 3, kClose), {kNa, kNa, 11, 11, 12, 13, 13, 14, 15, 15});
+  expectSeries(runSingle("ema", 3, kClose),
+               {kNa, kNa, 11, 11, 12, 13, 13, 14, 15, 15});
 }
 
 TEST(Indicators, Rsi) {
   expectSeries(runSingle("rsi", 3, kClose),
-               {kNa, kNa, kNa, 66.6666666667, 83.3333333333, 87.8787878788, 62.3655913978,
-                79.8850574713, 85.0905218317, 61.2965093978});
+               {kNa, kNa, kNa, 66.6666666667, 83.3333333333, 87.8787878788,
+                62.3655913978, 79.8850574713, 85.0905218317, 61.2965093978});
 }
 
 TEST(Indicators, RsiOnlyGrowthIs100AndConstantIs50) {
@@ -68,24 +73,29 @@ TEST(Indicators, Atr) {
   const auto high = shifted(1);
   const auto low = shifted(-1);
   std::vector<Value> out;
-  for (std::size_t i = 0; i < kClose.size(); ++i) out.push_back(ind->update({high[i], low[i], kClose[i]}));
-  expectSeries(out, {kNa, kNa, 2, 2, 2.3333333333, 2.2222222222, 2.1481481481, 2.4320987654,
-                     2.2880658436, 2.1920438957});
+  for (std::size_t i = 0; i < kClose.size(); ++i)
+    out.push_back(ind->update({high[i], low[i], kClose[i]}));
+  expectSeries(out, {kNa, kNa, 2, 2, 2.3333333333, 2.2222222222, 2.1481481481,
+                     2.4320987654, 2.2880658436, 2.1920438957});
 }
 
 TEST(Indicators, Stdev) {
   expectSeries(runSingle("stdev", 3, kClose),
-               {kNa, kNa, 0.8164965809, 0.4714045208, 0.8164965809, 1.2472191289, 0.4714045208,
-                0.8164965809, 1.2472191289, 0.4714045208});
+               {kNa, kNa, 0.8164965809, 0.4714045208, 0.8164965809,
+                1.2472191289, 0.4714045208, 0.8164965809, 1.2472191289,
+                0.4714045208});
 }
 
 TEST(Indicators, HighestLowestIncludeCurrent) {
-  expectSeries(runSingle("highest", 3, kClose), {kNa, kNa, 12, 12, 13, 14, 14, 15, 16, 16});
-  expectSeries(runSingle("lowest", 3, kClose), {kNa, kNa, 10, 11, 11, 11, 13, 13, 13, 15});
+  expectSeries(runSingle("highest", 3, kClose),
+               {kNa, kNa, 12, 12, 13, 14, 14, 15, 16, 16});
+  expectSeries(runSingle("lowest", 3, kClose),
+               {kNa, kNa, 10, 11, 11, 11, 13, 13, 13, 15});
 }
 
 TEST(Indicators, Change) {
-  expectSeries(runSingle("change", 2, kClose), {kNa, kNa, 2, 0, 1, 3, 0, 1, 3, 0});
+  expectSeries(runSingle("change", 2, kClose),
+               {kNa, kNa, 2, 0, 1, 3, 0, 1, 3, 0});
 }
 
 TEST(Indicators, CrossoverAndCrossunder) {
@@ -93,17 +103,20 @@ TEST(Indicators, CrossoverAndCrossunder) {
   const std::vector<double> a = {1, 2, 3};
   const std::vector<double> b = {2, 2, 2};
   std::vector<Value> out;
-  for (std::size_t i = 0; i < a.size(); ++i) out.push_back(over->update({a[i], b[i]}));
+  for (std::size_t i = 0; i < a.size(); ++i)
+    out.push_back(over->update({a[i], b[i]}));
   expectSeries(out, {0, 0, 1});
 
   auto under = makeIndicator("crossunder", {});
   out.clear();
-  for (std::size_t i = 0; i < a.size(); ++i) out.push_back(under->update({b[i], a[i]}));
+  for (std::size_t i = 0; i < a.size(); ++i)
+    out.push_back(under->update({b[i], a[i]}));
   expectSeries(out, {0, 0, 1});
 }
 
 TEST(Indicators, CrossoverOnTouchNeedsStrictBreakout) {
-  // a[1] <= b[1] и a > b: касание на баре 1 не считается пересечением, пробой на баре 2 — считается.
+  // a[1] <= b[1] и a > b: касание на баре 1 не считается пересечением, пробой
+  // на баре 2 — считается.
   auto over = makeIndicator("crossover", {});
   EXPECT_EQ(over->update({1.0, 2.0}), Value(0.0));
   EXPECT_EQ(over->update({2.0, 2.0}), Value(0.0));
@@ -148,8 +161,9 @@ TEST(Indicators, PeriodOneIsAccepted) {
 TEST(Indicators, Deterministic) {
   auto run = [] {
     std::vector<Value> out;
-    for (const char* name : {"sma", "ema", "rsi", "stdev"}) {
-      for (const auto& v : runSingle(name, 3, kClose)) out.push_back(v);
+    for (const char *name : {"sma", "ema", "rsi", "stdev"}) {
+      for (const auto &v : runSingle(name, 3, kClose))
+        out.push_back(v);
     }
     return out;
   };
@@ -167,4 +181,4 @@ TEST(Indicators, InvalidArguments) {
   EXPECT_THROW(sma->update({1.0, 2.0}), std::invalid_argument);
 }
 
-}  // namespace
+} // namespace
