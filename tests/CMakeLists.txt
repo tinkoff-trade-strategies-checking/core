@@ -9,7 +9,7 @@ add_executable(core_tests
   ${support_sources})
 target_include_directories(core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(core_tests PRIVATE core::simulation_core GTest::gtest_main core_warnings)
-# Файлы с тестовыми данными (DSL, эталонный портфель): testdata/ в корне репозитория.
+# Файлы с тестовыми данными (эталонный портфель): testdata/ в корне репозитория.
 target_compile_definitions(core_tests PRIVATE CORE_TESTDATA_DIR="${PROJECT_SOURCE_DIR}/testdata")
 
 if(CORE_BUILD_WORKER)
@@ -22,7 +22,7 @@ if(CORE_BUILD_WORKER)
 endif()
 
 # Подкаталоги областей добавляют *_test.cpp к core_tests (и worker_tests). Сначала executables, потом области.
-foreach(area money market portfolio exec engine dsl run report analysis)
+foreach(area money market portfolio exec engine report)
   add_subdirectory(${area})
 endforeach()
 

@@ -9,8 +9,7 @@
 #include "core/market/timeline.hpp"
 #include "support/fixture1.hpp"
 
-// Запись журнала ядра -> proto -> ядро без потерь (RunResult.journal ->
-// ReplaySession).
+// Запись журнала ядра -> proto -> ядро без потерь (ReplaySession).
 
 namespace {
 
@@ -65,14 +64,10 @@ TEST(ConvertJournal, PlaceWithOcoAndRule) {
   E.Seq = 7;
   E.Step = 3;
   E.Command = core::PlaceCmd{Take, Stop};
-  E.RuleName = "защита";
-  E.Because = "тейк и стоп";
 
   const core::JournalEntry Back = roundTrip(E, S);
   EXPECT_EQ(Back.Seq, 7);
   EXPECT_EQ(Back.Step, 3);
-  EXPECT_EQ(Back.RuleName, "защита");
-  EXPECT_EQ(Back.Because, "тейк и стоп");
   const auto &Place = std::get<core::PlaceCmd>(Back.Command);
   EXPECT_TRUE(sameSpec(Place.Order, Take));
   ASSERT_TRUE(Place.OcoWith);
@@ -84,14 +79,11 @@ TEST(ConvertJournal, CancelKeepsReason) {
   core::JournalEntry E;
   E.Seq = 1;
   E.Step = 4;
-  E.Command = core::CancelCmd{5, core::Reason::PositionClosed};
-  E.RuleName = "s";
-  E.Because = "позиция закрыта";
+  E.Command = core::CancelCmd{5, core::Reason::Replaced};
   const core::JournalEntry Back = roundTrip(E, S);
   const auto &Cancel = std::get<core::CancelCmd>(Back.Command);
   EXPECT_EQ(Cancel.OrderId, 5);
-  EXPECT_EQ(Cancel.ReasonCode, core::Reason::PositionClosed);
-  EXPECT_EQ(Back.RuleName, "s");
+  EXPECT_EQ(Cancel.ReasonCode, core::Reason::Replaced);
 
   // Отмена человека без причины - CANCELLED_BY_USER, как раньше.
   pb::JournalEntry Human;
@@ -115,7 +107,6 @@ TEST(ConvertJournal, ReplaceWithTrailing) {
   E.Seq = 3;
   E.Step = 5;
   E.Command = core::ReplaceCmd{2, core::PlaceCmd{Trailing, std::nullopt}};
-  E.RuleName = "r";
   const core::JournalEntry Back = roundTrip(E, S);
   const auto &Replace = std::get<core::ReplaceCmd>(Back.Command);
   EXPECT_EQ(Replace.OrderId, 2);

@@ -69,15 +69,12 @@ public:
   // шагов нет).
   Timeline slice(std::int32_t FromDay, std::int32_t ToDay) const;
   const std::vector<Instrument> &instruments() const { return Instruments; }
-  // Бар для правки - только для стресс-сценария. std::out_of_range, если бара
-  // нет.
-  StepBar &mutableBar(std::int64_t Step, int Instrument);
 
   // История до начала шкалы - прогрев индикаторов (`MarketSpec.warmup_bars`).
   // Шаги прогрева -W…-1, торговые дни
   // <= 0 (последний день истории - 0, день перед ним - -1, ...). Торговли и
   // кривой стоимости на них нет; это прошлое относительно шага 0, поэтому
-  // стратегия и человек видят их с самого начала (INV-1). Бары - по возрастанию
+  // пользователь видит их с самого начала (INV-1). Бары - по возрастанию
   // (step, instrument). Без прогрева - пусто, W = 0.
   std::int64_t warmupSteps() const { return WarmupSteps; }
   std::span<const StepBar> warmupBars() const { return Warmup; }

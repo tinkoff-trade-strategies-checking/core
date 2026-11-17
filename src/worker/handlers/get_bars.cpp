@@ -11,8 +11,8 @@ namespace {
 
 void fill(Context &Context, const pb::GetBarsRequest &Request,
           pb::GetBarsResponse *Out) {
-  const std::shared_ptr<const core::Timeline> Timeline = loadStressedTimeline(
-      Context, Request.market(), Request.stress(), Request.has_stress());
+  const std::shared_ptr<const core::Timeline> Timeline =
+      loadTimeline(Context, Request.market());
   Out->set_total_steps(Timeline->totalSteps());
   Out->set_warmup_steps(Timeline->warmupSteps());
   // Ровно запрошенный диапазон: бэкенд берёт по нему первую цену и график

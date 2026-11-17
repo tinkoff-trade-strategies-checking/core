@@ -219,7 +219,6 @@ TEST_F(ReplaySession, ReportOnRequest) {
   ASSERT_EQ(Report.equity_size(), 10);
   EXPECT_EQ(Report.equity(9).step(), 9);
   EXPECT_EQ(Report.equity(9).equity().units(), Report.final_equity().units());
-  EXPECT_EQ(Report.level(), pb::OK);
 
   const double FinalEquity =
       static_cast<double>(Report.final_equity().units()) +

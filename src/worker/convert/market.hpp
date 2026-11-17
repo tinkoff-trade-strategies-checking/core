@@ -20,9 +20,8 @@
 namespace worker {
 
 // Спецификация сессии из MarketSpec. Пустой список бумаг, повтор ключа, лот <=
-// 0, шаг цены <= 0, капитал <= 0, неуказанные издержки (кроме naive: там движок
-// берёт нулевые сам) - std::invalid_argument. Лимит ликвидности без поля
-// liquidity_share - nullopt (без лимита).
+// 0, шаг цены <= 0, капитал <= 0, неуказанные издержки - std::invalid_argument.
+// Лимит ликвидности без поля liquidity_share - nullopt (без лимита).
 core::SessionSpec toSessionSpec(const pb::MarketSpec &Market);
 
 // Наибольший прогрев (MarketSpec.warmup_bars) - как лимит свечей ручной сессии
@@ -36,16 +35,6 @@ inline constexpr std::int32_t kMaxWarmupBars = 5000;
 // FAILED_PRECONDITION).
 std::shared_ptr<const core::Timeline>
 loadTimeline(Context &Context, const pb::MarketSpec &Market);
-
-// Шкала времени со стрессом (ФТ-23): loadTimeline и, если hasStress и задано
-// хотя бы одно событие (гэп, окно волатильности или объёма), applyStress. Все
-// нули - без стресса. start_step < 0 - середина периода (то же правило, что у
-// backend, задача 36). Общий код RunBacktest и GetBars: бары воспроизведения
-// совпадают с ценами, на которых посчитан прогон. Ненулевые отрицательные
-// значения и start_step за шкалой - std::invalid_argument.
-std::shared_ptr<const core::Timeline>
-loadStressedTimeline(Context &Context, const pb::MarketSpec &Market,
-                     const pb::StressScenario &Stress, bool HasStress);
 
 // Бенчмарк: open первого дневного бара и close каждого дня бумаги
 // benchmark_ticker за период [from_date; to_date] по D1. Нет тикера, нет бумаги
@@ -71,8 +60,7 @@ void appendBars(const core::Timeline &Timeline, std::int64_t FromStep,
 
 // Перевод исключения, пойманного в обработчике, в статус gRPC. Вызывать только
 // из catch (...): ClickHouseError -> UNAVAILABLE; SnapshotNotFound,
-// SecurityNotFound, NoValidFitRun (walk-forward без засчитываемого набора) ->
-// FAILED_PRECONDITION (контракт simulation.proto);
+// SecurityNotFound -> FAILED_PRECONDITION (контракт simulation.proto);
 // IntervalUnavailable (интервал недоступен) -> NOT_FOUND; прочее
 // MarketDataError (повреждённые данные) -> INTERNAL; std::invalid_argument ->
 // INVALID_ARGUMENT; всё остальное -> INTERNAL без внутренних деталей.

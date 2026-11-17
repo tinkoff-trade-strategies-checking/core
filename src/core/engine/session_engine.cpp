@@ -12,14 +12,6 @@ namespace core {
 
 namespace {
 
-// Наивная сессия (ФТ-24) всегда без издержек и лимита ликвидности, что бы ни
-// передал вызывающий.
-SessionSpec normalized(SessionSpec Spec) {
-  if (Spec.Naive)
-    Spec.Costs = CostConfig::zero();
-  return Spec;
-}
-
 bool isActive(const Order &O) {
   return O.Status == OrderStatus::Active ||
          O.Status == OrderStatus::PartiallyFilled;
@@ -29,8 +21,8 @@ bool isActive(const Order &O) {
 
 SessionEngine::SessionEngine(SessionSpec InSpec,
                              std::shared_ptr<const Timeline> Tl)
-    : Spec(normalized(std::move(InSpec))), TimelineRef(std::move(Tl)),
-      Exec(Spec.Instruments, Spec.Costs, Spec.Naive),
+    : Spec(std::move(InSpec)), TimelineRef(std::move(Tl)),
+      Exec(Spec.Instruments, Spec.Costs),
       PortfolioState(Spec.InitialCash, Spec.Instruments.size()) {
   if (!TimelineRef)
     throw std::invalid_argument("SessionEngine: нет шкалы времени");
@@ -43,7 +35,7 @@ SessionEngine::SessionEngine(SessionSpec InSpec,
   if (Spec.InitialCash.sign() <= 0)
     throw std::invalid_argument(
         "SessionEngine: начальный капитал должен быть > 0");
-  recordStepState(false);
+  recordStepState();
   // Единственный шаг шкалы - он же последний: сессия сразу закончена.
   if (TimelineRef->totalSteps() == 1)
     Status = SessionStatus::FinishedEnd;
@@ -78,8 +70,6 @@ void SessionEngine::createOrders(const JournalEntry &Entry, const PlaceCmd &Cmd,
     O.Id = Ids[I];
     O.Spec = *Legs[I];
     O.PlacedStep = Step;
-    O.RuleName = Entry.RuleName;
-    O.Because = Entry.Because;
     if (Verdict.Ok) {
       O.Status = OrderStatus::Active;
       if (Legs.size() == 2)
@@ -131,10 +121,6 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
         "SessionEngine::apply: шаг записи " + std::to_string(Entry.Step) +
         " не равен текущему шагу " + std::to_string(Step));
   }
-  if (NaiveSettled) {
-    throw std::logic_error("SessionEngine::apply: шаг уже закрыт settleStep(), "
-                           "записи этого шага больше не принимаются");
-  }
   if (Entry.Seq < 0 || Entry.Seq <= LastSeq) {
     throw std::invalid_argument(
         "SessionEngine::apply: seq " + std::to_string(Entry.Seq) +
@@ -174,9 +160,7 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
           if (Verdict.Ok && (Old == nullptr || !isActive(*Old)))
             Verdict = Validation{false, Reason::OrderNotActive, ""};
           if (Verdict.Ok) {
-            const Reason Why = Entry.RuleName.empty() ? Reason::Replaced
-                                                      : Reason::RuleReplaced;
-            cancelOrder(Orders, Old->Id, Why, Step,
+            cancelOrder(Orders, Old->Id, Reason::Replaced, Step,
                         Changed); // у OCO заменяется вся пара
           }
           createOrders(Entry, Cmd.Replacement, Verdict, Result);
@@ -184,39 +168,22 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
       },
       Entry.Command);
 
-  if (Spec.Naive && Running)
-    NaiveDue = true;
   return Result;
-}
-
-// ФТ-24: наивное исполнение без задержки - рыночные заявки шага по close бара
-// решения, без издержек.
-void SessionEngine::settleStep() {
-  if (!NaiveDue)
-    return;
-  NaiveDue = false;
-  NaiveSettled = true;
-  const std::size_t From = Fills.size();
-  Exec.processNaive(Step, *TimelineRef, Orders, PortfolioState, Fills, Changed);
-  checkIntegrity(From, true);
-  recordStepState(true);
 }
 
 void SessionEngine::advance() {
   if (Status != SessionStatus::Running)
     throw std::logic_error("SessionEngine::advance: сессия остановлена");
-  settleStep();
   const std::int64_t Next = Step + 1;
   Step = Next;
-  NaiveSettled = false;
   FillsBegin = Fills.size();
   Changed.clear();
 
   // Дневные заявки снимает processStep (задача 14), движок своего снятия не
   // делает.
   Exec.processStep(Next, *TimelineRef, Orders, PortfolioState, Fills, Changed);
-  checkIntegrity(FillsBegin, false);
-  recordStepState(false);
+  checkIntegrity(FillsBegin);
+  recordStepState();
 
   const bool Bankrupt = Equity.back().Equity.sign() <= 0;
   const bool LastStep = Next == TimelineRef->totalSteps() - 1;
@@ -232,7 +199,7 @@ void SessionEngine::advance() {
 
 // Состояние шага: переоценка по последним close, точка кривой стоимости и
 // стоимости позиций.
-void SessionEngine::recordStepState(bool ReplaceLast) {
+void SessionEngine::recordStepState() {
   const std::size_t N = Spec.Instruments.size();
   std::vector<std::optional<Decimal>> LastClose(N);
   std::vector<std::int64_t> LotSizes(N);
@@ -247,22 +214,14 @@ void SessionEngine::recordStepState(bool ReplaceLast) {
       Values[I] = Portfolio::positionValue(Lots, LotSizes[I], Bar->Close);
   }
   EquityPoint Point{Step, PortfolioState.equity(LastClose, LotSizes)};
-  if (ReplaceLast) {
-    Equity.back() = Point;
-    PositionValues.back() = std::move(Values);
-  } else {
-    Equity.push_back(Point);
-    PositionValues.push_back(std::move(Values));
-  }
+  Equity.push_back(Point);
+  PositionValues.push_back(std::move(Values));
 }
 
 // INV-2: исполнения шага относятся к текущему шагу, известной заявке и идут
-// строго после шага её подачи. Исключение - исполнения processNaive (ФТ-24: по
-// close бара решения, sameStepAllowed); из processStep проверка действует
-// всегда. Баров из будущего (INV-1) здесь нет: Timeline::barsAt(step) по
-// построению отдаёт только бары шага step.
-void SessionEngine::checkIntegrity(std::size_t FromFill,
-                                   bool SameStepAllowed) const {
+// строго после шага её подачи. Баров из будущего (INV-1) здесь нет:
+// Timeline::barsAt(step) по построению отдаёт только бары шага step.
+void SessionEngine::checkIntegrity(std::size_t FromFill) const {
   for (std::size_t I = FromFill; I < Fills.size(); ++I) {
     const Fill &F = Fills[I];
     if (F.Step != Step)
@@ -272,7 +231,7 @@ void SessionEngine::checkIntegrity(std::size_t FromFill,
         [](const Order &O, std::int64_t Value) { return O.Id < Value; });
     if (It == Orders.end() || It->Id != F.OrderId)
       throw IntegrityViolation("исполнение неизвестной заявки");
-    if (!SameStepAllowed && F.Step <= It->PlacedStep) {
+    if (F.Step <= It->PlacedStep) {
       throw IntegrityViolation("исполнение не позже шага подачи заявки");
     }
   }
@@ -349,7 +308,6 @@ ReplayResult replaySession(const SessionSpec &Spec,
     while (Next < Journal.size() && (Journal[Next].Step == K ||
                                      Engine.status() != SessionStatus::Running))
       Results.push_back(Engine.apply(Journal[Next++]));
-    Engine.settleStep();
     if (K >= EventsFromStep)
       Events.push_back(Engine.lastStepEvents());
     if (K == UpToStep || Engine.status() != SessionStatus::Running)

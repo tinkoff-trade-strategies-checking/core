@@ -5,9 +5,8 @@
 namespace core {
 
 ExecutionEngine::ExecutionEngine(std::vector<Instrument> InstrumentList,
-                                 CostConfig CostModel, bool NaiveMode)
-    : Instruments(std::move(InstrumentList)), Costs(std::move(CostModel)),
-      Naive(NaiveMode) {}
+                                 CostConfig CostModel)
+    : Instruments(std::move(InstrumentList)), Costs(std::move(CostModel)) {}
 
 void ExecutionEngine::processStep(std::int64_t Step, const Timeline &Timeline,
                                   std::vector<Order> &Orders,

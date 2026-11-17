@@ -93,7 +93,7 @@ public:
   std::string toString(int MinFractionDigits = 0) const;
   // Пара для .proto; units вне int64 -> DecimalOverflow.
   UnitsNano toUnitsNano() const;
-  // Только для метрик и выражений DSL (ADR-0008); деньги обратно из double не
+  // Только для метрик (ADR-0008); деньги обратно из double не
   // строятся.
   double toDouble() const;
 

@@ -14,8 +14,7 @@ namespace core {
 
 struct CostConfig {
   Decimal CommissionRate, ExchangeFeeRate, Spread, SlippageKappa;
-  // Доля объёма бара, доступная заявкам шага; nullopt - без лимита (только для
-  // ФТ-24, «наивное» исполнение).
+  // Доля объёма бара, доступная заявкам шага; nullopt - без лимита.
   std::optional<Decimal> LiquidityShare;
 
   // Значения по умолчанию: комиссия 0,0005; сбор 0,0001; спред 0,001; κ = 0,1;

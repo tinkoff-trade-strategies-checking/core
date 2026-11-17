@@ -18,26 +18,12 @@ public:
   grpc::Status Ping(grpc::ServerContext *Context,
                     const pb::PingRequest *Request,
                     pb::PingResponse *Response) override;
-  grpc::Status CheckStrategy(grpc::ServerContext *Context,
-                             const pb::CheckStrategyRequest *Request,
-                             pb::CheckStrategyResponse *Response) override;
   grpc::Status ReplaySession(grpc::ServerContext *Context,
                              const pb::ReplaySessionRequest *Request,
                              pb::ReplaySessionResponse *Response) override;
   grpc::Status GetBars(grpc::ServerContext *Context,
                        const pb::GetBarsRequest *Request,
                        pb::GetBarsResponse *Response) override;
-  grpc::Status
-  RunBacktest(grpc::ServerContext *Context,
-              const pb::RunBacktestRequest *Request,
-              grpc::ServerWriter<pb::RunBacktestUpdate> *Writer) override;
-  grpc::Status
-  RunWalkForward(grpc::ServerContext *Context,
-                 const pb::WalkForwardRequest *Request,
-                 grpc::ServerWriter<pb::WalkForwardUpdate> *Writer) override;
-  grpc::Status AnalyzeDivergences(grpc::ServerContext *Context,
-                                  const pb::DivergenceRequest *Request,
-                                  pb::DivergenceResponse *Response) override;
 
 private:
   Context HandlerContext;

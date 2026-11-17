@@ -9,6 +9,6 @@ target_link_libraries(simulation_core PRIVATE core_warnings)
 
 # Каждая область подключает свои исходники сама (file(GLOB CONFIGURE_DEPENDS) в её CMakeLists.txt):
 # новая область добавляется одним каталогом, правок здесь не нужно, кроме имени в списке.
-foreach(area money market portfolio exec engine dsl run report analysis)
+foreach(area money market portfolio exec engine report)
   add_subdirectory(${area})
 endforeach()

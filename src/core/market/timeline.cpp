@@ -407,11 +407,4 @@ Timeline Timeline::withWarmup(const Timeline &History,
   return Out;
 }
 
-StepBar &Timeline::mutableBar(std::int64_t Step, int Instrument) {
-  const StepBar *Found = barOf(Instrument, Step);
-  if (Found == nullptr)
-    throw std::out_of_range("Timeline: у бумаги нет бара на этом шаге");
-  return Bars[static_cast<std::size_t>(Found - Bars.data())];
-}
-
 } // namespace core

@@ -135,8 +135,6 @@ core::JournalEntry fromProto(const pb::JournalEntry &Entry,
     throw std::invalid_argument("в записи журнала нет команды, seq " +
                                 std::to_string(Entry.seq()));
   }
-  Out.RuleName = Entry.rule_name();
-  Out.Because = Entry.because();
   return Out;
 }
 
@@ -167,8 +165,6 @@ void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
     placeToProto(Replace.Replacement, Timeline,
                  Out->mutable_replace()->mutable_replacement());
   }
-  Out->set_rule_name(Entry.RuleName);
-  Out->set_because(Entry.Because);
 }
 
 core::Reason reasonFromProto(pb::Reason Reason) {
@@ -192,8 +188,6 @@ void toProto(const core::Order &Order, const core::Timeline &Timeline,
   Out->set_invalid_field(Order.InvalidField);
   Out->set_filled_lots(Order.FilledLots);
   Out->set_oco_sibling_id(Order.OcoSiblingId);
-  Out->set_rule_name(Order.RuleName);
-  Out->set_because(Order.Because);
   if (Order.TrailingStopLevel)
     core::toProto(*Order.TrailingStopLevel, Out->mutable_trailing_stop_level());
   Out->set_closed_step(Order.ClosedStep);
@@ -326,16 +320,12 @@ pb::Reason toProto(core::Reason Reason) {
     return pb::LIQUIDITY_LIMIT;
   case core::Reason::OcoSiblingFilled:
     return pb::OCO_SIBLING_FILLED;
-  case core::Reason::PositionClosed:
-    return pb::POSITION_CLOSED;
   case core::Reason::Replaced:
     return pb::REPLACED;
   case core::Reason::SessionEnd:
     return pb::SESSION_END;
   case core::Reason::CancelledByUser:
     return pb::CANCELLED_BY_USER;
-  case core::Reason::RuleReplaced:
-    return pb::RULE_REPLACED;
   case core::Reason::DayExpired:
     return pb::DAY_EXPIRED;
   }

@@ -1,5 +1,5 @@
 // sim_cli — CLI для replay и ручных прогонов Simulation Core. Пока заглушка:
-// прогоны выполняет воркер (`runBacktest`, `replaySession`), CLI для них
+// воспроизведение сессии выполняет воркер (`replaySession`), CLI для него
 // появится позже.
 #include <exception>
 #include <iostream>
