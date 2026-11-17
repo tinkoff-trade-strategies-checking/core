@@ -22,211 +22,211 @@ constexpr double kMinSpread = 1e-12;
 double annualFactor() { return std::sqrt(kTradingDaysPerYear); }
 
 struct Dd {
-  double maxDrawdown = 0;
-  std::int64_t maxSteps = 0;
+  double MaxDrawdown = 0;
+  std::int64_t MaxSteps = 0;
 };
 
 // Просадка от пика; пик стартует с начального капитала. Шаги «ниже пика»
 // считаются подряд, пока цена не вернётся на пик или выше.
-Dd drawdown(const Decimal &initialCash,
-            const std::vector<EquityPoint> &equity) {
-  Dd out;
-  Decimal peak = initialCash;
-  std::int64_t run = 0;
-  for (const EquityPoint &p : equity) {
-    if (p.equity > peak) {
-      peak = p.equity;
-      run = 0;
-    } else if (p.equity < peak) {
-      out.maxDrawdown = std::max(out.maxDrawdown,
-                                 1.0 - p.equity.toDouble() / peak.toDouble());
-      out.maxSteps = std::max(out.maxSteps, ++run);
+Dd drawdown(const Decimal &InitialCash,
+            const std::vector<EquityPoint> &Equity) {
+  Dd Out;
+  Decimal Peak = InitialCash;
+  std::int64_t Run = 0;
+  for (const EquityPoint &P : Equity) {
+    if (P.Equity > Peak) {
+      Peak = P.Equity;
+      Run = 0;
+    } else if (P.Equity < Peak) {
+      Out.MaxDrawdown = std::max(Out.MaxDrawdown,
+                                 1.0 - P.Equity.toDouble() / Peak.toDouble());
+      Out.MaxSteps = std::max(Out.MaxSteps, ++Run);
     } else {
-      run = 0;
+      Run = 0;
     }
   }
-  return out;
+  return Out;
 }
 
 // Дневные доходности r_d = E_d / E_{d-1} - 1; E_d - стоимость на последнем шаге
 // дня, E_0 - начальный капитал. Дни без бумажной стоимости (E_{d-1} <= 0) дают
 // доходность 0: делить не на что.
 struct Daily {
-  std::vector<double> returns;
-  std::vector<double> equities; // E_d в double
+  std::vector<double> Returns;
+  std::vector<double> Equities; // E_d в double
 };
 
-Daily dailySeries(const MetricsInput &in) {
-  std::vector<Decimal> lastOfDay;
-  std::int32_t currentDay = 0;
-  for (std::size_t i = 0; i < in.equity.size(); ++i) {
-    const std::int32_t day =
-        in.tradingDayOfStep[static_cast<std::size_t>(in.equity[i].step)];
-    if (i == 0 || day != currentDay) {
-      lastOfDay.push_back(in.equity[i].equity);
-      currentDay = day;
+Daily dailySeries(const MetricsInput &In) {
+  std::vector<Decimal> LastOfDay;
+  std::int32_t CurrentDay = 0;
+  for (std::size_t I = 0; I < In.Equity.size(); ++I) {
+    const std::int32_t Day =
+        In.TradingDayOfStep[static_cast<std::size_t>(In.Equity[I].Step)];
+    if (I == 0 || Day != CurrentDay) {
+      LastOfDay.push_back(In.Equity[I].Equity);
+      CurrentDay = Day;
     } else {
-      lastOfDay.back() = in.equity[i].equity;
+      LastOfDay.back() = In.Equity[I].Equity;
     }
   }
-  Daily out;
-  Decimal prev = in.initialCash;
-  for (const Decimal &e : lastOfDay) {
-    out.returns.push_back(
-        prev > Decimal::zero() ? e.toDouble() / prev.toDouble() - 1.0 : 0.0);
-    out.equities.push_back(e.toDouble());
-    prev = e;
+  Daily Out;
+  Decimal Prev = In.InitialCash;
+  for (const Decimal &E : LastOfDay) {
+    Out.Returns.push_back(
+        Prev > Decimal::zero() ? E.toDouble() / Prev.toDouble() - 1.0 : 0.0);
+    Out.Equities.push_back(E.toDouble());
+    Prev = E;
   }
-  return out;
+  return Out;
 }
 
-double mean(const std::vector<double> &v) {
-  double sum = 0;
-  for (double x : v)
-    sum += x;
-  return sum / static_cast<double>(v.size());
+double mean(const std::vector<double> &V) {
+  double Sum = 0;
+  for (double X : V)
+    Sum += X;
+  return Sum / static_cast<double>(V.size());
 }
 
 // Выборочное стандартное отклонение (n - 1); v.size() >= 2.
-double sampleStdev(const std::vector<double> &v, double m) {
-  double sum = 0;
-  for (double x : v)
-    sum += (x - m) * (x - m);
-  return std::sqrt(sum / static_cast<double>(v.size() - 1));
+double sampleStdev(const std::vector<double> &V, double M) {
+  double Sum = 0;
+  for (double X : V)
+    Sum += (X - M) * (X - M);
+  return std::sqrt(Sum / static_cast<double>(V.size() - 1));
 }
 
-void validate(const MetricsInput &in) {
-  if (in.initialCash <= Decimal::zero())
+void validate(const MetricsInput &In) {
+  if (In.InitialCash <= Decimal::zero())
     throw std::invalid_argument("initialCash must be positive");
-  std::int64_t prevStep = -1;
-  for (const EquityPoint &p : in.equity) {
-    if (p.step <= prevStep)
+  std::int64_t PrevStep = -1;
+  for (const EquityPoint &P : In.Equity) {
+    if (P.Step <= PrevStep)
       throw std::invalid_argument("equity steps must be strictly increasing");
-    if (p.step >= static_cast<std::int64_t>(in.tradingDayOfStep.size()))
+    if (P.Step >= static_cast<std::int64_t>(In.TradingDayOfStep.size()))
       throw std::invalid_argument("equity step is outside tradingDayOfStep");
-    if (!in.positionValuesByStep.empty() &&
-        p.step >= static_cast<std::int64_t>(in.positionValuesByStep.size()))
+    if (!In.PositionValuesByStep.empty() &&
+        P.Step >= static_cast<std::int64_t>(In.PositionValuesByStep.size()))
       throw std::invalid_argument(
           "equity step is outside positionValuesByStep");
-    prevStep = p.step;
+    PrevStep = P.Step;
   }
 }
 
 } // namespace
 
-Report computeReport(const MetricsInput &in) {
-  validate(in);
+Report computeReport(const MetricsInput &In) {
+  validate(In);
 
-  Report report;
-  report.equity = in.equity;
-  report.benchmarkEquity = in.benchmarkEquity;
-  report.finalEquity =
-      in.equity.empty() ? in.initialCash : in.equity.back().equity;
-  Metrics &m = report.metrics;
+  Report Report;
+  Report.Equity = In.Equity;
+  Report.BenchmarkEquity = In.BenchmarkEquity;
+  Report.FinalEquity =
+      In.Equity.empty() ? In.InitialCash : In.Equity.back().Equity;
+  Metrics &M = Report.Stats;
 
   // Издержки: суммы в Decimal, в double только комиссия и сбор для валовой
   // доходности.
-  Decimal tradedValue;
-  for (const Fill &f : in.fills) {
-    report.costs.commission += f.commission;
-    report.costs.fee += f.fee;
-    report.costs.spread += f.spreadCost;
-    report.costs.slippage += f.slippageCost;
-    tradedValue += f.value;
-    if (f.stopAndTakeSameBar)
-      ++report.metrics.stopTakeSameBar;
+  Decimal TradedValue;
+  for (const Fill &F : In.Fills) {
+    Report.Costs.Commission += F.Commission;
+    Report.Costs.Fee += F.Fee;
+    Report.Costs.Spread += F.SpreadCost;
+    Report.Costs.Slippage += F.SlippageCost;
+    TradedValue += F.Value;
+    if (F.StopAndTakeSameBar)
+      ++Report.Stats.StopTakeSameBar;
   }
 
-  const double e0 = in.initialCash.toDouble();
-  m.totalReturn = report.finalEquity.toDouble() / e0 - 1.0;
-  m.grossReturn = m.totalReturn +
-                  (report.costs.commission + report.costs.fee).toDouble() / e0;
+  const double E0 = In.InitialCash.toDouble();
+  M.TotalReturn = Report.FinalEquity.toDouble() / E0 - 1.0;
+  M.GrossReturn = M.TotalReturn +
+                  (Report.Costs.Commission + Report.Costs.Fee).toDouble() / E0;
 
-  const Daily daily = dailySeries(in);
-  m.tradingDays = static_cast<std::int32_t>(daily.returns.size());
-  const double days = static_cast<double>(m.tradingDays);
-  if (m.tradingDays > 0) {
+  const Daily Daily = dailySeries(In);
+  M.TradingDays = static_cast<std::int32_t>(Daily.Returns.size());
+  const double Days = static_cast<double>(M.TradingDays);
+  if (M.TradingDays > 0) {
     // Без положительной итоговой стоимости степень не определена; без
     // положительной средней стоимости оборот 0: NaN и бесконечность в proto и
     // JSON не кодируются.
-    if (report.finalEquity > Decimal::zero())
-      m.cagr = std::pow(report.finalEquity.toDouble() / e0,
-                        kTradingDaysPerYear / days) -
+    if (Report.FinalEquity > Decimal::zero())
+      M.Cagr = std::pow(Report.FinalEquity.toDouble() / E0,
+                        kTradingDaysPerYear / Days) -
                1.0;
-    const double meanEquity = mean(daily.equities);
-    if (meanEquity > 0)
-      m.turnover = tradedValue.toDouble() / meanEquity;
+    const double MeanEquity = mean(Daily.Equities);
+    if (MeanEquity > 0)
+      M.Turnover = TradedValue.toDouble() / MeanEquity;
   }
-  if (m.tradingDays >= 2) {
-    const double mu = mean(daily.returns);
-    const double sd = sampleStdev(daily.returns, mu);
-    m.volatility = sd * annualFactor();
-    if (sd >= kMinSpread)
-      m.sharpe = mu / sd * annualFactor();
-    double downside = 0;
-    for (double r : daily.returns) {
-      const double neg = std::min(r, 0.0);
-      downside += neg * neg;
+  if (M.TradingDays >= 2) {
+    const double Mu = mean(Daily.Returns);
+    const double Sd = sampleStdev(Daily.Returns, Mu);
+    M.Volatility = Sd * annualFactor();
+    if (Sd >= kMinSpread)
+      M.Sharpe = Mu / Sd * annualFactor();
+    double Downside = 0;
+    for (double R : Daily.Returns) {
+      const double Neg = std::min(R, 0.0);
+      Downside += Neg * Neg;
     }
-    const double downsideDev = std::sqrt(downside / days);
-    if (downsideDev >= kMinSpread)
-      m.sortino = mu / downsideDev * annualFactor();
+    const double DownsideDev = std::sqrt(Downside / Days);
+    if (DownsideDev >= kMinSpread)
+      M.Sortino = Mu / DownsideDev * annualFactor();
   }
 
-  const Dd dd = drawdown(in.initialCash, in.equity);
-  m.maxDrawdown = dd.maxDrawdown;
-  m.maxDrawdownSteps = dd.maxSteps;
+  const Dd Dd = drawdown(In.InitialCash, In.Equity);
+  M.MaxDrawdown = Dd.MaxDrawdown;
+  M.MaxDrawdownSteps = Dd.MaxSteps;
 
-  m.fills = static_cast<std::int64_t>(in.fills.size());
-  m.roundTrips = static_cast<std::int64_t>(in.roundTrips.size());
-  m.rejections = in.rejections;
-  m.partialFills = in.partialFills;
-  if (!in.roundTrips.empty()) {
-    std::int64_t wins = 0;
-    for (const RoundTrip &t : in.roundTrips)
-      if (t.netPnl > Decimal::zero())
-        ++wins;
-    m.winRate =
-        static_cast<double>(wins) / static_cast<double>(in.roundTrips.size());
+  M.Fills = static_cast<std::int64_t>(In.Fills.size());
+  M.RoundTrips = static_cast<std::int64_t>(In.RoundTrips.size());
+  M.Rejections = In.Rejections;
+  M.PartialFills = In.PartialFills;
+  if (!In.RoundTrips.empty()) {
+    std::int64_t Wins = 0;
+    for (const RoundTrip &T : In.RoundTrips)
+      if (T.NetPnl > Decimal::zero())
+        ++Wins;
+    M.WinRate =
+        static_cast<double>(Wins) / static_cast<double>(In.RoundTrips.size());
   }
 
   // Концентрация: HHI - только по шагам с позициями, доля крупнейшей позиции -
   // от стоимости портфеля на шаге.
-  if (!in.positionValuesByStep.empty()) {
-    double hhiSum = 0;
-    std::int64_t hhiSteps = 0;
-    for (const EquityPoint &p : in.equity) {
-      const std::vector<Decimal> &values =
-          in.positionValuesByStep[static_cast<std::size_t>(p.step)];
-      Decimal total, largest;
-      for (const Decimal &v : values) {
-        total += v;
-        if (v > largest)
-          largest = v;
+  if (!In.PositionValuesByStep.empty()) {
+    double HhiSum = 0;
+    std::int64_t HhiSteps = 0;
+    for (const EquityPoint &P : In.Equity) {
+      const std::vector<Decimal> &Values =
+          In.PositionValuesByStep[static_cast<std::size_t>(P.Step)];
+      Decimal Total, Largest;
+      for (const Decimal &V : Values) {
+        Total += V;
+        if (V > Largest)
+          Largest = V;
       }
-      if (total <= Decimal::zero())
+      if (Total <= Decimal::zero())
         continue;
-      const double totalD = total.toDouble();
-      double hhi = 0;
-      for (const Decimal &v : values) {
-        const double w = v.toDouble() / totalD;
-        hhi += w * w;
+      const double TotalD = Total.toDouble();
+      double Hhi = 0;
+      for (const Decimal &V : Values) {
+        const double W = V.toDouble() / TotalD;
+        Hhi += W * W;
       }
-      hhiSum += hhi;
-      ++hhiSteps;
-      if (p.equity > Decimal::zero())
-        m.maxPositionShare = std::max(m.maxPositionShare,
-                                      largest.toDouble() / p.equity.toDouble());
+      HhiSum += Hhi;
+      ++HhiSteps;
+      if (P.Equity > Decimal::zero())
+        M.MaxPositionShare = std::max(M.MaxPositionShare,
+                                      Largest.toDouble() / P.Equity.toDouble());
     }
-    if (hhiSteps > 0)
-      m.hhiAvg = hhiSum / static_cast<double>(hhiSteps);
+    if (HhiSteps > 0)
+      M.HhiAvg = HhiSum / static_cast<double>(HhiSteps);
   }
 
-  if (in.benchmark && in.benchmark->first > Decimal::zero())
-    m.benchmarkReturn =
-        in.benchmark->second.toDouble() / in.benchmark->first.toDouble() - 1.0;
+  if (In.Benchmark && In.Benchmark->first > Decimal::zero())
+    M.BenchmarkReturn =
+        In.Benchmark->second.toDouble() / In.Benchmark->first.toDouble() - 1.0;
 
-  return report;
+  return Report;
 }
 
 } // namespace core

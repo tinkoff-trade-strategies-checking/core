@@ -7,126 +7,126 @@
 namespace core {
 namespace {
 
-constexpr RoundingMode kHalfUp = RoundingMode::HALF_UP;
+constexpr RoundingMode kHalfUp = RoundingMode::HalfUp;
 
-void validate(const StressScenario &s) {
-  if (s.startStep < 0)
+void validate(const StressScenario &S) {
+  if (S.StartStep < 0)
     throw std::invalid_argument("стресс: startStep должен быть >= 0");
-  if (s.gapPercent < Decimal::zero() ||
-      s.gapPercent >= Decimal::fromUnits(100)) {
+  if (S.GapPercent < Decimal::zero() ||
+      S.GapPercent >= Decimal::fromUnits(100)) {
     throw std::invalid_argument("стресс: гэп X должен быть в [0; 100)");
   }
-  if (s.volMultiplier < Decimal::zero())
+  if (S.VolMultiplier < Decimal::zero())
     throw std::invalid_argument("стресс: множитель k должен быть >= 0");
-  if (s.volBars < 0)
+  if (S.VolBars < 0)
     throw std::invalid_argument("стресс: число баров N должно быть >= 0");
-  if (s.volumeShare < Decimal::zero() || s.volumeShare > Decimal::one()) {
+  if (S.VolumeShare < Decimal::zero() || S.VolumeShare > Decimal::one()) {
     throw std::invalid_argument("стресс: доля объёма q должна быть в [0; 1]");
   }
 }
 
 // Цена до шага цены HALF_UP; <= 0 - шаг цены.
-Decimal snapPrice(const Decimal &price, const Decimal &step) {
-  const Decimal rounded = price.roundToStep(step, kHalfUp);
-  return rounded > Decimal::zero() ? rounded : step;
+Decimal snapPrice(const Decimal &Price, const Decimal &Step) {
+  const Decimal Rounded = Price.roundToStep(Step, kHalfUp);
+  return Rounded > Decimal::zero() ? Rounded : Step;
 }
 
 // floor(volume * share) лотов, точно, без Decimal.
-std::int64_t scaledVolume(std::int64_t volume, const Decimal &share) {
-  const Int128 product = static_cast<Int128>(volume) * share.raw();
-  return static_cast<std::int64_t>(product / Decimal::kUnit);
+std::int64_t scaledVolume(std::int64_t Volume, const Decimal &Share) {
+  const Int128 Product = static_cast<Int128>(Volume) * Share.raw();
+  return static_cast<std::int64_t>(Product / Decimal::kUnit);
 }
 
 struct Ohlc {
-  Decimal open, high, low, close;
+  Decimal Open, High, Low, Close;
 };
 
 // Гэп: цены умножаются на (1 - X/100).
-Ohlc gapped(const StepBar &bar, const Decimal &gapFactor) {
-  return {bar.open.mul(gapFactor, kHalfUp), bar.high.mul(gapFactor, kHalfUp),
-          bar.low.mul(gapFactor, kHalfUp), bar.close.mul(gapFactor, kHalfUp)};
+Ohlc gapped(const StepBar &Bar, const Decimal &GapFactor) {
+  return {Bar.Open.mul(GapFactor, kHalfUp), Bar.High.mul(GapFactor, kHalfUp),
+          Bar.Low.mul(GapFactor, kHalfUp), Bar.Close.mul(GapFactor, kHalfUp)};
 }
 
 // y' = c'_prev * (1 + k * (y / c_prev - 1)), каждая операция - 9 знаков
 // HALF_UP.
-Decimal volatilePrice(const Decimal &y, const Decimal &prevClose,
-                      const Decimal &prevStressedClose, const Decimal &k,
-                      const Decimal &step) {
-  const Decimal ratio = y.div(prevClose, kHalfUp);
-  const Decimal factor =
-      Decimal::one() + (ratio - Decimal::one()).mul(k, kHalfUp);
-  return snapPrice(prevStressedClose.mul(factor, kHalfUp), step);
+Decimal volatilePrice(const Decimal &Y, const Decimal &PrevClose,
+                      const Decimal &PrevStressedClose, const Decimal &K,
+                      const Decimal &Step) {
+  const Decimal Ratio = Y.div(PrevClose, kHalfUp);
+  const Decimal Factor =
+      Decimal::one() + (Ratio - Decimal::one()).mul(K, kHalfUp);
+  return snapPrice(PrevStressedClose.mul(Factor, kHalfUp), Step);
 }
 
-void stressInstrument(const Timeline &source, Timeline &result, int instrument,
-                      const StressScenario &s, const Decimal &gapFactor) {
-  const Decimal step =
-      source.instruments()[static_cast<std::size_t>(instrument)].priceStep;
-  const std::int64_t total = source.totalSteps();
+void stressInstrument(const Timeline &Source, Timeline &Result, int Instrument,
+                      const StressScenario &S, const Decimal &GapFactor) {
+  const Decimal Step =
+      Source.instruments()[static_cast<std::size_t>(Instrument)].PriceStep;
+  const std::int64_t Total = Source.totalSteps();
 
   // Бары бумаги на шагах >= startStep.
-  std::vector<const StepBar *> bars;
-  for (std::int64_t st = s.startStep; st < total; ++st) {
-    if (const StepBar *b = source.barOf(instrument, st))
-      bars.push_back(b);
+  std::vector<const StepBar *> Bars;
+  for (std::int64_t St = S.StartStep; St < Total; ++St) {
+    if (const StepBar *B = Source.barOf(Instrument, St))
+      Bars.push_back(B);
   }
-  if (bars.empty())
+  if (Bars.empty())
     return;
 
-  const std::size_t window =
-      std::min<std::size_t>(static_cast<std::size_t>(s.volBars), bars.size());
+  const std::size_t Window =
+      std::min<std::size_t>(static_cast<std::size_t>(S.VolBars), Bars.size());
 
   // c_{t0-1} (до события данные не меняются); нет бара - open первого бара t0.
-  const StepBar *prev =
-      s.startStep > 0 ? source.lastBarOf(instrument, s.startStep - 1) : nullptr;
-  Decimal prevClose = prev != nullptr ? prev->close : bars.front()->open;
-  Decimal prevStressedClose = prevClose;
+  const StepBar *Prev =
+      S.StartStep > 0 ? Source.lastBarOf(Instrument, S.StartStep - 1) : nullptr;
+  Decimal PrevClose = Prev != nullptr ? Prev->Close : Bars.front()->Open;
+  Decimal PrevStressedClose = PrevClose;
 
-  Decimal factorAfter = Decimal::one(); // f
-  for (std::size_t i = 0; i < bars.size(); ++i) {
-    const StepBar &orig = *bars[i];
-    StepBar &out = result.mutableBar(orig.step, instrument);
-    const Ohlc g = gapped(orig, gapFactor);
+  Decimal FactorAfter = Decimal::one(); // f
+  for (std::size_t I = 0; I < Bars.size(); ++I) {
+    const StepBar &Orig = *Bars[I];
+    StepBar &Out = Result.mutableBar(Orig.Step, Instrument);
+    const Ohlc G = gapped(Orig, GapFactor);
 
-    if (i < window) {
-      const Decimal o = volatilePrice(g.open, prevClose, prevStressedClose,
-                                      s.volMultiplier, step);
-      const Decimal h = volatilePrice(g.high, prevClose, prevStressedClose,
-                                      s.volMultiplier, step);
-      const Decimal l = volatilePrice(g.low, prevClose, prevStressedClose,
-                                      s.volMultiplier, step);
-      const Decimal c = volatilePrice(g.close, prevClose, prevStressedClose,
-                                      s.volMultiplier, step);
-      out.open = o;
-      out.close = c;
-      out.high = std::max({o, h, l, c});
-      out.low = std::min({o, h, l, c});
-      out.volumeLots = scaledVolume(orig.volumeLots, s.volumeShare);
-      prevClose = g.close;
-      prevStressedClose = c;
-      if (i + 1 == window && !g.close.isZero())
-        factorAfter = c.div(g.close, kHalfUp);
+    if (I < Window) {
+      const Decimal O = volatilePrice(G.Open, PrevClose, PrevStressedClose,
+                                      S.VolMultiplier, Step);
+      const Decimal H = volatilePrice(G.High, PrevClose, PrevStressedClose,
+                                      S.VolMultiplier, Step);
+      const Decimal L = volatilePrice(G.Low, PrevClose, PrevStressedClose,
+                                      S.VolMultiplier, Step);
+      const Decimal C = volatilePrice(G.Close, PrevClose, PrevStressedClose,
+                                      S.VolMultiplier, Step);
+      Out.Open = O;
+      Out.Close = C;
+      Out.High = std::max({O, H, L, C});
+      Out.Low = std::min({O, H, L, C});
+      Out.VolumeLots = scaledVolume(Orig.VolumeLots, S.VolumeShare);
+      PrevClose = G.Close;
+      PrevStressedClose = C;
+      if (I + 1 == Window && !G.Close.isZero())
+        FactorAfter = C.div(G.Close, kHalfUp);
     } else {
-      out.open = snapPrice(g.open.mul(factorAfter, kHalfUp), step);
-      out.high = snapPrice(g.high.mul(factorAfter, kHalfUp), step);
-      out.low = snapPrice(g.low.mul(factorAfter, kHalfUp), step);
-      out.close = snapPrice(g.close.mul(factorAfter, kHalfUp), step);
+      Out.Open = snapPrice(G.Open.mul(FactorAfter, kHalfUp), Step);
+      Out.High = snapPrice(G.High.mul(FactorAfter, kHalfUp), Step);
+      Out.Low = snapPrice(G.Low.mul(FactorAfter, kHalfUp), Step);
+      Out.Close = snapPrice(G.Close.mul(FactorAfter, kHalfUp), Step);
     }
   }
 }
 
 } // namespace
 
-Timeline applyStress(const Timeline &timeline, const StressScenario &scenario) {
-  validate(scenario);
-  Timeline result = timeline;
-  const Decimal gapFactor =
+Timeline applyStress(const Timeline &Input, const StressScenario &Scenario) {
+  validate(Scenario);
+  Timeline Result = Input;
+  const Decimal GapFactor =
       Decimal::one() -
-      scenario.gapPercent.div(Decimal::fromUnits(100), kHalfUp);
-  const int count = static_cast<int>(timeline.instruments().size());
-  for (int i = 0; i < count; ++i)
-    stressInstrument(timeline, result, i, scenario, gapFactor);
-  return result;
+      Scenario.GapPercent.div(Decimal::fromUnits(100), kHalfUp);
+  const int Count = static_cast<int>(Input.instruments().size());
+  for (int I = 0; I < Count; ++I)
+    stressInstrument(Input, Result, I, Scenario, GapFactor);
+  return Result;
 }
 
 } // namespace core

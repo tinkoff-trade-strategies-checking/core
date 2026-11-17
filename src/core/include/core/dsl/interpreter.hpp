@@ -33,10 +33,10 @@ using ParamValues = std::map<std::string, double>;
 // человека). positionLots >= 0; entryPrice и barsInPosition - nullopt, если
 // позиции нет.
 struct StateView {
-  std::int64_t positionLots = 0;
-  std::optional<double> entryPrice;
-  double cash = 0, equity = 0;
-  std::optional<std::int64_t> barsInPosition;
+  std::int64_t PositionLots = 0;
+  std::optional<double> EntryPrice;
+  double Cash = 0, Equity = 0;
+  std::optional<std::int64_t> BarsInPosition;
 };
 
 // Намерение: что правило хочет сделать на этом баре. cancelAll - `cancel`
@@ -44,10 +44,10 @@ struct StateView {
 // лотах >= 1, цены в Decimal и кратны шагу цены. because - текст причины с
 // подставленными значениями (ФТ-12): он уходит в заявку.
 struct Intent {
-  int instrument = 0;
-  std::string ruleName, because;
-  bool cancelAll = false;
-  OrderSpec order;
+  int Instrument = 0;
+  std::string RuleName, Because;
+  bool CancelAll = false;
+  OrderSpec Order;
 };
 
 // Экземпляр стратегии на один прогон: своя копия программы с выбранными
@@ -62,9 +62,9 @@ public:
   // параметр, не конечное число - тоже отказ. Все отказы -
   // std::invalid_argument с русским сообщением. instrumentCount >= 1: число
   // бумаг сессии.
-  StrategyInstance(const Program &program,
-                   const std::vector<ResolvedParam> &params,
-                   const ParamValues &overrides, std::size_t instrumentCount);
+  StrategyInstance(const Program &Program,
+                   const std::vector<ResolvedParam> &Params,
+                   const ParamValues &Overrides, std::size_t InstrumentCount);
   ~StrategyInstance();
   StrategyInstance(StrategyInstance &&) noexcept;
   StrategyInstance &operator=(StrategyInstance &&) noexcept;
@@ -78,7 +78,7 @@ public:
   // с instrument, step строго возрастает по бумаге - иначе
   // std::invalid_argument. Предыдущий бар этой бумаги должен быть вычислен
   // через evaluate, иначе std::logic_error.
-  void onBar(int instrument, const StepBar &bar);
+  void onBar(int Instrument, const StepBar &Bar);
 
   // Правила в порядке текста на закрытии бара, уже переданного в onBar.
   // Состояние для всех правил одно; сработавшее правило даёт не больше одного
@@ -88,18 +88,18 @@ public:
   // в последнем onBar, или повторный вызов для того же бара - std::logic_error.
   // Действие, у которого количество меньше 1 лота, количество либо цена `na`,
   // цена <= 0 (после округления до шага тоже) - намерения не даёт.
-  std::vector<Intent> evaluate(int instrument, const StepBar &bar,
-                               std::int64_t lotSize, const Decimal &priceStep,
-                               const StateView &state);
+  std::vector<Intent> evaluate(int Instrument, const StepBar &Bar,
+                               std::int64_t LotSize, const Decimal &PriceStep,
+                               const StateView &State);
 
 private:
   struct Impl;
-  std::unique_ptr<Impl> impl_;
+  std::unique_ptr<Impl> Pimpl;
 };
 
 // Цена из выражения -> Decimal: to_chars(fixed, 9) -> Decimal::parse ->
 // roundToStep(HALF_UP) (decisions.md, «Деньги и округление»). Не конечное число
 // - std::invalid_argument, не помещается - DecimalOverflow. priceStep > 0.
-Decimal toDecimalPrice(double value, const Decimal &priceStep);
+Decimal toDecimalPrice(double Price, const Decimal &PriceStep);
 
 } // namespace core::dsl

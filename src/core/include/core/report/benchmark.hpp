@@ -16,21 +16,21 @@
 namespace core {
 
 struct DailyClose {
-  std::int32_t yyyymmdd = 0; // московская дата
-  Decimal close;
+  std::int32_t Yyyymmdd = 0; // московская дата
+  Decimal Close;
 };
 
 // open первого дневного бара периода и close каждого дня по возрастанию даты
 // (не пусто).
 struct BenchmarkSeries {
-  Decimal firstOpen;
-  std::vector<DailyClose> closes;
+  Decimal FirstOpen;
+  std::vector<DailyClose> Closes;
 };
 
 // (open первого бара, close последнего) - вход MetricsInput::benchmark. Пустой
 // ряд - nullopt.
 std::optional<std::pair<Decimal, Decimal>>
-benchmarkRange(const BenchmarkSeries &series);
+benchmarkRange(const BenchmarkSeries &Series);
 
 // Кривая бенчмарка в рублях капитала: initialCash * close дня / firstOpen (9
 // знаков HALF_UP) на последнем шаге каждого торгового дня шкалы из шагов
@@ -38,9 +38,9 @@ benchmarkRange(const BenchmarkSeries &series);
 // дня), и день без бара индекса пропускаются: бар D1 недопройденного дня
 // содержит будущее (INV-1). firstOpen <= 0 или lastStep вне шкалы -
 // std::invalid_argument.
-std::vector<EquityPoint> benchmarkEquity(const BenchmarkSeries &series,
-                                         const Decimal &initialCash,
-                                         const Timeline &timeline,
-                                         std::int64_t lastStep);
+std::vector<EquityPoint> benchmarkEquity(const BenchmarkSeries &Series,
+                                         const Decimal &InitialCash,
+                                         const Timeline &Timeline,
+                                         std::int64_t LastStep);
 
 } // namespace core

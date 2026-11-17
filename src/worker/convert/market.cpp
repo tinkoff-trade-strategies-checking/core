@@ -19,8 +19,8 @@ namespace worker {
 
 namespace {
 
-core::Timeframe timeframeFromProto(pb::Timeframe timeframe) {
-  switch (timeframe) {
+core::Timeframe timeframeFromProto(pb::Timeframe Timeframe) {
+  switch (Timeframe) {
   case pb::S1:
     return core::Timeframe::S1;
   case pb::S10:
@@ -42,199 +42,199 @@ core::Timeframe timeframeFromProto(pb::Timeframe timeframe) {
   }
 }
 
-core::Decimal requirePositive(const pb::Decimal &value, const char *what) {
-  const core::Decimal d = core::fromProto(value);
-  if (d <= core::Decimal::zero())
-    throw std::invalid_argument(std::string(what) +
+core::Decimal requirePositive(const pb::Decimal &Value, const char *What) {
+  const core::Decimal D = core::fromProto(Value);
+  if (D <= core::Decimal::zero())
+    throw std::invalid_argument(std::string(What) +
                                 " должен быть положительным");
-  return d;
+  return D;
 }
 
 } // namespace
 
-std::int32_t parseIsoDate(const std::string &text) {
-  bool ok = text.size() == 10 && text[4] == '-' && text[7] == '-';
-  for (std::size_t i = 0; ok && i < text.size(); ++i) {
-    if (i != 4 && i != 7 && !std::isdigit(static_cast<unsigned char>(text[i])))
-      ok = false;
+std::int32_t parseIsoDate(const std::string &Text) {
+  bool Ok = Text.size() == 10 && Text[4] == '-' && Text[7] == '-';
+  for (std::size_t I = 0; Ok && I < Text.size(); ++I) {
+    if (I != 4 && I != 7 && !std::isdigit(static_cast<unsigned char>(Text[I])))
+      Ok = false;
   }
-  if (!ok)
+  if (!Ok)
     throw std::invalid_argument("неверная дата, нужен формат гггг-мм-дд: " +
-                                text);
-  const std::int32_t year = std::stoi(text.substr(0, 4));
-  const std::int32_t month = std::stoi(text.substr(5, 2));
-  const std::int32_t day = std::stoi(text.substr(8, 2));
-  if (month < 1 || month > 12 || day < 1 || day > 31)
-    throw std::invalid_argument("неверная дата: " + text);
-  return year * 10000 + month * 100 + day;
+                                Text);
+  const std::int32_t Year = std::stoi(Text.substr(0, 4));
+  const std::int32_t Month = std::stoi(Text.substr(5, 2));
+  const std::int32_t Day = std::stoi(Text.substr(8, 2));
+  if (Month < 1 || Month > 12 || Day < 1 || Day > 31)
+    throw std::invalid_argument("неверная дата: " + Text);
+  return Year * 10000 + Month * 100 + Day;
 }
 
-std::string formatIsoDate(std::int32_t yyyymmdd) {
-  std::string out = std::to_string(yyyymmdd);
-  out.insert(6, "-");
-  out.insert(4, "-");
-  return out;
+std::string formatIsoDate(std::int32_t Yyyymmdd) {
+  std::string Out = std::to_string(Yyyymmdd);
+  Out.insert(6, "-");
+  Out.insert(4, "-");
+  return Out;
 }
 
-core::SessionSpec toSessionSpec(const pb::MarketSpec &market) {
-  if (market.instruments_size() == 0)
+core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
+  if (Market.instruments_size() == 0)
     throw std::invalid_argument("в спецификации нет бумаг");
 
-  core::SessionSpec spec;
-  std::set<std::string> keys;
-  for (const pb::Instrument &i : market.instruments()) {
-    if (i.key().empty() || !keys.insert(i.key()).second) {
+  core::SessionSpec Spec;
+  std::set<std::string> Keys;
+  for (const pb::Instrument &I : Market.instruments()) {
+    if (I.key().empty() || !Keys.insert(I.key()).second) {
       throw std::invalid_argument("ключ бумаги пуст или повторяется: " +
-                                  i.key());
+                                  I.key());
     }
-    if (i.lot_size() <= 0)
+    if (I.lot_size() <= 0)
       throw std::invalid_argument("размер лота должен быть положительным: " +
-                                  i.key());
-    spec.instruments.push_back(
-        core::Instrument{i.key(), i.ticker(), i.lot_size(),
-                         requirePositive(i.price_step(), "шаг цены")});
+                                  I.key());
+    Spec.Instruments.push_back(
+        core::Instrument{I.key(), I.ticker(), I.lot_size(),
+                         requirePositive(I.price_step(), "шаг цены")});
   }
 
-  spec.naive = market.naive();
-  if (market.has_costs()) {
-    const pb::CostConfig &c = market.costs();
-    spec.costs.commissionRate = core::fromProto(c.commission_rate());
-    spec.costs.exchangeFeeRate = core::fromProto(c.exchange_fee_rate());
-    spec.costs.spread = core::fromProto(c.spread());
-    spec.costs.slippageKappa = core::fromProto(c.slippage_kappa());
-    if (c.has_liquidity_share())
-      spec.costs.liquidityShare = core::fromProto(c.liquidity_share());
-  } else if (!spec.naive) {
+  Spec.Naive = Market.naive();
+  if (Market.has_costs()) {
+    const pb::CostConfig &C = Market.costs();
+    Spec.Costs.CommissionRate = core::fromProto(C.commission_rate());
+    Spec.Costs.ExchangeFeeRate = core::fromProto(C.exchange_fee_rate());
+    Spec.Costs.Spread = core::fromProto(C.spread());
+    Spec.Costs.SlippageKappa = core::fromProto(C.slippage_kappa());
+    if (C.has_liquidity_share())
+      Spec.Costs.LiquidityShare = core::fromProto(C.liquidity_share());
+  } else if (!Spec.Naive) {
     throw std::invalid_argument("не заданы издержки исполнения");
   }
-  spec.initialCash =
-      requirePositive(market.initial_cash(), "начальный капитал");
-  return spec;
+  Spec.InitialCash =
+      requirePositive(Market.initial_cash(), "начальный капитал");
+  return Spec;
 }
 
 std::shared_ptr<const core::Timeline>
-loadTimeline(Context &context, const pb::MarketSpec &market) {
-  std::vector<core::Instrument> instruments = toSessionSpec(market).instruments;
-  if (market.warmup_bars() < 0 || market.warmup_bars() > kMaxWarmupBars) {
+loadTimeline(Context &Context, const pb::MarketSpec &Market) {
+  std::vector<core::Instrument> Instruments = toSessionSpec(Market).Instruments;
+  if (Market.warmup_bars() < 0 || Market.warmup_bars() > kMaxWarmupBars) {
     throw std::invalid_argument("warmup_bars вне диапазона 0…" +
                                 std::to_string(kMaxWarmupBars) + ": " +
-                                std::to_string(market.warmup_bars()));
+                                std::to_string(Market.warmup_bars()));
   }
-  core::Timeline timeline = core::Timeline::loadWithWarmup(
-      context.bars, context.calendar, market.snapshot_id(),
-      std::move(instruments), timeframeFromProto(market.timeframe()),
-      parseIsoDate(market.from_date()), parseIsoDate(market.to_date()),
-      market.warmup_bars());
-  if (timeline.totalSteps() == 0)
+  core::Timeline Timeline = core::Timeline::loadWithWarmup(
+      Context.Bars, Context.Calendar, Market.snapshot_id(),
+      std::move(Instruments), timeframeFromProto(Market.timeframe()),
+      parseIsoDate(Market.from_date()), parseIsoDate(Market.to_date()),
+      Market.warmup_bars());
+  if (Timeline.totalSteps() == 0)
     throw core::SnapshotNotFound("в снапшоте нет баров за период");
-  return std::make_shared<const core::Timeline>(std::move(timeline));
+  return std::make_shared<const core::Timeline>(std::move(Timeline));
 }
 
 namespace {
 
-std::optional<core::StressScenario> stressOf(const pb::StressScenario &stress,
-                                             std::int64_t totalSteps) {
-  core::StressScenario scenario;
-  scenario.gapPercent = core::fromProto(stress.gap_percent());
-  scenario.volMultiplier = core::fromProto(stress.vol_multiplier());
-  scenario.volBars = stress.vol_bars();
-  scenario.volumeShare = core::fromProto(stress.volume_share());
+std::optional<core::StressScenario> stressOf(const pb::StressScenario &Stress,
+                                             std::int64_t TotalSteps) {
+  core::StressScenario Scenario;
+  Scenario.GapPercent = core::fromProto(Stress.gap_percent());
+  Scenario.VolMultiplier = core::fromProto(Stress.vol_multiplier());
+  Scenario.VolBars = Stress.vol_bars();
+  Scenario.VolumeShare = core::fromProto(Stress.volume_share());
   // Ненулевые отрицательные значения тоже идут в applyStress, он откажет
   // (INVALID_ARGUMENT).
-  const bool active = scenario.volBars != 0 ||
-                      scenario.gapPercent != core::Decimal::zero() ||
-                      scenario.volumeShare != core::Decimal::zero() ||
-                      scenario.volMultiplier < core::Decimal::zero();
-  if (!active)
+  const bool Active = Scenario.VolBars != 0 ||
+                      Scenario.GapPercent != core::Decimal::zero() ||
+                      Scenario.VolumeShare != core::Decimal::zero() ||
+                      Scenario.VolMultiplier < core::Decimal::zero();
+  if (!Active)
     return std::nullopt;
-  scenario.startStep =
-      stress.start_step() < 0 ? totalSteps / 2 : stress.start_step();
-  if (scenario.startStep >= totalSteps) {
+  Scenario.StartStep =
+      Stress.start_step() < 0 ? TotalSteps / 2 : Stress.start_step();
+  if (Scenario.StartStep >= TotalSteps) {
     throw std::invalid_argument(
-        "стресс: start_step " + std::to_string(scenario.startStep) +
-        " за пределами шкалы времени, шагов " + std::to_string(totalSteps));
+        "стресс: start_step " + std::to_string(Scenario.StartStep) +
+        " за пределами шкалы времени, шагов " + std::to_string(TotalSteps));
   }
-  return scenario;
+  return Scenario;
 }
 
 } // namespace
 
 std::shared_ptr<const core::Timeline>
-loadStressedTimeline(Context &context, const pb::MarketSpec &market,
-                     const pb::StressScenario &stress, bool hasStress) {
-  std::shared_ptr<const core::Timeline> timeline =
-      loadTimeline(context, market);
-  if (hasStress) {
-    if (const auto scenario = stressOf(stress, timeline->totalSteps())) {
-      timeline = std::make_shared<const core::Timeline>(
-          core::applyStress(*timeline, *scenario));
+loadStressedTimeline(Context &Context, const pb::MarketSpec &Market,
+                     const pb::StressScenario &Stress, bool HasStress) {
+  std::shared_ptr<const core::Timeline> Timeline =
+      loadTimeline(Context, Market);
+  if (HasStress) {
+    if (const auto Scenario = stressOf(Stress, Timeline->totalSteps())) {
+      Timeline = std::make_shared<const core::Timeline>(
+          core::applyStress(*Timeline, *Scenario));
     }
   }
-  return timeline;
+  return Timeline;
 }
 
 std::optional<core::BenchmarkSeries>
-loadBenchmark(Context &context, const pb::MarketSpec &market) {
-  if (market.benchmark_ticker().empty())
+loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
+  if (Market.benchmark_ticker().empty())
     return std::nullopt;
   // Однобумажная дневная шкала бенчмарка: из неё берём open первого бара и
   // close каждого дня. Лот и шаг цены для чтения баров не нужны.
-  core::Instrument index{market.benchmark_ticker(), market.benchmark_ticker(),
+  core::Instrument Index{Market.benchmark_ticker(), Market.benchmark_ticker(),
                          1, core::Decimal::parse("0.01")};
   try {
-    const core::Timeline timeline = core::Timeline::load(
-        context.bars, context.calendar, market.snapshot_id(), {index},
-        core::Timeframe::D1, parseIsoDate(market.from_date()),
-        parseIsoDate(market.to_date()));
-    if (timeline.totalSteps() == 0)
+    const core::Timeline Timeline = core::Timeline::load(
+        Context.Bars, Context.Calendar, Market.snapshot_id(), {Index},
+        core::Timeframe::D1, parseIsoDate(Market.from_date()),
+        parseIsoDate(Market.to_date()));
+    if (Timeline.totalSteps() == 0)
       return std::nullopt;
-    core::BenchmarkSeries series;
-    series.firstOpen = timeline.barsAt(0).front().open;
-    for (std::int64_t step = 0; step < timeline.totalSteps(); ++step) {
-      series.closes.push_back(core::DailyClose{
-          timeline.yyyymmddOf(step), timeline.barsAt(step).front().close});
+    core::BenchmarkSeries Series;
+    Series.FirstOpen = Timeline.barsAt(0).front().Open;
+    for (std::int64_t Step = 0; Step < Timeline.totalSteps(); ++Step) {
+      Series.Closes.push_back(core::DailyClose{
+          Timeline.yyyymmddOf(Step), Timeline.barsAt(Step).front().Close});
     }
-    return series;
+    return Series;
   } catch (const core::SecurityNotFound &) {
     return std::nullopt;
   }
 }
 
-void toProto(const core::StepBar &bar, const core::Timeline &timeline,
-             pb::Bar *out) {
-  out->set_step(bar.step);
-  out->set_instrument_key(
-      timeline.instruments().at(static_cast<std::size_t>(bar.instrument)).key);
-  out->set_time_unix_ms(bar.timeUnixMs);
-  out->set_trading_day(bar.tradingDay);
-  core::toProto(bar.open, out->mutable_open());
-  core::toProto(bar.high, out->mutable_high());
-  core::toProto(bar.low, out->mutable_low());
-  core::toProto(bar.close, out->mutable_close());
-  out->set_volume_lots(bar.volumeLots);
-  out->set_after_halt(bar.afterHalt);
+void toProto(const core::StepBar &Bar, const core::Timeline &Timeline,
+             pb::Bar *Out) {
+  Out->set_step(Bar.Step);
+  Out->set_instrument_key(
+      Timeline.instruments().at(static_cast<std::size_t>(Bar.Instrument)).Key);
+  Out->set_time_unix_ms(Bar.TimeUnixMs);
+  Out->set_trading_day(Bar.TradingDay);
+  core::toProto(Bar.Open, Out->mutable_open());
+  core::toProto(Bar.High, Out->mutable_high());
+  core::toProto(Bar.Low, Out->mutable_low());
+  core::toProto(Bar.Close, Out->mutable_close());
+  Out->set_volume_lots(Bar.VolumeLots);
+  Out->set_after_halt(Bar.AfterHalt);
 }
 
-void appendBars(const core::Timeline &timeline, std::int64_t fromStep,
-                std::int64_t toStep,
-                google::protobuf::RepeatedPtrField<pb::Bar> *out) {
-  const std::int64_t total = timeline.totalSteps();
-  if (fromStep < -timeline.warmupSteps() || toStep >= total ||
-      fromStep > toStep) {
-    throw std::invalid_argument("диапазон шагов [" + std::to_string(fromStep) +
-                                "; " + std::to_string(toStep) +
+void appendBars(const core::Timeline &Timeline, std::int64_t FromStep,
+                std::int64_t ToStep,
+                google::protobuf::RepeatedPtrField<pb::Bar> *Out) {
+  const std::int64_t Total = Timeline.totalSteps();
+  if (FromStep < -Timeline.warmupSteps() || ToStep >= Total ||
+      FromStep > ToStep) {
+    throw std::invalid_argument("диапазон шагов [" + std::to_string(FromStep) +
+                                "; " + std::to_string(ToStep) +
                                 "] вне шкалы времени, шагов " +
-                                std::to_string(total) + ", прогрева " +
-                                std::to_string(timeline.warmupSteps()));
+                                std::to_string(Total) + ", прогрева " +
+                                std::to_string(Timeline.warmupSteps()));
   }
-  for (const core::StepBar &b : timeline.warmupBars()) {
-    if (b.step >= fromStep && b.step <= toStep)
-      toProto(b, timeline, out->Add());
+  for (const core::StepBar &B : Timeline.warmupBars()) {
+    if (B.Step >= FromStep && B.Step <= ToStep)
+      toProto(B, Timeline, Out->Add());
   }
-  for (std::int64_t step = std::max<std::int64_t>(fromStep, 0); step <= toStep;
-       ++step) {
-    for (const core::StepBar &b : timeline.barsAt(step))
-      toProto(b, timeline, out->Add());
+  for (std::int64_t Step = std::max<std::int64_t>(FromStep, 0); Step <= ToStep;
+       ++Step) {
+    for (const core::StepBar &B : Timeline.barsAt(Step))
+      toProto(B, Timeline, Out->Add());
   }
 }
 
@@ -246,20 +246,20 @@ grpc::Status statusFromCurrentException() {
   } catch (const ClickHouseError &) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE,
                         "хранилище данных недоступно");
-  } catch (const core::SnapshotNotFound &e) {
-    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, e.what());
-  } catch (const core::SecurityNotFound &e) {
-    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, e.what());
+  } catch (const core::SnapshotNotFound &E) {
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
+  } catch (const core::SecurityNotFound &E) {
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
   } catch (const core::NoValidFitRun &) {
     // Доменный исход для стратегии (повтор бессмыслен): общий текст без
     // деталей.
     return grpc::Status(
         grpc::StatusCode::FAILED_PRECONDITION,
         "walk-forward: ни один набор параметров не дал засчитываемого прогона");
-  } catch (const IntervalUnavailable &e) {
-    return grpc::Status(grpc::StatusCode::NOT_FOUND, e.what());
-  } catch (const std::invalid_argument &e) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, e.what());
+  } catch (const IntervalUnavailable &E) {
+    return grpc::Status(grpc::StatusCode::NOT_FOUND, E.what());
+  } catch (const std::invalid_argument &E) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, E.what());
   } catch (...) {
     return grpc::Status(grpc::StatusCode::INTERNAL,
                         "внутренняя ошибка воркера");

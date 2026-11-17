@@ -30,6 +30,20 @@ jobs:
       - name: Тесты
         run: ctest --preset debug
 
+  style:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Образ для сборки
+        run: scripts/dev.sh image
+
+      - name: Формат (clang-format, LLVM)
+        run: scripts/dev.sh format-check
+
+      - name: Имена (clang-tidy, readability-identifier-naming)
+        run: scripts/dev.sh tidy
+
   docker-image:
     runs-on: ubuntu-24.04
     steps:

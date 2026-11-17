@@ -18,6 +18,6 @@ namespace core::dsl {
 // ... Литералы в смещении `x[k]` не проверяются: смещение - часть записи ряда,
 // а не уровень. Программа должна быть разобрана из `source`; чистая функция:
 // без состояния и часов (INV-4).
-std::vector<Diagnostic> lint(const Program &program, std::string_view source);
+std::vector<Diagnostic> lint(const Program &Program, std::string_view Source);
 
 } // namespace core::dsl

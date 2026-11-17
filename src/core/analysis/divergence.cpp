@@ -26,19 +26,19 @@ constexpr std::size_t kMaxAlgorithms = 5; // ФТ-18
 constexpr std::size_t kNone = static_cast<std::size_t>(-1);
 const char *const kExcessReason = "алгоритм здесь не действовал бы";
 
-bool isAction(const OrderSpec &spec) {
-  return spec.type == OrderType::Market || spec.type == OrderType::Limit;
+bool isAction(const OrderSpec &Spec) {
+  return Spec.Type == OrderType::Market || Spec.Type == OrderType::Limit;
 }
 
-std::int64_t signedLots(const OrderSpec &spec) {
-  return spec.side == Side::Buy ? spec.lots : -spec.lots;
+std::int64_t signedLots(const OrderSpec &Spec) {
+  return Spec.OrderSide == Side::Buy ? Spec.Lots : -Spec.Lots;
 }
 
-int signOf(std::int64_t value) { return value > 0 ? 1 : (value < 0 ? -1 : 0); }
+int signOf(std::int64_t Value) { return Value > 0 ? 1 : (Value < 0 ? -1 : 0); }
 
-bool isActive(const Order &order) {
-  return order.status == OrderStatus::Active ||
-         order.status == OrderStatus::PartiallyFilled;
+bool isActive(const Order &Order) {
+  return Order.Status == OrderStatus::Active ||
+         Order.Status == OrderStatus::PartiallyFilled;
 }
 
 // Действие на шаге по бумаге: заявки одной стороны суммируются, купленное и
@@ -46,269 +46,269 @@ bool isActive(const Order &order) {
 using ActionKey = std::pair<int, std::int64_t>; // (бумага, шаг)
 
 struct Action {
-  int instrument = 0;
-  std::int64_t step = 0;
-  std::int64_t lots = 0; // купленное минус проданное; после finalize != 0
-  std::vector<std::int64_t> orderIds; // действие человека: его принятые заявки
+  int Instrument = 0;
+  std::int64_t Step = 0;
+  std::int64_t Lots = 0; // купленное минус проданное; после finalize != 0
+  std::vector<std::int64_t> OrderIds; // действие человека: его принятые заявки
   std::vector<OrderSpec>
-      specs; // действие алгоритма: заявки, которые он создал бы
+      Specs; // действие алгоритма: заявки, которые он создал бы
   std::vector<std::pair<std::int64_t, std::string>>
-      parts; // (лоты со знаком, because) намерений алгоритма
-  std::string reason;
+      Parts; // (лоты со знаком, because) намерений алгоритма
+  std::string ReasonCode;
 };
 
 using ActionMap = std::map<ActionKey, Action>;
 
-Action &actionAt(ActionMap &map, int instrument, std::int64_t step) {
-  Action &action = map[ActionKey{instrument, step}];
-  action.instrument = instrument;
-  action.step = step;
-  return action;
+Action &actionAt(ActionMap &Map, int Instrument, std::int64_t Step) {
+  Action &Action = Map[ActionKey{Instrument, Step}];
+  Action.Instrument = Instrument;
+  Action.Step = Step;
+  return Action;
 }
 
 // Убирает шаги, где купленное и проданное сошлись в ноль (действия нет);
 // причина - у первого намерения в сторону итога.
-void finalize(ActionMap &map) {
-  for (auto it = map.begin(); it != map.end();) {
-    Action &action = it->second;
-    if (action.lots == 0) {
-      it = map.erase(it);
+void finalize(ActionMap &Map) {
+  for (auto It = Map.begin(); It != Map.end();) {
+    Action &Action = It->second;
+    if (Action.Lots == 0) {
+      It = Map.erase(It);
       continue;
     }
-    for (const auto &[lots, because] : action.parts) {
-      if (signOf(lots) == signOf(action.lots)) {
-        action.reason = because;
+    for (const auto &[lots, because] : Action.Parts) {
+      if (signOf(lots) == signOf(Action.Lots)) {
+        Action.ReasonCode = because;
         break;
       }
     }
-    ++it;
+    ++It;
   }
 }
 
-bool sameSpec(const OrderSpec &a, const OrderSpec &b) {
-  return a.instrument == b.instrument && a.side == b.side && a.type == b.type &&
-         a.lots == b.lots && a.limitPrice == b.limitPrice &&
-         a.stopPrice == b.stopPrice && a.trailingPercent == b.trailingPercent &&
-         a.tif == b.tif;
+bool sameSpec(const OrderSpec &A, const OrderSpec &B) {
+  return A.Instrument == B.Instrument && A.OrderSide == B.OrderSide &&
+         A.Type == B.Type && A.Lots == B.Lots && A.LimitPrice == B.LimitPrice &&
+         A.StopPrice == B.StopPrice && A.TrailingPercent == B.TrailingPercent &&
+         A.Tif == B.Tif;
 }
 
 // Размеры расходятся: |q_h - q_a| > 0,2 * max(|q_h|, |q_a|) (целочисленно, без
 // double).
-bool sizeDiffers(std::int64_t human, std::int64_t algo) {
-  const std::int64_t diff = human > algo ? human - algo : algo - human;
-  const std::int64_t larger =
-      std::max(human < 0 ? -human : human, algo < 0 ? -algo : algo);
-  return 5 * diff > larger;
+bool sizeDiffers(std::int64_t Human, std::int64_t Algo) {
+  const std::int64_t Diff = Human > Algo ? Human - Algo : Algo - Human;
+  const std::int64_t Larger =
+      std::max(Human < 0 ? -Human : Human, Algo < 0 ? -Algo : Algo);
+  return 5 * Diff > Larger;
 }
 
 // Состояние сессии человека на закрытии шага k и обход шагов. onStep(k, engine)
 // - до записей журнала шага k, только пока сессия идёт; onEntry(entry, result)
 // - после применения каждой записи журнала. stopAt - последний шаг. Записи
 // остановленной сессии принимаются и отклоняются движком (как в replaySession).
-template <typename OnStep, typename OnEntry>
-SessionEngine walkHuman(const SessionSpec &spec,
-                        const std::shared_ptr<const Timeline> &timeline,
-                        std::span<const JournalEntry> journal,
-                        std::int64_t stopAt, OnStep &&onStep,
-                        OnEntry &&onEntry) {
-  SessionEngine engine(spec, timeline);
-  std::size_t next = 0;
+template <typename OnStepT, typename OnEntryT>
+SessionEngine walkHuman(const SessionSpec &Spec,
+                        const std::shared_ptr<const Timeline> &Timeline,
+                        std::span<const JournalEntry> Journal,
+                        std::int64_t StopAt, OnStepT &&OnStep,
+                        OnEntryT &&OnEntry) {
+  SessionEngine Engine(Spec, Timeline);
+  std::size_t Next = 0;
   for (;;) {
-    const std::int64_t k = engine.currentStep();
-    if (engine.status() == SessionStatus::Running)
-      onStep(k, static_cast<const SessionEngine &>(engine));
-    while (next < journal.size() &&
-           (journal[next].step == k ||
-            engine.status() != SessionStatus::Running)) {
-      const CommandResult result = engine.apply(journal[next]);
-      onEntry(journal[next], result);
-      ++next;
+    const std::int64_t K = Engine.currentStep();
+    if (Engine.status() == SessionStatus::Running)
+      OnStep(K, static_cast<const SessionEngine &>(Engine));
+    while (Next < Journal.size() &&
+           (Journal[Next].Step == K ||
+            Engine.status() != SessionStatus::Running)) {
+      const CommandResult Result = Engine.apply(Journal[Next]);
+      OnEntry(Journal[Next], Result);
+      ++Next;
     }
-    engine.settleStep();
-    if (k == stopAt || engine.status() != SessionStatus::Running)
+    Engine.settleStep();
+    if (K == StopAt || Engine.status() != SessionStatus::Running)
       break;
-    engine.advance();
+    Engine.advance();
   }
-  return engine;
+  return Engine;
 }
 
 // Ценность действия V: сумма по исполнениям заявок ids на шагах до horizon
 // включительно: знак * лоты * размер лота * (close(horizon) - цена) - комиссия
 // - сбор. Без исполнений - 0.
-Decimal actionValue(const std::vector<Fill> &fills,
-                    const std::set<std::int64_t> &ids, std::int64_t horizon,
-                    const Timeline &timeline, const SessionSpec &spec) {
-  Decimal value;
-  for (const Fill &fill : fills) {
-    if (fill.step > horizon || ids.count(fill.orderId) == 0)
+Decimal actionValue(const std::vector<Fill> &Fills,
+                    const std::set<std::int64_t> &Ids, std::int64_t Horizon,
+                    const Timeline &Timeline, const SessionSpec &Spec) {
+  Decimal Value;
+  for (const Fill &Fill : Fills) {
+    if (Fill.Step > Horizon || Ids.count(Fill.OrderId) == 0)
       continue;
-    const StepBar *bar = timeline.lastBarOf(fill.instrument, horizon);
-    if (bar == nullptr)
+    const StepBar *Bar = Timeline.lastBarOf(Fill.Instrument, Horizon);
+    if (Bar == nullptr)
       continue;
-    const std::int64_t units =
-        fill.lots *
-        spec.instruments[static_cast<std::size_t>(fill.instrument)].lotSize;
-    Decimal gain = (bar->close - fill.price).times(units);
-    if (fill.side == Side::Sell)
-      gain = -gain;
-    value += gain - fill.commission - fill.fee;
+    const std::int64_t Units =
+        Fill.Lots *
+        Spec.Instruments[static_cast<std::size_t>(Fill.Instrument)].LotSize;
+    Decimal Gain = (Bar->Close - Fill.Price).times(Units);
+    if (Fill.OrderSide == Side::Sell)
+      Gain = -Gain;
+    Value += Gain - Fill.Commission - Fill.Fee;
   }
-  return value;
+  return Value;
 }
 
 // Расхождение до подсчёта цены: V человека готова, V алгоритма считается копией
 // движка на шаге snapStep.
 struct Pending {
-  Divergence divergence;
-  std::size_t algorithm = 0;
-  const Action *human = nullptr; // действие человека; nullptr - «упущенное»
-  std::int64_t snapStep =
+  Divergence Result;
+  std::size_t Algorithm = 0;
+  const Action *Human = nullptr; // действие человека; nullptr - «упущенное»
+  std::int64_t SnapStep =
       -1; // шаг копии движка; -1 - у алгоритма нет действия, V алгоритма = 0
-  std::int64_t percentStep =
+  std::int64_t PercentStep =
       0; // шаг, по стоимости портфеля человека на котором считается процент
-  std::vector<OrderSpec> algoSpecs; // заявки алгоритма
-  Decimal humanValue, algoValue;
+  std::vector<OrderSpec> AlgoSpecs; // заявки алгоритма
+  Decimal HumanValue, AlgoValue;
 };
 
 // Что стало с действием человека у одного алгоритма.
 struct HumanOutcome {
-  bool matched =
+  bool Matched =
       false; // сопоставлено (точное совпадение, «размер» или «момент»)
-  std::size_t pending = kNone; // расхождение; kNone - точное совпадение
+  std::size_t PendingIndex = kNone; // расхождение; kNone - точное совпадение
 };
 
-Decimal medianOf(std::vector<Decimal> costs) {
-  if (costs.empty())
+Decimal medianOf(std::vector<Decimal> Costs) {
+  if (Costs.empty())
     return Decimal();
-  std::sort(costs.begin(), costs.end());
-  const std::size_t n = costs.size();
-  if (n % 2 == 1)
-    return costs[n / 2];
-  return (costs[n / 2 - 1] + costs[n / 2])
-      .div(Decimal::fromUnits(2), 2, RoundingMode::HALF_UP);
+  std::sort(Costs.begin(), Costs.end());
+  const std::size_t N = Costs.size();
+  if (N % 2 == 1)
+    return Costs[N / 2];
+  return (Costs[N / 2 - 1] + Costs[N / 2])
+      .div(Decimal::fromUnits(2), 2, RoundingMode::HalfUp);
 }
 
 class Analyzer {
 public:
-  Analyzer(const SessionSpec &spec, std::shared_ptr<const Timeline> timeline,
-           std::span<const JournalEntry> journal, std::int64_t lastStep,
-           const std::vector<AlgorithmInput> &algorithms)
-      : spec_(spec), timeline_(std::move(timeline)), journal_(journal),
-        lastStep_(lastStep), algorithms_(algorithms) {}
+  Analyzer(const SessionSpec &SessionConfig, std::shared_ptr<const Timeline> Tl,
+           std::span<const JournalEntry> Entries, std::int64_t UpToStep,
+           const std::vector<AlgorithmInput> &Inputs)
+      : Spec(SessionConfig), TimelineRef(std::move(Tl)), Journal(Entries),
+        LastStep(UpToStep), Algorithms(Inputs) {}
 
   DivergenceResult run() {
     validate();
     collectActions();
-    for (std::size_t a = 0; a < algorithms_.size(); ++a)
-      match(a);
+    for (std::size_t A = 0; A < Algorithms.size(); ++A)
+      match(A);
     priceHumanSide();
     priceAlgorithmSide();
-    DivergenceResult result;
-    assembleDivergences(result);
-    assembleMissedTrades(result);
-    assembleConsensus(result);
-    for (const AlgorithmInput &input : algorithms_) {
+    DivergenceResult Result;
+    assembleDivergences(Result);
+    assembleMissedTrades(Result);
+    assembleConsensus(Result);
+    for (const AlgorithmInput &Input : Algorithms) {
       // На том же отрезке, что и человек: по шагам 0…lastStep (сессия могла
       // закончиться раньше конца шкалы).
-      result.independent.push_back(detail::runBacktestToStep(
-          spec_, timeline_, input.program, input.params, input.values,
-          dsl::Level::Ok, lastStep_));
+      Result.Independent.push_back(detail::runBacktestToStep(
+          Spec, TimelineRef, Input.Program, Input.Params, Input.Values,
+          dsl::Level::Ok, LastStep));
     }
-    return result;
+    return Result;
   }
 
 private:
   void validate() const {
-    if (!timeline_)
+    if (!TimelineRef)
       throw std::invalid_argument("analyzeDivergences: нет шкалы времени");
-    if (algorithms_.size() > kMaxAlgorithms) {
+    if (Algorithms.size() > kMaxAlgorithms) {
       throw std::invalid_argument("analyzeDivergences: алгоритмов больше " +
                                   std::to_string(kMaxAlgorithms));
     }
-    std::set<std::string> ids;
-    for (const AlgorithmInput &input : algorithms_) {
-      if (!ids.insert(input.id).second)
+    std::set<std::string> Ids;
+    for (const AlgorithmInput &Input : Algorithms) {
+      if (!Ids.insert(Input.Id).second)
         throw std::invalid_argument(
-            "analyzeDivergences: повтор id алгоритма: " + input.id);
+            "analyzeDivergences: повтор id алгоритма: " + Input.Id);
     }
-    if (spec_.naive)
+    if (Spec.Naive)
       throw std::invalid_argument("analyzeDivergences: разбор только по "
                                   "честному исполнению (не naive)");
-    if (lastStep_ < 0 || lastStep_ >= timeline_->totalSteps()) {
+    if (LastStep < 0 || LastStep >= TimelineRef->totalSteps()) {
       throw std::invalid_argument(
           "analyzeDivergences: lastStep вне шкалы времени");
     }
-    std::int64_t prevStep = 0, prevSeq = -1;
-    for (const JournalEntry &e : journal_) {
-      if (e.step < prevStep)
+    std::int64_t PrevStep = 0, PrevSeq = -1;
+    for (const JournalEntry &E : Journal) {
+      if (E.Step < PrevStep)
         throw std::invalid_argument(
             "analyzeDivergences: шаг записи журнала убывает");
-      if (e.step > lastStep_)
+      if (E.Step > LastStep)
         throw std::invalid_argument(
             "analyzeDivergences: шаг записи журнала больше lastStep");
-      if (e.seq < 0 || e.seq <= prevSeq)
+      if (E.Seq < 0 || E.Seq <= PrevSeq)
         throw std::invalid_argument(
             "analyzeDivergences: seq записей журнала не возрастает");
-      prevStep = e.step;
-      prevSeq = e.seq;
+      PrevStep = E.Step;
+      PrevSeq = E.Seq;
     }
   }
 
   // Проход 1: сессия человека по шагам; на каждом шаге каждый алгоритм видит
   // бар шага и портфель человека на закрытии.
   void collectActions() {
-    std::vector<dsl::StrategyInstance> strategies;
-    strategies.reserve(algorithms_.size());
-    for (const AlgorithmInput &input : algorithms_) {
-      strategies.emplace_back(input.program, input.params, input.values,
-                              spec_.instruments.size());
-      detail::warmUp(strategies.back(), *timeline_,
-                     spec_); // история до шага 0 - как в независимом прогоне
+    std::vector<dsl::StrategyInstance> Strategies;
+    Strategies.reserve(Algorithms.size());
+    for (const AlgorithmInput &Input : Algorithms) {
+      Strategies.emplace_back(Input.Program, Input.Params, Input.Values,
+                              Spec.Instruments.size());
+      detail::warmUp(Strategies.back(), *TimelineRef,
+                     Spec); // история до шага 0 - как в независимом прогоне
     }
-    algoActions_.assign(algorithms_.size(), {});
-    std::vector<std::optional<std::int64_t>> barsInPosition(
-        spec_.instruments.size());
+    AlgoActions.assign(Algorithms.size(), {});
+    std::vector<std::optional<std::int64_t>> BarsInPosition(
+        Spec.Instruments.size());
     // Прошлый бар каждой бумаги и последнее намерение правила (по алгоритму):
     // повтор того же намерения на соседнем баре - та же заявка, а не новое
     // действие.
-    std::vector<std::optional<std::int64_t>> previousBarStep(
-        spec_.instruments.size());
-    std::vector<std::int32_t> previousBarDay(spec_.instruments.size(), 0);
+    std::vector<std::optional<std::int64_t>> PreviousBarStep(
+        Spec.Instruments.size());
+    std::vector<std::int32_t> PreviousBarDay(Spec.Instruments.size(), 0);
     struct Previous {
-      OrderSpec spec;
-      std::int64_t step;
+      OrderSpec Spec;
+      std::int64_t Step;
     };
-    std::vector<std::map<std::pair<std::string, int>, Previous>> previous(
-        algorithms_.size());
+    std::vector<std::map<std::pair<std::string, int>, Previous>> PreviousByKey(
+        Algorithms.size());
 
-    const auto onStep = [&](std::int64_t k, const SessionEngine &engine) {
-      for (std::size_t i = 0; i < spec_.instruments.size(); ++i) {
-        const int instrument = static_cast<int>(i);
-        const StepBar *bar =
-            timeline_->barOf(instrument, k); // только бар текущего шага (INV-1)
-        if (bar == nullptr)
+    const auto OnStep = [&](std::int64_t K, const SessionEngine &Engine) {
+      for (std::size_t I = 0; I < Spec.Instruments.size(); ++I) {
+        const int Instrument = static_cast<int>(I);
+        const StepBar *Bar = TimelineRef->barOf(
+            Instrument, K); // только бар текущего шага (INV-1)
+        if (Bar == nullptr)
           continue;
-        auto &bars = barsInPosition[i];
-        if (engine.portfolio().lots(instrument) > 0) {
-          bars = bars ? *bars + 1 : 0;
+        auto &Bars = BarsInPosition[I];
+        if (Engine.portfolio().lots(Instrument) > 0) {
+          Bars = Bars ? *Bars + 1 : 0;
         } else {
-          bars.reset();
+          Bars.reset();
         }
-        dsl::StateView state;
-        state.positionLots = engine.portfolio().lots(instrument);
-        state.cash = engine.portfolio().cash().toDouble();
-        state.equity = engine.equity().back().equity.toDouble();
-        if (state.positionLots > 0) {
-          state.entryPrice = engine.portfolio().avgPrice(instrument).toDouble();
-          state.barsInPosition = bars;
+        dsl::StateView State;
+        State.PositionLots = Engine.portfolio().lots(Instrument);
+        State.Cash = Engine.portfolio().cash().toDouble();
+        State.Equity = Engine.equity().back().Equity.toDouble();
+        if (State.PositionLots > 0) {
+          State.EntryPrice = Engine.portfolio().avgPrice(Instrument).toDouble();
+          State.BarsInPosition = Bars;
         }
-        for (std::size_t a = 0; a < strategies.size(); ++a) {
-          strategies[a].onBar(instrument, *bar);
-          const std::vector<dsl::Intent> intents = strategies[a].evaluate(
-              instrument, *bar, spec_.instruments[i].lotSize,
-              spec_.instruments[i].priceStep, state);
-          for (const dsl::Intent &intent : intents) {
-            if (intent.cancelAll || !isAction(intent.order))
+        for (std::size_t A = 0; A < Strategies.size(); ++A) {
+          Strategies[A].onBar(Instrument, *Bar);
+          const std::vector<dsl::Intent> Intents = Strategies[A].evaluate(
+              Instrument, *Bar, Spec.Instruments[I].LotSize,
+              Spec.Instruments[I].PriceStep, State);
+          for (const dsl::Intent &Intent : Intents) {
+            if (Intent.CancelAll || !isAction(Intent.Order))
               continue;
             // Лимитная заявка, пока не исполнилась, стоит: то же намерение того
             // же правила на следующем баре (для заявки «день» - в тот же
@@ -316,26 +316,26 @@ private:
             // мире «как алгоритм», здесь неизвестно, поэтому повтор считается
             // продолжением. Рыночные заявки исполняются на следующем баре и
             // повторяются как новые действия.
-            const auto key = std::make_pair(intent.ruleName, instrument);
-            const auto found = previous[a].find(key);
-            const bool repeat = found != previous[a].end() &&
-                                previousBarStep[i] &&
-                                found->second.step == *previousBarStep[i] &&
-                                intent.order.type == OrderType::Limit &&
-                                sameSpec(found->second.spec, intent.order) &&
-                                (intent.order.tif == TimeInForce::Gtc ||
-                                 previousBarDay[i] == bar->tradingDay);
-            previous[a][key] = Previous{intent.order, k};
-            if (repeat)
+            const auto Key = std::make_pair(Intent.RuleName, Instrument);
+            const auto Found = PreviousByKey[A].find(Key);
+            const bool Repeat = Found != PreviousByKey[A].end() &&
+                                PreviousBarStep[I] &&
+                                Found->second.Step == *PreviousBarStep[I] &&
+                                Intent.Order.Type == OrderType::Limit &&
+                                sameSpec(Found->second.Spec, Intent.Order) &&
+                                (Intent.Order.Tif == TimeInForce::Gtc ||
+                                 PreviousBarDay[I] == Bar->TradingDay);
+            PreviousByKey[A][Key] = Previous{Intent.Order, K};
+            if (Repeat)
               continue;
-            Action &action = actionAt(algoActions_[a], instrument, k);
-            action.lots += signedLots(intent.order);
-            action.specs.push_back(intent.order);
-            action.parts.emplace_back(signedLots(intent.order), intent.because);
+            Action &Action = actionAt(AlgoActions[A], Instrument, K);
+            Action.Lots += signedLots(Intent.Order);
+            Action.Specs.push_back(Intent.Order);
+            Action.Parts.emplace_back(signedLots(Intent.Order), Intent.Because);
           }
         }
-        previousBarStep[i] = k;
-        previousBarDay[i] = bar->tradingDay;
+        PreviousBarStep[I] = K;
+        PreviousBarDay[I] = Bar->TradingDay;
       }
     };
     // Действие человека - принятая движком подача или замена рыночной либо
@@ -343,200 +343,201 @@ private:
     // снятая, действием не остаётся: считается только то, что осталось. Заявка
     // с OCO (защитная связка) в сравнении не участвует. Отклонённые движком
     // подачи действиями не считаются.
-    const auto onEntry = [&](const JournalEntry &entry,
-                             const CommandResult &result) {
-      if (!result.accepted)
+    const auto OnEntry = [&](const JournalEntry &Entry,
+                             const CommandResult &Result) {
+      if (!Result.Accepted)
         return;
-      const PlaceCmd *place = std::get_if<PlaceCmd>(&entry.command);
-      std::int64_t gone = -1;
-      if (const ReplaceCmd *replace = std::get_if<ReplaceCmd>(&entry.command)) {
-        place = &replace->replacement;
-        gone = replace->orderId;
-      } else if (const CancelCmd *cancel =
-                     std::get_if<CancelCmd>(&entry.command)) {
-        gone = cancel->orderId;
+      const PlaceCmd *Place = std::get_if<PlaceCmd>(&Entry.Command);
+      std::int64_t Gone = -1;
+      if (const ReplaceCmd *Replace = std::get_if<ReplaceCmd>(&Entry.Command)) {
+        Place = &Replace->Replacement;
+        Gone = Replace->OrderId;
+      } else if (const CancelCmd *Cancel =
+                     std::get_if<CancelCmd>(&Entry.Command)) {
+        Gone = Cancel->OrderId;
       }
-      if (gone >= 0) {
-        const auto old = humanOrderToAction_.find(gone);
-        if (old != humanOrderToAction_.end() &&
-            old->second.second == entry.step) {
-          Action &action = humanActions_.at(old->second);
-          action.lots -= humanOrderLots_.at(gone);
-          action.orderIds.erase(
-              std::find(action.orderIds.begin(), action.orderIds.end(), gone));
-          humanOrderLots_.erase(gone);
-          humanOrderToAction_.erase(old);
+      if (Gone >= 0) {
+        const auto Old = HumanOrderToAction.find(Gone);
+        if (Old != HumanOrderToAction.end() &&
+            Old->second.second == Entry.Step) {
+          Action &Action = HumanActions.at(Old->second);
+          Action.Lots -= HumanOrderLots.at(Gone);
+          Action.OrderIds.erase(
+              std::find(Action.OrderIds.begin(), Action.OrderIds.end(), Gone));
+          HumanOrderLots.erase(Gone);
+          HumanOrderToAction.erase(Old);
         }
       }
-      if (place == nullptr || result.orderIds.empty() || place->ocoWith ||
-          !isAction(place->order))
+      if (Place == nullptr || Result.OrderIds.empty() || Place->OcoWith ||
+          !isAction(Place->Order))
         return;
-      Action &action =
-          actionAt(humanActions_, place->order.instrument, entry.step);
-      action.lots += signedLots(place->order);
-      action.orderIds.push_back(result.orderIds.front());
-      humanOrderToAction_[result.orderIds.front()] =
-          ActionKey{place->order.instrument, entry.step};
-      humanOrderLots_[result.orderIds.front()] = signedLots(place->order);
+      Action &Action =
+          actionAt(HumanActions, Place->Order.Instrument, Entry.Step);
+      Action.Lots += signedLots(Place->Order);
+      Action.OrderIds.push_back(Result.OrderIds.front());
+      HumanOrderToAction[Result.OrderIds.front()] =
+          ActionKey{Place->Order.Instrument, Entry.Step};
+      HumanOrderLots[Result.OrderIds.front()] = signedLots(Place->Order);
     };
-    human_.emplace(
-        walkHuman(spec_, timeline_, journal_, lastStep_, onStep, onEntry));
-    lastSession_ = human_->currentStep();
-    finalize(humanActions_);
-    for (ActionMap &map : algoActions_)
-      finalize(map);
+    Human.emplace(
+        walkHuman(Spec, TimelineRef, Journal, LastStep, OnStep, OnEntry));
+    LastSession = Human->currentStep();
+    finalize(HumanActions);
+    for (ActionMap &Map : AlgoActions)
+      finalize(Map);
     // Заявки, вошедшие в действие с нулевым итогом, действием не считаются.
-    for (auto it = humanOrderToAction_.begin();
-         it != humanOrderToAction_.end();) {
-      it = humanActions_.count(it->second) == 0 ? humanOrderToAction_.erase(it)
-                                                : std::next(it);
+    for (auto It = HumanOrderToAction.begin();
+         It != HumanOrderToAction.end();) {
+      It = HumanActions.count(It->second) == 0 ? HumanOrderToAction.erase(It)
+                                               : std::next(It);
     }
   }
 
   // Горизонт e: следующий шаг после t, на котором человек или этот алгоритм
   // действует по бумаге; иначе последний шаг сессии.
-  std::int64_t horizonAfter(std::size_t algorithm, int instrument,
-                            std::int64_t t) const {
-    std::optional<std::int64_t> best;
-    const auto consider = [&](const ActionMap &map) {
-      const auto it = map.upper_bound(ActionKey{instrument, t});
-      if (it != map.end() && it->first.first == instrument &&
-          (!best || it->first.second < *best)) {
-        best = it->first.second;
+  std::int64_t horizonAfter(std::size_t Algorithm, int Instrument,
+                            std::int64_t T) const {
+    std::optional<std::int64_t> Best;
+    const auto Consider = [&](const ActionMap &Map) {
+      const auto It = Map.upper_bound(ActionKey{Instrument, T});
+      if (It != Map.end() && It->first.first == Instrument &&
+          (!Best || It->first.second < *Best)) {
+        Best = It->first.second;
       }
     };
-    consider(humanActions_);
-    consider(algoActions_[algorithm]);
-    return best ? *best : lastSession_;
+    Consider(HumanActions);
+    Consider(AlgoActions[Algorithm]);
+    return Best ? *Best : LastSession;
   }
 
   // Сопоставление действий человека и алгоритма (`decisions.md`,
   // «Сопоставление»), бумага за бумагой.
-  void match(std::size_t a) {
-    for (std::size_t i = 0; i < spec_.instruments.size(); ++i) {
-      const int instrument = static_cast<int>(i);
-      std::vector<const Action *> hs, as;
-      for (const auto &[key, action] : humanActions_) {
-        if (key.first == instrument)
-          hs.push_back(&action);
+  void match(std::size_t A) {
+    for (std::size_t I = 0; I < Spec.Instruments.size(); ++I) {
+      const int Instrument = static_cast<int>(I);
+      std::vector<const Action *> Hs, As;
+      for (const auto &[key, action] : HumanActions) {
+        if (key.first == Instrument)
+          Hs.push_back(&action);
       }
-      for (const auto &[key, action] : algoActions_[a]) {
-        if (key.first == instrument)
-          as.push_back(&action);
+      for (const auto &[key, action] : AlgoActions[A]) {
+        if (key.first == Instrument)
+          As.push_back(&action);
       }
-      std::vector<char> hMatched(hs.size(), 0), aMatched(as.size(), 0);
-      std::vector<std::size_t> hPending(hs.size(), kNone);
+      std::vector<char> HMatched(Hs.size(), 0), AMatched(As.size(), 0);
+      std::vector<std::size_t> HPending(Hs.size(), kNone);
 
       // 1. Один шаг и один знак - совпадение; «размер», если количества
       // расходятся больше чем на 20 %.
-      for (std::size_t h = 0; h < hs.size(); ++h) {
-        for (std::size_t k = 0; k < as.size(); ++k) {
-          if (aMatched[k] || as[k]->step != hs[h]->step ||
-              signOf(as[k]->lots) != signOf(hs[h]->lots))
+      for (std::size_t H = 0; H < Hs.size(); ++H) {
+        for (std::size_t K = 0; K < As.size(); ++K) {
+          if (AMatched[K] || As[K]->Step != Hs[H]->Step ||
+              signOf(As[K]->Lots) != signOf(Hs[H]->Lots))
             continue;
-          hMatched[h] = aMatched[k] = 1;
-          outcome_[{a, hs[h]->instrument, hs[h]->step}].matched = true;
-          if (sizeDiffers(hs[h]->lots, as[k]->lots)) {
-            hPending[h] =
-                makePending(a, DivergenceType::Size, hs[h], as[k], hs[h]->step);
+          HMatched[H] = AMatched[K] = 1;
+          Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].Matched = true;
+          if (sizeDiffers(Hs[H]->Lots, As[K]->Lots)) {
+            HPending[H] =
+                makePending(A, DivergenceType::Size, Hs[H], As[K], Hs[H]->Step);
           }
           break;
         }
       }
       // 2. «Момент»: ближайшее действие алгоритма того же знака, 1 <= |Δt| <=
       // W; при равенстве - более раннее.
-      for (std::size_t h = 0; h < hs.size(); ++h) {
-        if (hMatched[h])
+      for (std::size_t H = 0; H < Hs.size(); ++H) {
+        if (HMatched[H])
           continue;
-        std::size_t best = kNone;
-        std::int64_t bestDistance = 0;
-        for (std::size_t k = 0; k < as.size(); ++k) {
-          if (aMatched[k] || signOf(as[k]->lots) != signOf(hs[h]->lots))
+        std::size_t Best = kNone;
+        std::int64_t BestDistance = 0;
+        for (std::size_t K = 0; K < As.size(); ++K) {
+          if (AMatched[K] || signOf(As[K]->Lots) != signOf(Hs[H]->Lots))
             continue;
-          const std::int64_t distance = as[k]->step > hs[h]->step
-                                            ? as[k]->step - hs[h]->step
-                                            : hs[h]->step - as[k]->step;
-          if (distance < 1 || distance > kWindow)
+          const std::int64_t Distance = As[K]->Step > Hs[H]->Step
+                                            ? As[K]->Step - Hs[H]->Step
+                                            : Hs[H]->Step - As[K]->Step;
+          if (Distance < 1 || Distance > kWindow)
             continue;
-          if (best == kNone || distance < bestDistance) {
-            best = k;
-            bestDistance = distance;
+          if (Best == kNone || Distance < BestDistance) {
+            Best = K;
+            BestDistance = Distance;
           }
         }
-        if (best == kNone)
+        if (Best == kNone)
           continue;
-        hMatched[h] = aMatched[best] = 1;
-        outcome_[{a, hs[h]->instrument, hs[h]->step}].matched = true;
-        hPending[h] = makePending(a, DivergenceType::Timing, hs[h], as[best],
-                                  std::max(hs[h]->step, as[best]->step));
+        HMatched[H] = AMatched[Best] = 1;
+        Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].Matched = true;
+        HPending[H] = makePending(A, DivergenceType::Timing, Hs[H], As[Best],
+                                  std::max(Hs[H]->Step, As[Best]->Step));
       }
       // 3. Остальное: противоположные действия одного шага - одно «лишнее»;
       // прочие - «лишнее» и «упущенное».
-      for (std::size_t h = 0; h < hs.size(); ++h) {
-        if (hMatched[h])
+      for (std::size_t H = 0; H < Hs.size(); ++H) {
+        if (HMatched[H])
           continue;
-        const Action *opposite = nullptr;
-        for (std::size_t k = 0; k < as.size(); ++k) {
-          if (!aMatched[k] && as[k]->step == hs[h]->step) {
-            aMatched[k] = 1;
-            opposite = as[k];
+        const Action *Opposite = nullptr;
+        for (std::size_t K = 0; K < As.size(); ++K) {
+          if (!AMatched[K] && As[K]->Step == Hs[H]->Step) {
+            AMatched[K] = 1;
+            Opposite = As[K];
             break;
           }
         }
-        hPending[h] = makePending(a, DivergenceType::Excess, hs[h], opposite,
-                                  hs[h]->step);
+        HPending[H] = makePending(A, DivergenceType::Excess, Hs[H], Opposite,
+                                  Hs[H]->Step);
       }
-      for (std::size_t k = 0; k < as.size(); ++k) {
-        if (!aMatched[k])
-          makePending(a, DivergenceType::Missed, nullptr, as[k], as[k]->step);
+      for (std::size_t K = 0; K < As.size(); ++K) {
+        if (!AMatched[K])
+          makePending(A, DivergenceType::Missed, nullptr, As[K], As[K]->Step);
       }
-      for (std::size_t h = 0; h < hs.size(); ++h)
-        outcome_[{a, hs[h]->instrument, hs[h]->step}].pending = hPending[h];
+      for (std::size_t H = 0; H < Hs.size(); ++H)
+        Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].PendingIndex = HPending[H];
     }
   }
 
-  std::size_t makePending(std::size_t a, DivergenceType type,
-                          const Action *human, const Action *algo,
-                          std::int64_t at) {
-    Pending p;
-    p.algorithm = a;
-    p.human = human;
-    Divergence &d = p.divergence;
-    d.algorithmId = algorithms_[a].id;
-    d.instrument = human != nullptr ? human->instrument : algo->instrument;
-    d.type = type;
-    if (human != nullptr) {
-      d.humanStep = human->step;
-      d.humanLots = human->lots;
+  std::size_t makePending(std::size_t A, DivergenceType Type,
+                          const Action *HumanAct, const Action *Algo,
+                          std::int64_t At) {
+    Pending P;
+    P.Algorithm = A;
+    P.Human = HumanAct;
+    Divergence &D = P.Result;
+    D.AlgorithmId = Algorithms[A].Id;
+    D.Instrument =
+        HumanAct != nullptr ? HumanAct->Instrument : Algo->Instrument;
+    D.Type = Type;
+    if (HumanAct != nullptr) {
+      D.HumanStep = HumanAct->Step;
+      D.HumanLots = HumanAct->Lots;
     }
-    if (algo != nullptr) {
-      d.algoStep = algo->step;
-      d.algoLots = algo->lots;
-      p.algoSpecs = algo->specs;
-      p.snapStep =
-          algo->step; // копия движка человека на шаге действия алгоритма
+    if (Algo != nullptr) {
+      D.AlgoStep = Algo->Step;
+      D.AlgoLots = Algo->Lots;
+      P.AlgoSpecs = Algo->Specs;
+      P.SnapStep =
+          Algo->Step; // копия движка человека на шаге действия алгоритма
     }
     // Горизонт и процент - от шага расхождения: у «момента» это более поздний
     // из двух шагов.
-    d.horizonStep = horizonAfter(a, d.instrument, at);
-    p.percentStep = at;
-    d.reason = type == DivergenceType::Excess
-                   ? kExcessReason
-                   : (algo != nullptr ? algo->reason : "");
-    pending_.push_back(std::move(p));
-    return pending_.size() - 1;
+    D.HorizonStep = horizonAfter(A, D.Instrument, At);
+    P.PercentStep = At;
+    D.ReasonCode = Type == DivergenceType::Excess
+                       ? kExcessReason
+                       : (Algo != nullptr ? Algo->ReasonCode : "");
+    PendingList.push_back(std::move(P));
+    return PendingList.size() - 1;
   }
 
   // V человека: фактические исполнения его заявок действия на шагах до
   // горизонта.
   void priceHumanSide() {
-    for (Pending &p : pending_) {
-      if (p.human == nullptr)
+    for (Pending &P : PendingList) {
+      if (P.Human == nullptr)
         continue;
-      const std::set<std::int64_t> ids(p.human->orderIds.begin(),
-                                       p.human->orderIds.end());
-      p.humanValue = actionValue(human_->fills(), ids, p.divergence.horizonStep,
-                                 *timeline_, spec_);
+      const std::set<std::int64_t> Ids(P.Human->OrderIds.begin(),
+                                       P.Human->OrderIds.end());
+      P.HumanValue = actionValue(Human->fills(), Ids, P.Result.HorizonStep,
+                                 *TimelineRef, Spec);
     }
   }
 
@@ -544,199 +545,199 @@ private:
   // активные заявки человека сняты, заявки алгоритма применены, затем advance()
   // до горизонта (INV-3: тот же движок).
   void priceAlgorithmSide() {
-    std::map<std::int64_t, std::vector<std::size_t>> jobs;
-    for (std::size_t index = 0; index < pending_.size(); ++index) {
-      if (pending_[index].snapStep >= 0)
-        jobs[pending_[index].snapStep].push_back(index);
+    std::map<std::int64_t, std::vector<std::size_t>> Jobs;
+    for (std::size_t Index = 0; Index < PendingList.size(); ++Index) {
+      if (PendingList[Index].SnapStep >= 0)
+        Jobs[PendingList[Index].SnapStep].push_back(Index);
     }
-    if (!jobs.empty()) {
-      const std::int64_t seqBase =
-          (journal_.empty() ? 0 : journal_.back().seq) + 1;
-      const auto onStep = [&](std::int64_t k, const SessionEngine &engine) {
-        const auto found = jobs.find(k);
-        if (found == jobs.end())
+    if (!Jobs.empty()) {
+      const std::int64_t SeqBase =
+          (Journal.empty() ? 0 : Journal.back().Seq) + 1;
+      const auto OnStep = [&](std::int64_t K, const SessionEngine &Engine) {
+        const auto Found = Jobs.find(K);
+        if (Found == Jobs.end())
           return;
-        for (const std::size_t index : found->second)
-          pending_[index].algoValue =
-              algorithmValue(engine, pending_[index], seqBase);
+        for (const std::size_t Index : Found->second)
+          PendingList[Index].AlgoValue =
+              algorithmValue(Engine, PendingList[Index], SeqBase);
       };
-      walkHuman(spec_, timeline_, journal_, jobs.rbegin()->first, onStep,
+      walkHuman(Spec, TimelineRef, Journal, Jobs.rbegin()->first, OnStep,
                 [](const JournalEntry &, const CommandResult &) {});
     }
-    for (Pending &p : pending_) {
-      Divergence &d = p.divergence;
-      d.cost = (p.algoValue - p.humanValue).round(2, RoundingMode::HALF_UP);
-      const auto &equity = human_->equity();
-      const std::size_t at = static_cast<std::size_t>(p.percentStep);
-      const double total =
-          at < equity.size() ? equity[at].equity.toDouble() : 0;
-      d.costPercent = total > 0 ? d.cost.toDouble() / total * 100.0 : 0.0;
+    for (Pending &P : PendingList) {
+      Divergence &D = P.Result;
+      D.Cost = (P.AlgoValue - P.HumanValue).round(2, RoundingMode::HalfUp);
+      const auto &Equity = Human->equity();
+      const std::size_t At = static_cast<std::size_t>(P.PercentStep);
+      const double Total =
+          At < Equity.size() ? Equity[At].Equity.toDouble() : 0;
+      D.CostPercent = Total > 0 ? D.Cost.toDouble() / Total * 100.0 : 0.0;
     }
   }
 
-  Decimal algorithmValue(const SessionEngine &at, const Pending &p,
-                         std::int64_t seqBase) const {
-    SessionEngine copy = at;
-    std::int64_t seq = seqBase;
-    const std::int64_t step = copy.currentStep();
-    for (const Order &order : at.orders()) {
-      if (!isActive(order))
+  Decimal algorithmValue(const SessionEngine &At, const Pending &P,
+                         std::int64_t SeqBase) const {
+    SessionEngine Copy = At;
+    std::int64_t Seq = SeqBase;
+    const std::int64_t Step = Copy.currentStep();
+    for (const Order &Order : At.orders()) {
+      if (!isActive(Order))
         continue;
-      JournalEntry cancel;
-      cancel.seq = seq++;
-      cancel.step = step;
-      cancel.command = CancelCmd{order.id, Reason::CancelledByUser};
-      copy.apply(cancel);
+      JournalEntry Cancel;
+      Cancel.Seq = Seq++;
+      Cancel.Step = Step;
+      Cancel.Command = CancelCmd{Order.Id, Reason::CancelledByUser};
+      Copy.apply(Cancel);
     }
-    std::set<std::int64_t> ids;
-    for (const OrderSpec &spec : p.algoSpecs) {
-      JournalEntry entry;
-      entry.seq = seq++;
-      entry.step = step;
-      entry.command = PlaceCmd{spec, std::nullopt};
-      const CommandResult result = copy.apply(entry);
-      ids.insert(result.orderIds.begin(), result.orderIds.end());
+    std::set<std::int64_t> Ids;
+    for (const OrderSpec &Leg : P.AlgoSpecs) {
+      JournalEntry Entry;
+      Entry.Seq = Seq++;
+      Entry.Step = Step;
+      Entry.Command = PlaceCmd{Leg, std::nullopt};
+      const CommandResult Result = Copy.apply(Entry);
+      Ids.insert(Result.OrderIds.begin(), Result.OrderIds.end());
     }
-    while (copy.currentStep() < p.divergence.horizonStep &&
-           copy.status() == SessionStatus::Running)
-      copy.advance();
-    return actionValue(copy.fills(), ids, p.divergence.horizonStep, *timeline_,
-                       spec_);
+    while (Copy.currentStep() < P.Result.HorizonStep &&
+           Copy.status() == SessionStatus::Running)
+      Copy.advance();
+    return actionValue(Copy.fills(), Ids, P.Result.HorizonStep, *TimelineRef,
+                       Spec);
   }
 
-  void assembleDivergences(DivergenceResult &result) const {
-    for (std::size_t a = 0; a < algorithms_.size(); ++a) {
-      std::vector<const Divergence *> mine;
-      for (const Pending &p : pending_) {
-        if (p.algorithm == a)
-          mine.push_back(&p.divergence);
+  void assembleDivergences(DivergenceResult &Result) const {
+    for (std::size_t A = 0; A < Algorithms.size(); ++A) {
+      std::vector<const Divergence *> Mine;
+      for (const Pending &P : PendingList) {
+        if (P.Algorithm == A)
+          Mine.push_back(&P.Result);
       }
-      const auto primary = [](const Divergence &d) {
-        return d.humanStep >= 0 ? d.humanStep : d.algoStep;
+      const auto Primary = [](const Divergence &D) {
+        return D.HumanStep >= 0 ? D.HumanStep : D.AlgoStep;
       };
-      std::stable_sort(mine.begin(), mine.end(),
-                       [&](const Divergence *x, const Divergence *y) {
-                         return std::make_tuple(primary(*x), x->instrument,
-                                                static_cast<int>(x->type)) <
-                                std::make_tuple(primary(*y), y->instrument,
-                                                static_cast<int>(y->type));
+      std::stable_sort(Mine.begin(), Mine.end(),
+                       [&](const Divergence *X, const Divergence *Y) {
+                         return std::make_tuple(Primary(*X), X->Instrument,
+                                                static_cast<int>(X->Type)) <
+                                std::make_tuple(Primary(*Y), Y->Instrument,
+                                                static_cast<int>(Y->Type));
                        });
-      for (const Divergence *d : mine)
-        result.divergences.push_back(*d);
+      for (const Divergence *D : Mine)
+        Result.Divergences.push_back(*D);
     }
   }
 
   // ФТ-20: закрытая сделка человека с прибылью после издержек, вход которой -
   // «лишнее действие» алгоритма.
-  void assembleMissedTrades(DivergenceResult &result) const {
-    for (const RoundTrip &trip : human_->portfolio().roundTrips()) {
-      if (trip.netPnl.sign() <= 0)
+  void assembleMissedTrades(DivergenceResult &Result) const {
+    for (const RoundTrip &Trip : Human->portfolio().roundTrips()) {
+      if (Trip.NetPnl.sign() <= 0)
         continue;
-      const auto entry = humanOrderToAction_.find(trip.entryOrderId);
-      if (entry == humanOrderToAction_.end())
+      const auto Entry = HumanOrderToAction.find(Trip.EntryOrderId);
+      if (Entry == HumanOrderToAction.end())
         continue;
-      MissedProfitableTrade missed;
-      missed.instrument = trip.instrument;
-      missed.entryStep = trip.entryStep;
-      missed.exitStep = trip.exitStep;
-      missed.lots = trip.lots;
-      missed.netPnl = trip.netPnl;
-      const std::int64_t lotSize =
-          spec_.instruments.at(static_cast<std::size_t>(trip.instrument))
-              .lotSize;
-      const Decimal units = Decimal::fromUnits(trip.lots * lotSize);
-      missed.entryPrice = trip.entryValue.div(units, RoundingMode::HALF_UP);
-      missed.exitPrice = trip.exitValue.div(units, RoundingMode::HALF_UP);
-      for (std::size_t a = 0; a < algorithms_.size(); ++a) {
-        const auto found =
-            outcome_.find({a, entry->second.first, entry->second.second});
-        if (found != outcome_.end() && !found->second.matched)
-          missed.algorithmIds.push_back(algorithms_[a].id);
+      MissedProfitableTrade Missed;
+      Missed.Instrument = Trip.Instrument;
+      Missed.EntryStep = Trip.EntryStep;
+      Missed.ExitStep = Trip.ExitStep;
+      Missed.Lots = Trip.Lots;
+      Missed.NetPnl = Trip.NetPnl;
+      const std::int64_t LotSize =
+          Spec.Instruments.at(static_cast<std::size_t>(Trip.Instrument))
+              .LotSize;
+      const Decimal Units = Decimal::fromUnits(Trip.Lots * LotSize);
+      Missed.EntryPrice = Trip.EntryValue.div(Units, RoundingMode::HalfUp);
+      Missed.ExitPrice = Trip.ExitValue.div(Units, RoundingMode::HalfUp);
+      for (std::size_t A = 0; A < Algorithms.size(); ++A) {
+        const auto Found =
+            Outcome.find({A, Entry->second.first, Entry->second.second});
+        if (Found != Outcome.end() && !Found->second.Matched)
+          Missed.AlgorithmIds.push_back(Algorithms[A].Id);
       }
-      if (!missed.algorithmIds.empty())
-        result.missed.push_back(std::move(missed));
+      if (!Missed.AlgorithmIds.empty())
+        Result.Missed.push_back(std::move(Missed));
     }
   }
 
-  void assembleConsensus(DivergenceResult &result) const {
-    const std::int32_t total = static_cast<std::int32_t>(algorithms_.size());
-    if (total == 0)
+  void assembleConsensus(DivergenceResult &Result) const {
+    const std::int32_t Total = static_cast<std::int32_t>(Algorithms.size());
+    if (Total == 0)
       return;
-    std::vector<ConsensusItem> human;
-    for (const auto &[key, action] : humanActions_) {
-      std::int32_t agreeing = 0;
-      std::vector<Decimal> costs;
-      for (std::size_t a = 0; a < algorithms_.size(); ++a) {
-        const auto found = outcome_.find({a, key.first, key.second});
-        if (found == outcome_.end())
+    std::vector<ConsensusItem> HumanItems;
+    for (const auto &[key, action] : HumanActions) {
+      std::int32_t Agreeing = 0;
+      std::vector<Decimal> Costs;
+      for (std::size_t A = 0; A < Algorithms.size(); ++A) {
+        const auto Found = Outcome.find({A, key.first, key.second});
+        if (Found == Outcome.end())
           continue;
-        if (found->second.matched) {
-          ++agreeing;
-        } else if (found->second.pending != kNone) {
+        if (Found->second.Matched) {
+          ++Agreeing;
+        } else if (Found->second.PendingIndex != kNone) {
           // Медиана - по тем, кто «здесь не действовал бы» (смысл сообщения):
           // «размер» и «момент» в неё не входят.
-          costs.push_back(pending_[found->second.pending].divergence.cost);
+          Costs.push_back(PendingList[Found->second.PendingIndex].Result.Cost);
         }
       }
-      if (agreeing == total)
+      if (Agreeing == Total)
         continue;
-      human.push_back(ConsensusItem{key.first, key.second,
-                                    action.lots > 0 ? Side::Buy : Side::Sell,
-                                    true, agreeing, total, medianOf(costs)});
+      HumanItems.push_back(ConsensusItem{
+          key.first, key.second, action.Lots > 0 ? Side::Buy : Side::Sell, true,
+          Agreeing, Total, medianOf(Costs)});
     }
-    std::sort(human.begin(), human.end(),
-              [](const ConsensusItem &x, const ConsensusItem &y) {
-                return std::make_tuple(x.step, x.instrument) <
-                       std::make_tuple(y.step, y.instrument);
+    std::sort(HumanItems.begin(), HumanItems.end(),
+              [](const ConsensusItem &X, const ConsensusItem &Y) {
+                return std::make_tuple(X.Step, X.Instrument) <
+                       std::make_tuple(Y.Step, Y.Instrument);
               });
 
     // Упущенные действия: (бумага, шаг, сторона) -> цены ошибки алгоритмов,
     // которые действовали бы здесь.
-    std::map<std::tuple<std::int64_t, int, int>, std::vector<Decimal>> missed;
-    for (const Pending &p : pending_) {
-      const Divergence &d = p.divergence;
-      if (d.type != DivergenceType::Missed)
+    std::map<std::tuple<std::int64_t, int, int>, std::vector<Decimal>> Missed;
+    for (const Pending &P : PendingList) {
+      const Divergence &D = P.Result;
+      if (D.Type != DivergenceType::Missed)
         continue;
-      missed[{d.algoStep, d.instrument, d.algoLots > 0 ? 0 : 1}].push_back(
-          d.cost);
+      Missed[{D.AlgoStep, D.Instrument, D.AlgoLots > 0 ? 0 : 1}].push_back(
+          D.Cost);
     }
-    for (auto &item : human)
-      result.consensus.push_back(std::move(item));
-    for (const auto &[key, costs] : missed) {
+    for (auto &Item : HumanItems)
+      Result.Consensus.push_back(std::move(Item));
+    for (const auto &[key, costs] : Missed) {
       const auto &[step, instrument, sideIndex] = key;
-      result.consensus.push_back(ConsensusItem{
+      Result.Consensus.push_back(ConsensusItem{
           instrument, step, sideIndex == 0 ? Side::Buy : Side::Sell, false,
-          static_cast<std::int32_t>(costs.size()), total, medianOf(costs)});
+          static_cast<std::int32_t>(costs.size()), Total, medianOf(costs)});
     }
   }
 
-  const SessionSpec &spec_;
-  std::shared_ptr<const Timeline> timeline_;
-  std::span<const JournalEntry> journal_;
-  std::int64_t lastStep_;
-  const std::vector<AlgorithmInput> &algorithms_;
+  const SessionSpec &Spec;
+  std::shared_ptr<const Timeline> TimelineRef;
+  std::span<const JournalEntry> Journal;
+  std::int64_t LastStep;
+  const std::vector<AlgorithmInput> &Algorithms;
 
-  ActionMap humanActions_;
-  std::vector<ActionMap> algoActions_;
+  ActionMap HumanActions;
+  std::vector<ActionMap> AlgoActions;
   std::map<std::int64_t, ActionKey>
-      humanOrderToAction_; // id заявки человека -> его действие
+      HumanOrderToAction; // id заявки человека -> его действие
   std::map<std::int64_t, std::int64_t>
-      humanOrderLots_; // id заявки человека -> лоты со знаком
-  std::optional<SessionEngine> human_; // сессия человека на последнем шаге
-  std::int64_t lastSession_ = 0;
-  std::vector<Pending> pending_;
+      HumanOrderLots; // id заявки человека -> лоты со знаком
+  std::optional<SessionEngine> Human; // сессия человека на последнем шаге
+  std::int64_t LastSession = 0;
+  std::vector<Pending> PendingList;
   std::map<std::tuple<std::size_t, int, std::int64_t>, HumanOutcome>
-      outcome_; // (алгоритм, бумага, шаг человека)
+      Outcome; // (алгоритм, бумага, шаг человека)
 };
 
 } // namespace
 
 DivergenceResult
-analyzeDivergences(const SessionSpec &spec,
-                   std::shared_ptr<const Timeline> timeline,
-                   std::span<const JournalEntry> human, std::int64_t lastStep,
-                   const std::vector<AlgorithmInput> &algorithms) {
-  return Analyzer(spec, std::move(timeline), human, lastStep, algorithms).run();
+analyzeDivergences(const SessionSpec &Spec,
+                   std::shared_ptr<const Timeline> Timeline,
+                   std::span<const JournalEntry> Human, std::int64_t LastStep,
+                   const std::vector<AlgorithmInput> &Algorithms) {
+  return Analyzer(Spec, std::move(Timeline), Human, LastStep, Algorithms).run();
 }
 
 } // namespace core

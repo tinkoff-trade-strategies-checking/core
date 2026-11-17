@@ -21,135 +21,135 @@ constexpr const char *kRules = "rule \"b\" when close > close[1] and position "
                                "rule \"s\" when close < close[1] and position "
                                "> 0 then sell all because \"падение\"\n";
 
-Decimal netOf(const SessionSpec &spec,
-              const std::shared_ptr<const Timeline> &timeline,
-              const testing::LoadedProgram &loaded) {
-  return runBacktest(spec, timeline, loaded.program, loaded.params, {},
+Decimal netOf(const SessionSpec &Spec,
+              const std::shared_ptr<const Timeline> &Timeline,
+              const testing::LoadedProgram &Loaded) {
+  return runBacktest(Spec, Timeline, Loaded.Program, Loaded.Params, {},
                      dsl::Level::Ok, nullptr)
-             .finalEquity -
-         spec.initialCash;
+             .FinalEquity -
+         Spec.InitialCash;
 }
 
 TEST(CostBreakdown, SixStepsInOrder) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kRules);
-  const CostBreakdown breakdown = costBreakdown(
-      spec, timeline, loaded.program, loaded.params, {}, std::nullopt);
+  const auto Loaded = loadProgram(kRules);
+  const CostBreakdown Breakdown = costBreakdown(
+      spec, timeline, Loaded.Program, Loaded.Params, {}, std::nullopt);
 
-  const std::vector<CostFactor> order{
+  const std::vector<CostFactor> Order{
       CostFactor::Naive,  CostFactor::Delay,    CostFactor::Fees,
       CostFactor::Spread, CostFactor::Slippage, CostFactor::Liquidity};
-  ASSERT_EQ(breakdown.steps.size(), order.size());
-  for (std::size_t i = 0; i < order.size(); ++i)
-    EXPECT_EQ(breakdown.steps[i].factor, order[i]) << i;
+  ASSERT_EQ(Breakdown.Steps.size(), Order.size());
+  for (std::size_t I = 0; I < Order.size(); ++I)
+    EXPECT_EQ(Breakdown.Steps[I].Factor, Order[I]) << I;
 
   // Каждый шаг - отдельный прогон с накопленными факторами.
-  SessionSpec s = spec;
-  s.naive = true;
-  EXPECT_EQ(breakdown.steps[0].netResult, netOf(s, timeline, loaded));
-  s.naive = false;
-  s.costs = CostConfig::zero();
-  EXPECT_EQ(breakdown.steps[1].netResult, netOf(s, timeline, loaded));
-  s.costs.commissionRate = spec.costs.commissionRate;
-  s.costs.exchangeFeeRate = spec.costs.exchangeFeeRate;
-  EXPECT_EQ(breakdown.steps[2].netResult, netOf(s, timeline, loaded));
-  s.costs.spread = spec.costs.spread;
-  EXPECT_EQ(breakdown.steps[3].netResult, netOf(s, timeline, loaded));
-  s.costs.slippageKappa = spec.costs.slippageKappa;
-  EXPECT_EQ(breakdown.steps[4].netResult, netOf(s, timeline, loaded));
+  SessionSpec S = spec;
+  S.Naive = true;
+  EXPECT_EQ(Breakdown.Steps[0].NetResult, netOf(S, timeline, Loaded));
+  S.Naive = false;
+  S.Costs = CostConfig::zero();
+  EXPECT_EQ(Breakdown.Steps[1].NetResult, netOf(S, timeline, Loaded));
+  S.Costs.CommissionRate = spec.Costs.CommissionRate;
+  S.Costs.ExchangeFeeRate = spec.Costs.ExchangeFeeRate;
+  EXPECT_EQ(Breakdown.Steps[2].NetResult, netOf(S, timeline, Loaded));
+  S.Costs.Spread = spec.Costs.Spread;
+  EXPECT_EQ(Breakdown.Steps[3].NetResult, netOf(S, timeline, Loaded));
+  S.Costs.SlippageKappa = spec.Costs.SlippageKappa;
+  EXPECT_EQ(Breakdown.Steps[4].NetResult, netOf(S, timeline, Loaded));
 
   // Наивный и честный результаты различаются (стратегия торгует), доходность =
   // результат / капитал.
-  EXPECT_NE(breakdown.steps.front().netResult,
-            breakdown.steps.back().netResult);
-  for (const CostBreakdownStep &step : breakdown.steps)
-    EXPECT_DOUBLE_EQ(step.netReturn, step.netResult.toDouble() / 1'000'000.0);
+  EXPECT_NE(Breakdown.Steps.front().NetResult,
+            Breakdown.Steps.back().NetResult);
+  for (const CostBreakdownStep &Step : Breakdown.Steps)
+    EXPECT_DOUBLE_EQ(Step.NetReturn, Step.NetResult.toDouble() / 1'000'000.0);
 }
 
 TEST(CostBreakdown, LastEqualsHonestRun) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kRules);
-  const CostBreakdown breakdown = costBreakdown(
-      spec, timeline, loaded.program, loaded.params, {}, std::nullopt);
-  EXPECT_EQ(breakdown.steps.back().netResult, netOf(spec, timeline, loaded));
+  const auto Loaded = loadProgram(kRules);
+  const CostBreakdown Breakdown = costBreakdown(
+      spec, timeline, Loaded.Program, Loaded.Params, {}, std::nullopt);
+  EXPECT_EQ(Breakdown.Steps.back().NetResult, netOf(spec, timeline, Loaded));
 }
 
 // INV-3: последний этап идёт с теми же настройками, что и честный прогон, при
 // любых издержках honest.
 TEST(CostBreakdown, LastEqualsHonestRunForCustomCosts) {
   auto [spec, timeline] = testing::fixtureA();
-  spec.costs.commissionRate = dec("0.001");
-  spec.costs.exchangeFeeRate = dec("0.0003");
-  spec.costs.spread = dec("0.004");
-  spec.costs.slippageKappa = dec("0.5");
-  spec.costs.liquidityShare =
+  spec.Costs.CommissionRate = dec("0.001");
+  spec.Costs.ExchangeFeeRate = dec("0.0003");
+  spec.Costs.Spread = dec("0.004");
+  spec.Costs.SlippageKappa = dec("0.5");
+  spec.Costs.LiquidityShare =
       dec("0.0005"); // 1000000 * 0.0005 -> лимит режет заявки
-  const auto loaded = loadProgram(kRules);
-  const CostBreakdown breakdown = costBreakdown(
-      spec, timeline, loaded.program, loaded.params, {}, std::nullopt);
-  EXPECT_EQ(breakdown.steps.back().netResult, netOf(spec, timeline, loaded));
+  const auto Loaded = loadProgram(kRules);
+  const CostBreakdown Breakdown = costBreakdown(
+      spec, timeline, Loaded.Program, Loaded.Params, {}, std::nullopt);
+  EXPECT_EQ(Breakdown.Steps.back().NetResult, netOf(spec, timeline, Loaded));
 }
 
 TEST(CostBreakdown, NoLiquidityLimitInHonest) {
   auto [spec, timeline] = testing::fixtureA();
-  spec.costs.liquidityShare = std::nullopt;
-  const auto loaded = loadProgram(kRules);
-  const CostBreakdown breakdown = costBreakdown(
-      spec, timeline, loaded.program, loaded.params, {}, std::nullopt);
-  ASSERT_EQ(breakdown.steps.size(), 6u);
-  EXPECT_EQ(breakdown.steps.back().netResult, netOf(spec, timeline, loaded));
+  spec.Costs.LiquidityShare = std::nullopt;
+  const auto Loaded = loadProgram(kRules);
+  const CostBreakdown Breakdown = costBreakdown(
+      spec, timeline, Loaded.Program, Loaded.Params, {}, std::nullopt);
+  ASSERT_EQ(Breakdown.Steps.size(), 6u);
+  EXPECT_EQ(Breakdown.Steps.back().NetResult, netOf(spec, timeline, Loaded));
   // Лимита нет ни в честном, ни в предыдущем этапе - результаты совпадают.
-  EXPECT_EQ(breakdown.steps[5].netResult, breakdown.steps[4].netResult);
+  EXPECT_EQ(Breakdown.Steps[5].NetResult, Breakdown.Steps[4].NetResult);
 }
 
 TEST(CostBreakdown, FlagsMatchCostFlagsOnRealRuns) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kRules);
-  for (const std::optional<double> sharpe :
+  const auto Loaded = loadProgram(kRules);
+  for (const std::optional<double> Sharpe :
        {std::optional<double>{}, std::optional<double>{2.0},
         std::optional<double>{3.5}}) {
-    const CostBreakdown b = costBreakdown(spec, timeline, loaded.program,
-                                          loaded.params, {}, sharpe);
-    EXPECT_EQ(b.flags, costFlags(b.steps.front().netResult,
-                                 b.steps.back().netResult, sharpe));
-    const bool over3 = std::find(b.flags.begin(), b.flags.end(),
-                                 CostFlag::SharpeOver3) != b.flags.end();
-    EXPECT_EQ(over3, sharpe && *sharpe > 3.0);
+    const CostBreakdown B = costBreakdown(spec, timeline, Loaded.Program,
+                                          Loaded.Params, {}, Sharpe);
+    EXPECT_EQ(B.Flags, costFlags(B.Steps.front().NetResult,
+                                 B.Steps.back().NetResult, Sharpe));
+    const bool Over3 = std::find(B.Flags.begin(), B.Flags.end(),
+                                 CostFlag::SharpeOver3) != B.Flags.end();
+    EXPECT_EQ(Over3, Sharpe && *Sharpe > 3.0);
   }
 }
 
 TEST(CostBreakdown, DetailedReportsStageStatuses) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kRules);
-  const CostBreakdownDetail d = costBreakdownDetailed(
-      spec, timeline, loaded.program, loaded.params, {}, std::nullopt);
-  ASSERT_EQ(d.stages.size(), d.breakdown.steps.size());
-  for (const CostStageRun &stage : d.stages)
-    EXPECT_EQ(stage.status, RunStatus::Completed);
-  const CostBreakdown plain = costBreakdown(spec, timeline, loaded.program,
-                                            loaded.params, {}, std::nullopt);
-  EXPECT_EQ(plain.steps.back().netResult, d.breakdown.steps.back().netResult);
+  const auto Loaded = loadProgram(kRules);
+  const CostBreakdownDetail D = costBreakdownDetailed(
+      spec, timeline, Loaded.Program, Loaded.Params, {}, std::nullopt);
+  ASSERT_EQ(D.Stages.size(), D.Breakdown.Steps.size());
+  for (const CostStageRun &Stage : D.Stages)
+    EXPECT_EQ(Stage.Status, RunStatus::Completed);
+  const CostBreakdown Plain = costBreakdown(spec, timeline, Loaded.Program,
+                                            Loaded.Params, {}, std::nullopt);
+  EXPECT_EQ(Plain.Steps.back().NetResult, D.Breakdown.Steps.back().NetResult);
 }
 
 TEST(CostBreakdown, Deterministic) {
   const auto [spec, timeline] = testing::fixtureA();
-  const auto loaded = loadProgram(kRules);
-  const CostBreakdown a =
-      costBreakdown(spec, timeline, loaded.program, loaded.params, {}, 1.0);
-  const CostBreakdown b =
-      costBreakdown(spec, timeline, loaded.program, loaded.params, {}, 1.0);
-  ASSERT_EQ(a.steps.size(), b.steps.size());
-  for (std::size_t i = 0; i < a.steps.size(); ++i) {
-    EXPECT_EQ(a.steps[i].netResult, b.steps[i].netResult);
-    EXPECT_EQ(a.steps[i].netReturn, b.steps[i].netReturn);
+  const auto Loaded = loadProgram(kRules);
+  const CostBreakdown A =
+      costBreakdown(spec, timeline, Loaded.Program, Loaded.Params, {}, 1.0);
+  const CostBreakdown B =
+      costBreakdown(spec, timeline, Loaded.Program, Loaded.Params, {}, 1.0);
+  ASSERT_EQ(A.Steps.size(), B.Steps.size());
+  for (std::size_t I = 0; I < A.Steps.size(); ++I) {
+    EXPECT_EQ(A.Steps[I].NetResult, B.Steps[I].NetResult);
+    EXPECT_EQ(A.Steps[I].NetReturn, B.Steps[I].NetReturn);
   }
 }
 
 TEST(CostBreakdown, NaiveHonestSpecRejected) {
   auto [spec, timeline] = testing::fixtureA();
-  spec.naive = true;
-  const auto loaded = loadProgram(kRules);
-  EXPECT_THROW(costBreakdown(spec, timeline, loaded.program, loaded.params, {},
+  spec.Naive = true;
+  const auto Loaded = loadProgram(kRules);
+  EXPECT_THROW(costBreakdown(spec, timeline, Loaded.Program, Loaded.Params, {},
                              std::nullopt),
                std::invalid_argument);
 }

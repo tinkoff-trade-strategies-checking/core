@@ -24,32 +24,32 @@
 namespace core {
 
 struct PortfolioSnapshot {
-  Decimal cash, equity;
-  std::vector<std::int64_t> lots; // по бумагам
-  std::vector<Decimal> avgPrice; // средневзвешенная цена покупки, 0 без позиции
+  Decimal Cash, Equity;
+  std::vector<std::int64_t> Lots; // по бумагам
+  std::vector<Decimal> AvgPrice; // средневзвешенная цена покупки, 0 без позиции
   std::vector<Decimal>
-      marketValue; // стоимость позиции по close последнего бара, 0 без позиции
+      MarketValue; // стоимость позиции по close последнего бара, 0 без позиции
 };
 
 struct StepEvents {
-  std::int64_t step = 0;
-  std::vector<StepBar> bars; // бары шага
-  std::vector<Fill> fills;   // исполнения шага
-  std::vector<Order> changedOrders; // заявки, изменившиеся на шаге (подача,
+  std::int64_t Step = 0;
+  std::vector<StepBar> Bars; // бары шага
+  std::vector<Fill> Fills;   // исполнения шага
+  std::vector<Order> ChangedOrders; // заявки, изменившиеся на шаге (подача,
                                     // исполнение, снятие), по возрастанию id
-  PortfolioSnapshot portfolio; // портфель после всех событий шага
+  PortfolioSnapshot Portfolio; // портфель после всех событий шага
 };
 
 enum class SessionStatus { Running, FinishedEnd, Bankrupt };
 
 struct SessionSpec {
-  std::vector<Instrument> instruments;
-  CostConfig costs;
-  Decimal initialCash;
+  std::vector<Instrument> Instruments;
+  CostConfig Costs;
+  Decimal InitialCash;
   // ФТ-24: исполнение по close бара решения (единственное исключение из INV-2).
   // Движок сам берёт CostConfig::zero(): рыночные заявки идут через
   // processNaive, остальные (processStep) исполняются без издержек.
-  bool naive = false;
+  bool Naive = false;
 };
 
 // Нарушена целостность времени: исполнение не на текущем шаге, неизвестной
@@ -64,14 +64,14 @@ class SessionEngine {
 public:
   // initialCash <= 0, пустая шкала или несовпадение бумаг со шкалой -
   // std::invalid_argument.
-  SessionEngine(SessionSpec spec, std::shared_ptr<const Timeline> timeline);
+  SessionEngine(SessionSpec Spec, std::shared_ptr<const Timeline> Timeline);
 
   // Применяет запись на текущем шаге (действует с шага currentStep() + 1). Шаг
   // записи не равен currentStep() или seq не больше предыдущего -
   // std::invalid_argument. После остановки сессии принимаются записи и с более
   // поздним шагом: они отклоняются с SessionNotActive. Запись на шаге, уже
   // закрытом settleStep() (наивный режим), - std::logic_error.
-  CommandResult apply(const JournalEntry &entry);
+  CommandResult apply(const JournalEntry &Entry);
   // Наивный режим (ФТ-24): исполняет рыночные заявки шага по close бара решения
   // - после всех записей шага, поэтому проверка каждой записи видит портфель до
   // исполнений шага. Идемпотентна; advance() вызывает её сам, а чтение
@@ -82,58 +82,58 @@ public:
   // сессия - std::logic_error.
   void advance();
 
-  std::int64_t currentStep() const { return step_; }
-  SessionStatus status() const { return status_; }
-  const Portfolio &portfolio() const { return portfolio_; }
-  const std::vector<Order> &orders() const { return orders_; }
-  const std::vector<Fill> &fills() const { return fills_; }
+  std::int64_t currentStep() const { return Step; }
+  SessionStatus status() const { return Status; }
+  const Portfolio &portfolio() const { return PortfolioState; }
+  const std::vector<Order> &orders() const { return Orders; }
+  const std::vector<Fill> &fills() const { return Fills; }
   // По точке на каждый пройденный шаг, с 0: equity().size() == currentStep()
   // + 1.
-  const std::vector<EquityPoint> &equity() const { return equity_; }
+  const std::vector<EquityPoint> &equity() const { return Equity; }
   // [шаг][бумага]: стоимость позиции по close шага (для HHI и крупнейшей
   // позиции).
   const std::vector<std::vector<Decimal>> &positionValues() const {
-    return positionValues_;
+    return PositionValues;
   }
   StepEvents lastStepEvents() const;
   PortfolioSnapshot snapshot() const;
 
 private:
-  Validation validateLegs(const std::vector<const OrderSpec *> &legs) const;
-  void createOrders(const JournalEntry &entry, const PlaceCmd &cmd,
-                    const Validation &verdict, CommandResult &result);
-  Order *findOrder(std::int64_t id);
-  void closeOrder(Order &order, OrderStatus status, Reason reason);
-  void cancelActive(Reason reason);
-  void recordStepState(bool replaceLast);
-  void checkIntegrity(std::size_t fromFill, bool sameStepAllowed) const;
+  Validation validateLegs(const std::vector<const OrderSpec *> &Legs) const;
+  void createOrders(const JournalEntry &Entry, const PlaceCmd &Cmd,
+                    const Validation &Verdict, CommandResult &Result);
+  Order *findOrder(std::int64_t Id);
+  void closeOrder(Order &Order, OrderStatus Status, Reason Reason);
+  void cancelActive(Reason Reason);
+  void recordStepState(bool ReplaceLast);
+  void checkIntegrity(std::size_t FromFill, bool SameStepAllowed) const;
 
-  SessionSpec spec_;
-  std::shared_ptr<const Timeline> timeline_;
-  ExecutionEngine exec_;
-  Portfolio portfolio_;
-  std::vector<Order> orders_; // по возрастанию id
-  std::vector<Fill> fills_;
-  std::vector<EquityPoint> equity_;
-  std::vector<std::vector<Decimal>> positionValues_;
-  std::vector<std::int64_t> changed_; // id заявок, изменившихся на текущем шаге
-  std::size_t fillsBegin_ = 0; // начало исполнений текущего шага в fills_
-  std::int64_t step_ = 0;
-  std::int64_t lastSeq_ = -1;
-  bool naiveSettled_ = false; // settleStep() исполнил наивные заявки шага:
-                              // записи шага больше не принимаются
-  bool naiveDue_ = false; // после записей шага ещё не вызван processNaive
-  SessionStatus status_ = SessionStatus::Running;
+  SessionSpec Spec;
+  std::shared_ptr<const Timeline> TimelineRef;
+  ExecutionEngine Exec;
+  Portfolio PortfolioState;
+  std::vector<Order> Orders; // по возрастанию id
+  std::vector<Fill> Fills;
+  std::vector<EquityPoint> Equity;
+  std::vector<std::vector<Decimal>> PositionValues;
+  std::vector<std::int64_t> Changed; // id заявок, изменившихся на текущем шаге
+  std::size_t FillsBegin = 0; // начало исполнений текущего шага в fills_
+  std::int64_t Step = 0;
+  std::int64_t LastSeq = -1;
+  bool NaiveSettled = false; // settleStep() исполнил наивные заявки шага:
+                             // записи шага больше не принимаются
+  bool NaiveDue = false; // после записей шага ещё не вызван processNaive
+  SessionStatus Status = SessionStatus::Running;
 };
 
 struct ReplayResult {
-  SessionStatus status;
-  std::int64_t lastStep;
-  std::vector<StepEvents> events; // шаги eventsFromStep…lastStep
+  SessionStatus Status;
+  std::int64_t LastStep;
+  std::vector<StepEvents> Events; // шаги eventsFromStep…lastStep
   std::vector<CommandResult>
-      commandResults; // по записи журнала, в порядке журнала
+      CommandResults; // по записи журнала, в порядке журнала
   SessionEngine
-      engine; // состояние на lastStep: можно продолжить или скопировать
+      Engine; // состояние на lastStep: можно продолжить или скопировать
 };
 
 // Проигрывает журнал с шага 0 до upToStep (или до остановки сессии раньше).
@@ -142,9 +142,9 @@ struct ReplayResult {
 // сессии (конец периода, банкротство) не ошибка: они отклоняются с
 // SessionNotActive. Бары позже upToStep нигде в результате не появляются
 // (INV-1).
-ReplayResult replaySession(const SessionSpec &spec,
-                           std::shared_ptr<const Timeline> timeline,
-                           std::span<const JournalEntry> journal,
-                           std::int64_t upToStep, std::int64_t eventsFromStep);
+ReplayResult replaySession(const SessionSpec &Spec,
+                           std::shared_ptr<const Timeline> Timeline,
+                           std::span<const JournalEntry> Journal,
+                           std::int64_t UpToStep, std::int64_t EventsFromStep);
 
 } // namespace core

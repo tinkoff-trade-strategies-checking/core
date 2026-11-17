@@ -16,16 +16,16 @@ constexpr std::int32_t kMaxTradeAggregationSec =
 
 // UUID в каноническом виде 8-4-4-4-12; иное ClickHouse всё равно отвергнет, но
 // так ответ однозначно SnapshotNotFound, а не ошибка сервера.
-bool looksLikeUuid(const std::string &s) {
-  if (s.size() != 36)
+bool looksLikeUuid(const std::string &S) {
+  if (S.size() != 36)
     return false;
-  for (std::size_t i = 0; i < s.size(); ++i) {
-    const char c = s[i];
-    if (i == 8 || i == 13 || i == 18 || i == 23) {
-      if (c != '-')
+  for (std::size_t I = 0; I < S.size(); ++I) {
+    const char C = S[I];
+    if (I == 8 || I == 13 || I == 18 || I == 23) {
+      if (C != '-')
         return false;
-    } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                 (c >= 'A' && c <= 'F'))) {
+    } else if (!((C >= '0' && C <= '9') || (C >= 'a' && C <= 'f') ||
+                 (C >= 'A' && C <= 'F'))) {
       return false;
     }
   }
@@ -34,53 +34,53 @@ bool looksLikeUuid(const std::string &s) {
 
 // Значение параметра в «экранированном» текстовом формате ClickHouse (строка с
 // \t, \n, \\).
-std::string escapeParam(const std::string &text) {
-  std::string out;
-  for (const char c : text) {
-    switch (c) {
+std::string escapeParam(const std::string &Text) {
+  std::string Out;
+  for (const char C : Text) {
+    switch (C) {
     case '\\':
-      out += "\\\\";
+      Out += "\\\\";
       break;
     case '\t':
-      out += "\\t";
+      Out += "\\t";
       break;
     case '\n':
-      out += "\\n";
+      Out += "\\n";
       break;
     case '\r':
-      out += "\\r";
+      Out += "\\r";
       break;
     default:
-      out.push_back(c);
+      Out.push_back(C);
       break;
     }
   }
-  return out;
+  return Out;
 }
 
-std::int64_t parseInt64(const std::string &text, const char *what) {
-  std::int64_t value = 0;
+std::int64_t parseInt64(const std::string &Text, const char *What) {
+  std::int64_t Value = 0;
   const auto [ptr, ec] =
-      std::from_chars(text.data(), text.data() + text.size(), value);
-  if (ec != std::errc() || ptr != text.data() + text.size()) {
+      std::from_chars(Text.data(), Text.data() + Text.size(), Value);
+  if (ec != std::errc() || ptr != Text.data() + Text.size()) {
     throw core::MarketDataError(
-        std::string("ClickHouse: неверное число в поле ") + what + ": " + text);
+        std::string("ClickHouse: неверное число в поле ") + What + ": " + Text);
   }
-  return value;
+  return Value;
 }
 
-core::Decimal parseDecimal(const std::string &text, const char *what) {
+core::Decimal parseDecimal(const std::string &Text, const char *What) {
   try {
-    return core::Decimal::parse(text);
+    return core::Decimal::parse(Text);
   } catch (const std::exception &) {
     throw core::MarketDataError(
-        std::string("ClickHouse: неверное десятичное в поле ") + what + ": " +
-        text);
+        std::string("ClickHouse: неверное десятичное в поле ") + What + ": " +
+        Text);
   }
 }
 
-void requireColumns(const std::vector<std::string> &row, std::size_t n) {
-  if (row.size() != n)
+void requireColumns(const std::vector<std::string> &Row, std::size_t N) {
+  if (Row.size() != N)
     throw core::MarketDataError(
         "ClickHouse: неожиданное число столбцов в ответе");
 }
@@ -112,133 +112,133 @@ const char *const kTradesSql =
 } // namespace
 
 ClickHouseBarSource::ClickHouseBarSource(
-    std::unique_ptr<ClickHouseClient> client)
-    : client_(std::move(client)) {
-  if (!client_)
+    std::unique_ptr<ClickHouseClient> HttpClient)
+    : Client(std::move(HttpClient)) {
+  if (!Client)
     throw std::invalid_argument("ClickHouseBarSource: клиент не задан");
 }
 
-ClickHouseBarSource::ClickHouseBarSource(const ClickHouseConfig &config)
-    : ClickHouseBarSource(std::make_unique<CurlClickHouseClient>(config)) {}
+ClickHouseBarSource::ClickHouseBarSource(const ClickHouseConfig &Config)
+    : ClickHouseBarSource(std::make_unique<CurlClickHouseClient>(Config)) {}
 
-void ClickHouseBarSource::requireReadySnapshot(const std::string &snapshotId) {
-  if (!looksLikeUuid(snapshotId))
-    throw core::SnapshotNotFound("версия данных не найдена: " + snapshotId);
-  const auto rows = parseTabSeparated(
-      client_->query("SELECT count() FROM snapshots_ready WHERE snapshot_id = "
-                     "{snapshot_id:UUID} FORMAT TabSeparated",
-                     {{"snapshot_id", snapshotId}}));
-  if (rows.size() != 1 || rows[0].size() != 1)
+void ClickHouseBarSource::requireReadySnapshot(const std::string &SnapshotId) {
+  if (!looksLikeUuid(SnapshotId))
+    throw core::SnapshotNotFound("версия данных не найдена: " + SnapshotId);
+  const auto Rows = parseTabSeparated(
+      Client->query("SELECT count() FROM snapshots_ready WHERE snapshot_id = "
+                    "{snapshot_id:UUID} FORMAT TabSeparated",
+                    {{"snapshot_id", SnapshotId}}));
+  if (Rows.size() != 1 || Rows[0].size() != 1)
     throw core::MarketDataError(
         "ClickHouse: неожиданный ответ snapshots_ready");
-  if (parseInt64(rows[0][0], "count") == 0) {
+  if (parseInt64(Rows[0][0], "count") == 0) {
     throw core::SnapshotNotFound("версия данных не найдена или не готова: " +
-                                 snapshotId);
+                                 SnapshotId);
   }
 }
 
-core::Security ClickHouseBarSource::security(const std::string &snapshotId,
-                                             const std::string &secid) {
-  requireReadySnapshot(snapshotId);
+core::Security ClickHouseBarSource::security(const std::string &SnapshotId,
+                                             const std::string &Secid) {
+  requireReadySnapshot(SnapshotId);
   // Один secid на две записи (например, две площадки) - неоднозначно, выбирать
   // «первую» нельзя (INV-4).
-  if (requireSecurity(snapshotId, secid) > 1) {
+  if (requireSecurity(SnapshotId, Secid) > 1) {
     throw core::MarketDataError(
-        "в версии данных несколько записей инструмента: " + secid);
+        "в версии данных несколько записей инструмента: " + Secid);
   }
-  const auto rows = parseTabSeparated(client_->query(
+  const auto Rows = parseTabSeparated(Client->query(
       "SELECT secid, sector, lot_size, price_step FROM securities "
       "WHERE snapshot_id = {snapshot_id:UUID} AND secid = {secid:String} "
       "FORMAT TabSeparated",
-      {{"snapshot_id", snapshotId}, {"secid", escapeParam(secid)}}));
-  if (rows.empty())
-    throw core::SecurityNotFound("инструмент не найден: " + secid);
-  requireColumns(rows[0], 4);
-  core::Security sec;
-  sec.secid = rows[0][0];
-  sec.sector = rows[0][1];
-  sec.lotSize = parseInt64(rows[0][2], "lot_size");
-  sec.priceStep = parseDecimal(rows[0][3], "price_step");
-  return sec;
+      {{"snapshot_id", SnapshotId}, {"secid", escapeParam(Secid)}}));
+  if (Rows.empty())
+    throw core::SecurityNotFound("инструмент не найден: " + Secid);
+  requireColumns(Rows[0], 4);
+  core::Security Sec;
+  Sec.Secid = Rows[0][0];
+  Sec.Sector = Rows[0][1];
+  Sec.LotSize = parseInt64(Rows[0][2], "lot_size");
+  Sec.PriceStep = parseDecimal(Rows[0][3], "price_step");
+  return Sec;
 }
 
-std::int64_t ClickHouseBarSource::requireSecurity(const std::string &snapshotId,
-                                                  const std::string &secid) {
-  const auto rows = parseTabSeparated(client_->query(
+std::int64_t ClickHouseBarSource::requireSecurity(const std::string &SnapshotId,
+                                                  const std::string &Secid) {
+  const auto Rows = parseTabSeparated(Client->query(
       "SELECT count() FROM securities WHERE snapshot_id = {snapshot_id:UUID} "
       "AND secid = {secid:String} "
       "FORMAT TabSeparated",
-      {{"snapshot_id", snapshotId}, {"secid", escapeParam(secid)}}));
-  if (rows.size() != 1 || rows[0].size() != 1)
+      {{"snapshot_id", SnapshotId}, {"secid", escapeParam(Secid)}}));
+  if (Rows.size() != 1 || Rows[0].size() != 1)
     throw core::MarketDataError("ClickHouse: неожиданный ответ securities");
-  const std::int64_t count = parseInt64(rows[0][0], "count");
-  if (count == 0)
-    throw core::SecurityNotFound("инструмент не найден: " + secid);
-  return count;
+  const std::int64_t Count = parseInt64(Rows[0][0], "count");
+  if (Count == 0)
+    throw core::SecurityNotFound("инструмент не найден: " + Secid);
+  return Count;
 }
 
 std::vector<core::Bar>
-ClickHouseBarSource::load(const core::BarRequest &request) {
-  if (request.intervalSec < 1)
+ClickHouseBarSource::load(const core::BarRequest &Request) {
+  if (Request.IntervalSec < 1)
     throw std::invalid_argument("BarRequest: intervalSec должен быть >= 1");
-  requireReadySnapshot(request.snapshotId);
-  requireSecurity(request.snapshotId, request.secid);
-  if (request.fromMs >= request.toMs)
+  requireReadySnapshot(Request.SnapshotId);
+  requireSecurity(Request.SnapshotId, Request.Secid);
+  if (Request.FromMs >= Request.ToMs)
     return {};
 
-  const QueryParams base{{"snapshot_id", request.snapshotId},
-                         {"secid", escapeParam(request.secid)},
-                         {"interval_sec", std::to_string(request.intervalSec)}};
+  const QueryParams Base{{"snapshot_id", Request.SnapshotId},
+                         {"secid", escapeParam(Request.Secid)},
+                         {"interval_sec", std::to_string(Request.IntervalSec)}};
 
-  const auto stored = parseTabSeparated(client_->query(
+  const auto Stored = parseTabSeparated(Client->query(
       "SELECT count() FROM candles WHERE snapshot_id = {snapshot_id:UUID} AND "
       "secid = {secid:String} "
       "AND interval_sec = {interval_sec:UInt32} FORMAT TabSeparated",
-      base));
-  if (stored.size() != 1 || stored[0].size() != 1)
+      Base));
+  if (Stored.size() != 1 || Stored[0].size() != 1)
     throw core::MarketDataError("ClickHouse: неожиданный ответ candles");
-  const bool fromCandles = parseInt64(stored[0][0], "count") > 0;
+  const bool FromCandles = parseInt64(Stored[0][0], "count") > 0;
 
-  if (!fromCandles && request.intervalSec > kMaxTradeAggregationSec) {
+  if (!FromCandles && Request.IntervalSec > kMaxTradeAggregationSec) {
     throw IntervalUnavailable("интервал " +
-                              std::to_string(request.intervalSec) +
+                              std::to_string(Request.IntervalSec) +
                               " с не хранится как свечи и не агрегируется из "
                               "сделок (максимум 86400)");
   }
 
-  QueryParams params = base;
-  params.emplace_back("from_ms", std::to_string(request.fromMs));
-  params.emplace_back("to_ms", std::to_string(request.toMs));
-  const auto rows = parseTabSeparated(
-      client_->query(fromCandles ? kCandlesSql : kTradesSql, params));
+  QueryParams Params = Base;
+  Params.emplace_back("from_ms", std::to_string(Request.FromMs));
+  Params.emplace_back("to_ms", std::to_string(Request.ToMs));
+  const auto Rows = parseTabSeparated(
+      Client->query(FromCandles ? kCandlesSql : kTradesSql, Params));
 
-  std::vector<core::Bar> bars;
-  bars.reserve(rows.size());
-  for (const auto &row : rows) {
-    requireColumns(row, 8);
-    core::Bar bar;
-    bar.index = static_cast<std::int64_t>(bars.size());
-    bar.tsOpenMs = parseInt64(row[0], "ts_open");
-    bar.availableAtMs = parseInt64(row[1], "available_at");
-    bar.open = parseDecimal(row[2], "open");
-    bar.high = parseDecimal(row[3], "high");
-    bar.low = parseDecimal(row[4], "low");
-    bar.close = parseDecimal(row[5], "close");
-    bar.volume = parseInt64(row[6], "volume");
-    bar.value = parseDecimal(row[7], "value");
+  std::vector<core::Bar> Bars;
+  Bars.reserve(Rows.size());
+  for (const auto &Row : Rows) {
+    requireColumns(Row, 8);
+    core::Bar Bar;
+    Bar.Index = static_cast<std::int64_t>(Bars.size());
+    Bar.TsOpenMs = parseInt64(Row[0], "ts_open");
+    Bar.AvailableAtMs = parseInt64(Row[1], "available_at");
+    Bar.Open = parseDecimal(Row[2], "open");
+    Bar.High = parseDecimal(Row[3], "high");
+    Bar.Low = parseDecimal(Row[4], "low");
+    Bar.Close = parseDecimal(Row[5], "close");
+    Bar.Volume = parseInt64(Row[6], "volume");
+    Bar.Value = parseDecimal(Row[7], "value");
     // INV-1: бар, который к toMs ещё не стал известен, не отдаётся (сервер уже
     // отфильтровал; здесь защита).
-    if (bar.availableAtMs > request.toMs || bar.availableAtMs < bar.tsOpenMs) {
+    if (Bar.AvailableAtMs > Request.ToMs || Bar.AvailableAtMs < Bar.TsOpenMs) {
       throw core::MarketDataError("ClickHouse: бар с недопустимым available_at "
                                   "(позже toMs или раньше ts_open)");
     }
-    if (!bars.empty() && bar.tsOpenMs <= bars.back().tsOpenMs) {
+    if (!Bars.empty() && Bar.TsOpenMs <= Bars.back().TsOpenMs) {
       throw core::MarketDataError(
           "ClickHouse: бары не упорядочены по ts_open (дубликат в данных?)");
     }
-    bars.push_back(bar);
+    Bars.push_back(Bar);
   }
-  return bars;
+  return Bars;
 }
 
 } // namespace worker

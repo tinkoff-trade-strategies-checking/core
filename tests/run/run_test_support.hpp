@@ -20,41 +20,41 @@
 namespace core::testing {
 
 struct LoadedProgram {
-  dsl::Program program;
-  std::vector<dsl::ResolvedParam> params;
+  dsl::Program Program;
+  std::vector<dsl::ResolvedParam> Params;
 };
 
-inline LoadedProgram loadProgram(const std::string &source) {
-  dsl::ParseResult parsed = dsl::parse(source);
-  if (!parsed.program)
-    throw std::runtime_error("не разобралось: " + source);
-  dsl::CheckResult checked = dsl::check(*parsed.program);
-  if (checked.level == dsl::Level::Error)
-    throw std::runtime_error("не прошло проверку: " + source);
-  return LoadedProgram{std::move(*parsed.program), std::move(checked.params)};
+inline LoadedProgram loadProgram(const std::string &Source) {
+  dsl::ParseResult Parsed = dsl::parse(Source);
+  if (!Parsed.Ast)
+    throw std::runtime_error("не разобралось: " + Source);
+  dsl::CheckResult Checked = dsl::check(*Parsed.Ast);
+  if (Checked.Severity == dsl::Level::Error)
+    throw std::runtime_error("не прошло проверку: " + Source);
+  return LoadedProgram{std::move(*Parsed.Ast), std::move(Checked.Params)};
 }
 
-inline Decimal dec(const char *text) { return Decimal::parse(text); }
+inline Decimal dec(const char *Text) { return Decimal::parse(Text); }
 
-inline SessionSpec specFor(std::vector<Instrument> instruments,
-                           bool naive = false) {
-  SessionSpec spec;
-  spec.instruments = std::move(instruments);
-  spec.costs = CostConfig::defaults();
-  spec.initialCash = dec("1000000");
-  spec.naive = naive;
-  return spec;
+inline SessionSpec specFor(std::vector<Instrument> Instruments,
+                           bool Naive = false) {
+  SessionSpec Spec;
+  Spec.Instruments = std::move(Instruments);
+  Spec.Costs = CostConfig::defaults();
+  Spec.InitialCash = dec("1000000");
+  Spec.Naive = Naive;
+  return Spec;
 }
 
 // Бумага A из fixture1: close 100, 101, 103, 106, 104, 101, 99, 102, 105, 108;
 // лот 10, шаг 0.01.
 inline std::pair<SessionSpec, std::shared_ptr<const Timeline>> fixtureA() {
-  auto f = fixture1();
-  std::vector<Instrument> instruments{f.instruments[0]};
-  auto timeline = std::make_shared<const Timeline>(
-      Timeline::load(f.bars, f.calendar, f.snapshotId, instruments,
+  auto F = fixture1();
+  std::vector<Instrument> Instruments{F.Instruments[0]};
+  auto Line = std::make_shared<const Timeline>(
+      Timeline::load(F.Bars, F.Calendar, F.SnapshotId, Instruments,
                      Timeframe::D1, 20240109, 20240122));
-  return {specFor(instruments), timeline};
+  return {specFor(Instruments), Line};
 }
 
 inline Instrument syntheticInstrument() {
@@ -65,56 +65,56 @@ inline Instrument syntheticInstrument() {
 // - свой close), high/low - вокруг. openOverrides[i], если непусто, задаёт open
 // бара i (для гэпов).
 inline std::pair<SessionSpec, std::shared_ptr<const Timeline>>
-syntheticTimeline(const std::vector<std::string> &closes,
-                  const std::vector<std::string> &opens = {}) {
+syntheticTimeline(const std::vector<std::string> &Closes,
+                  const std::vector<std::string> &Opens = {}) {
   constexpr std::int64_t kDayMs = 86'400'000;
   constexpr std::int64_t kStart = 1'704'747'600'000; // 2024-01-09 00:00 МСК
-  std::vector<Bar> bars;
-  Decimal previous = dec(closes.front().c_str());
-  for (std::size_t i = 0; i < closes.size(); ++i) {
-    Bar b;
-    b.tsOpenMs = kStart + static_cast<std::int64_t>(i) * kDayMs;
-    b.availableAtMs = b.tsOpenMs + kDayMs;
-    b.close = dec(closes[i].c_str());
-    b.open = opens.empty() ? previous : dec(opens[i].c_str());
-    b.high = (b.open > b.close ? b.open : b.close) + dec("0.5");
-    b.low = (b.open < b.close ? b.open : b.close) - dec("0.5");
-    b.volume = 1'000'000;
-    b.value = b.close.times(b.volume);
-    bars.push_back(b);
-    previous = b.close;
+  std::vector<Bar> Bars;
+  Decimal Previous = dec(Closes.front().c_str());
+  for (std::size_t I = 0; I < Closes.size(); ++I) {
+    Bar B;
+    B.TsOpenMs = kStart + static_cast<std::int64_t>(I) * kDayMs;
+    B.AvailableAtMs = B.TsOpenMs + kDayMs;
+    B.Close = dec(Closes[I].c_str());
+    B.Open = Opens.empty() ? Previous : dec(Opens[I].c_str());
+    B.High = (B.Open > B.Close ? B.Open : B.Close) + dec("0.5");
+    B.Low = (B.Open < B.Close ? B.Open : B.Close) - dec("0.5");
+    B.Volume = 1'000'000;
+    B.Value = B.Close.times(B.Volume);
+    Bars.push_back(B);
+    Previous = B.Close;
   }
-  const Instrument instrument = syntheticInstrument();
-  auto timeline = std::make_shared<const Timeline>(
-      Timeline::build({instrument}, {bars}, {}));
-  return {specFor({instrument}), timeline};
+  const Instrument Instr = syntheticInstrument();
+  auto Line =
+      std::make_shared<const Timeline>(Timeline::build({Instr}, {Bars}, {}));
+  return {specFor({Instr}), Line};
 }
 
 // Детерминированное случайное блуждание (LCG, без часов и random_device).
-inline std::vector<std::string> randomWalk(std::size_t n,
-                                           std::uint64_t seed = 12345) {
-  std::vector<std::string> closes;
-  std::int64_t price = 10000; // копейки
-  std::uint64_t state = seed;
-  for (std::size_t i = 0; i < n; ++i) {
-    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
-    const std::int64_t move = static_cast<std::int64_t>((state >> 33) % 201) -
+inline std::vector<std::string> randomWalk(std::size_t N,
+                                           std::uint64_t Seed = 12345) {
+  std::vector<std::string> Closes;
+  std::int64_t Price = 10000; // копейки
+  std::uint64_t State = Seed;
+  for (std::size_t I = 0; I < N; ++I) {
+    State = State * 6364136223846793005ULL + 1442695040888963407ULL;
+    const std::int64_t Move = static_cast<std::int64_t>((State >> 33) % 201) -
                               100; // -1.00 .. +1.00 ₽
-    price = std::max<std::int64_t>(price + move, 1000);
-    closes.push_back(std::to_string(price / 100) + "." +
-                     (price % 100 < 10 ? "0" : "") +
-                     std::to_string(price % 100));
+    Price = std::max<std::int64_t>(Price + Move, 1000);
+    Closes.push_back(std::to_string(Price / 100) + "." +
+                     (Price % 100 < 10 ? "0" : "") +
+                     std::to_string(Price % 100));
   }
-  return closes;
+  return Closes;
 }
 
-inline bool sameFill(const Fill &a, const Fill &b) {
-  return a.orderId == b.orderId && a.step == b.step &&
-         a.instrument == b.instrument && a.side == b.side && a.lots == b.lots &&
-         a.price == b.price && a.basePrice == b.basePrice &&
-         a.value == b.value && a.commission == b.commission && a.fee == b.fee &&
-         a.spreadCost == b.spreadCost && a.slippageCost == b.slippageCost &&
-         a.stopAndTakeSameBar == b.stopAndTakeSameBar;
+inline bool sameFill(const Fill &A, const Fill &B) {
+  return A.OrderId == B.OrderId && A.Step == B.Step &&
+         A.Instrument == B.Instrument && A.OrderSide == B.OrderSide &&
+         A.Lots == B.Lots && A.Price == B.Price && A.BasePrice == B.BasePrice &&
+         A.Value == B.Value && A.Commission == B.Commission && A.Fee == B.Fee &&
+         A.SpreadCost == B.SpreadCost && A.SlippageCost == B.SlippageCost &&
+         A.StopAndTakeSameBar == B.StopAndTakeSameBar;
 }
 
 } // namespace core::testing

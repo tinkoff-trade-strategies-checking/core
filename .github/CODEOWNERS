@@ -2,3 +2,7 @@
 /tests/                @WorstNormal
 /testdata/             @WorstNormal
 /.github/workflows/    @WorstNormal
+/.clang-format        @WorstNormal
+/.clang-tidy          @WorstNormal
+/CMakeLists.txt       @WorstNormal
+/scripts/             @WorstNormal

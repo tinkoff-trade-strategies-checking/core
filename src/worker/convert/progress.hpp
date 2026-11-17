@@ -17,13 +17,13 @@ namespace worker {
 struct StreamClosed {};
 
 // Одно сообщение прогресса без прореживания. Закрытый поток - StreamClosed.
-template <class Update>
-void writeProgress(grpc::ServerWriterInterface<Update> *writer,
-                   std::int64_t done, std::int64_t total) {
-  Update update;
-  update.mutable_progress()->set_done_steps(done);
-  update.mutable_progress()->set_total_steps(total);
-  if (!writer->Write(update))
+template <class UpdateT>
+void writeProgress(grpc::ServerWriterInterface<UpdateT> *Writer,
+                   std::int64_t Done, std::int64_t Total) {
+  UpdateT Update;
+  Update.mutable_progress()->set_done_steps(Done);
+  Update.mutable_progress()->set_total_steps(Total);
+  if (!Writer->Write(Update))
     throw StreamClosed{};
 }
 
@@ -31,18 +31,18 @@ void writeProgress(grpc::ServerWriterInterface<Update> *writer,
 // до сотен тысяч. totalFactor > 1 растягивает шкалу: ядро считает свою часть
 // работы, остальное (цепочка издержек) дописывает вызывающий.
 template <class Update>
-core::Progress progressWriter(grpc::ServerWriterInterface<Update> *writer,
-                              std::int64_t totalFactor = 1) {
+core::Progress progressWriter(grpc::ServerWriterInterface<Update> *Writer,
+                              std::int64_t TotalFactor = 1) {
   constexpr std::int64_t kProgressSlices = 1000;
-  auto lastSlice = std::make_shared<std::int64_t>(-1);
+  auto LastSlice = std::make_shared<std::int64_t>(-1);
   return
-      [writer, lastSlice, totalFactor](std::int64_t done, std::int64_t total) {
-        const std::int64_t slice =
-            total > 0 ? done * kProgressSlices / total : kProgressSlices;
-        if (slice == *lastSlice)
+      [Writer, LastSlice, TotalFactor](std::int64_t Done, std::int64_t Total) {
+        const std::int64_t Slice =
+            Total > 0 ? Done * kProgressSlices / Total : kProgressSlices;
+        if (Slice == *LastSlice)
           return;
-        *lastSlice = slice;
-        writeProgress(writer, done, total * totalFactor);
+        *LastSlice = Slice;
+        writeProgress(Writer, Done, Total * TotalFactor);
       };
 }
 

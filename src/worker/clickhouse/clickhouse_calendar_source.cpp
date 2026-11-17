@@ -10,138 +10,138 @@ namespace {
 
 // UUID в каноническом виде 8-4-4-4-12: иное сервер отвергнет ошибкой, а нужен
 // SnapshotNotFound.
-bool looksLikeUuid(const std::string &s) {
-  if (s.size() != 36)
+bool looksLikeUuid(const std::string &S) {
+  if (S.size() != 36)
     return false;
-  for (std::size_t i = 0; i < s.size(); ++i) {
-    const char c = s[i];
-    if (i == 8 || i == 13 || i == 18 || i == 23) {
-      if (c != '-')
+  for (std::size_t I = 0; I < S.size(); ++I) {
+    const char C = S[I];
+    if (I == 8 || I == 13 || I == 18 || I == 23) {
+      if (C != '-')
         return false;
-    } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                 (c >= 'A' && c <= 'F'))) {
+    } else if (!((C >= '0' && C <= '9') || (C >= 'a' && C <= 'f') ||
+                 (C >= 'A' && C <= 'F'))) {
       return false;
     }
   }
   return true;
 }
 
-bool isLeap(int y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
+bool isLeap(int Y) { return (Y % 4 == 0 && Y % 100 != 0) || Y % 400 == 0; }
 
-bool isValidYmd(std::int32_t ymd) {
-  const int y = ymd / 10000;
-  const int m = ymd / 100 % 100;
-  const int d = ymd % 100;
-  if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1)
+bool isValidYmd(std::int32_t Ymd) {
+  const int Y = Ymd / 10000;
+  const int M = Ymd / 100 % 100;
+  const int D = Ymd % 100;
+  if (Y < 1 || Y > 9999 || M < 1 || M > 12 || D < 1)
     return false;
   static constexpr int kDays[12] = {31, 28, 31, 30, 31, 30,
                                     31, 31, 30, 31, 30, 31};
-  return d <= kDays[m - 1] + (m == 2 && isLeap(y) ? 1 : 0);
+  return D <= kDays[M - 1] + (M == 2 && isLeap(Y) ? 1 : 0);
 }
 
-std::string formatDate(std::int32_t ymd) {
-  if (!isValidYmd(ymd))
+std::string formatDate(std::int32_t Ymd) {
+  if (!isValidYmd(Ymd))
     throw std::invalid_argument("неверная дата календаря: " +
-                                std::to_string(ymd));
-  const std::string digits = std::to_string(
-      ymd); // ровно 8 цифр: год >= 1000 не гарантирован, добиваем нулями
-  const std::string padded = std::string(8 - digits.size(), '0') + digits;
-  return padded.substr(0, 4) + "-" + padded.substr(4, 2) + "-" +
-         padded.substr(6, 2);
+                                std::to_string(Ymd));
+  const std::string Digits = std::to_string(
+      Ymd); // ровно 8 цифр: год >= 1000 не гарантирован, добиваем нулями
+  const std::string Padded = std::string(8 - Digits.size(), '0') + Digits;
+  return Padded.substr(0, 4) + "-" + Padded.substr(4, 2) + "-" +
+         Padded.substr(6, 2);
 }
 
 // 'YYYY-MM-DD' -> yyyymmdd; иное - ошибка данных.
-std::int32_t parseDate(const std::string &text) {
-  const auto bad = [&text] {
+std::int32_t parseDate(const std::string &Text) {
+  const auto Bad = [&Text] {
     return core::MarketDataError("ClickHouse: неверная дата календаря: " +
-                                 text);
+                                 Text);
   };
-  if (text.size() != 10 || text[4] != '-' || text[7] != '-')
-    throw bad();
-  std::int32_t digits[3] = {0, 0, 0};
-  const std::size_t starts[3] = {0, 5, 8};
-  const std::size_t lens[3] = {4, 2, 2};
-  for (int i = 0; i < 3; ++i) {
-    const char *first = text.data() + starts[i];
-    const auto [ptr, ec] = std::from_chars(first, first + lens[i], digits[i]);
-    if (ec != std::errc() || ptr != first + lens[i])
-      throw bad();
+  if (Text.size() != 10 || Text[4] != '-' || Text[7] != '-')
+    throw Bad();
+  std::int32_t Digits[3] = {0, 0, 0};
+  const std::size_t Starts[3] = {0, 5, 8};
+  const std::size_t Lens[3] = {4, 2, 2};
+  for (int I = 0; I < 3; ++I) {
+    const char *First = Text.data() + Starts[I];
+    const auto [ptr, ec] = std::from_chars(First, First + Lens[I], Digits[I]);
+    if (ec != std::errc() || ptr != First + Lens[I])
+      throw Bad();
   }
-  const std::int32_t ymd = digits[0] * 10000 + digits[1] * 100 + digits[2];
-  if (!isValidYmd(ymd))
-    throw bad();
-  return ymd;
+  const std::int32_t Ymd = Digits[0] * 10000 + Digits[1] * 100 + Digits[2];
+  if (!isValidYmd(Ymd))
+    throw Bad();
+  return Ymd;
 }
 
 } // namespace
 
 ClickHouseCalendarSource::ClickHouseCalendarSource(
-    std::unique_ptr<ClickHouseClient> client)
-    : client_(std::move(client)) {
-  if (!client_)
+    std::unique_ptr<ClickHouseClient> HttpClient)
+    : Client(std::move(HttpClient)) {
+  if (!Client)
     throw std::invalid_argument("ClickHouseCalendarSource: клиент не задан");
 }
 
 ClickHouseCalendarSource::ClickHouseCalendarSource(
-    const ClickHouseConfig &config)
-    : ClickHouseCalendarSource(std::make_unique<CurlClickHouseClient>(config)) {
+    const ClickHouseConfig &Config)
+    : ClickHouseCalendarSource(std::make_unique<CurlClickHouseClient>(Config)) {
 }
 
 std::vector<core::TradingDay> ClickHouseCalendarSource::tradingDays(
-    const std::string &snapshotId, std::int32_t fromYmd, std::int32_t toYmd) {
-  const std::string from = formatDate(fromYmd);
-  const std::string to = formatDate(toYmd);
-  if (!looksLikeUuid(snapshotId))
-    throw core::SnapshotNotFound("версия данных не найдена: " + snapshotId);
+    const std::string &SnapshotId, std::int32_t FromYmd, std::int32_t ToYmd) {
+  const std::string From = formatDate(FromYmd);
+  const std::string To = formatDate(ToYmd);
+  if (!looksLikeUuid(SnapshotId))
+    throw core::SnapshotNotFound("версия данных не найдена: " + SnapshotId);
 
-  const auto ready = parseTabSeparated(
-      client_->query("SELECT count() FROM snapshots_ready WHERE snapshot_id = "
-                     "{sid:UUID} FORMAT TabSeparated",
-                     {{"sid", snapshotId}}));
-  if (ready.size() != 1 || ready[0].size() != 1) {
+  const auto Ready = parseTabSeparated(
+      Client->query("SELECT count() FROM snapshots_ready WHERE snapshot_id = "
+                    "{sid:UUID} FORMAT TabSeparated",
+                    {{"sid", SnapshotId}}));
+  if (Ready.size() != 1 || Ready[0].size() != 1) {
     throw core::MarketDataError(
         "ClickHouse: неожиданный ответ snapshots_ready");
   }
-  if (ready[0][0] == "0")
+  if (Ready[0][0] == "0")
     throw core::SnapshotNotFound("версия данных не найдена или не готова: " +
-                                 snapshotId);
-  if (ready[0][0] != "1")
+                                 SnapshotId);
+  if (Ready[0][0] != "1")
     throw core::MarketDataError(
         "ClickHouse: неожиданный ответ snapshots_ready");
 
-  if (fromYmd > toYmd)
+  if (FromYmd > ToYmd)
     return {};
 
-  const auto rows = parseTabSeparated(client_->query(
+  const auto Rows = parseTabSeparated(Client->query(
       "SELECT toString(date), is_trading FROM trading_calendar "
       "WHERE snapshot_id = {sid:UUID} AND date BETWEEN {f:Date} AND {t:Date} "
       "ORDER BY date ASC FORMAT TabSeparated",
-      {{"sid", snapshotId}, {"f", from}, {"t", to}}));
+      {{"sid", SnapshotId}, {"f", From}, {"t", To}}));
 
-  std::vector<core::TradingDay> days;
-  days.reserve(rows.size());
-  for (const auto &row : rows) {
-    if (row.size() != 2)
+  std::vector<core::TradingDay> Days;
+  Days.reserve(Rows.size());
+  for (const auto &Row : Rows) {
+    if (Row.size() != 2)
       throw core::MarketDataError(
           "ClickHouse: неожиданное число столбцов календаря");
-    core::TradingDay day;
-    day.yyyymmdd = parseDate(row[0]);
-    if (row[1] != "0" && row[1] != "1") {
+    core::TradingDay Day;
+    Day.Yyyymmdd = parseDate(Row[0]);
+    if (Row[1] != "0" && Row[1] != "1") {
       throw core::MarketDataError(
-          "ClickHouse: неверный is_trading в календаре: " + row[1]);
+          "ClickHouse: неверный is_trading в календаре: " + Row[1]);
     }
-    day.isTrading = row[1] == "1";
-    if (day.yyyymmdd < fromYmd || day.yyyymmdd > toYmd) {
+    Day.IsTrading = Row[1] == "1";
+    if (Day.Yyyymmdd < FromYmd || Day.Yyyymmdd > ToYmd) {
       throw core::MarketDataError(
           "ClickHouse: дата календаря вне запрошенного диапазона");
     }
-    if (!days.empty() && day.yyyymmdd <= days.back().yyyymmdd) {
+    if (!Days.empty() && Day.Yyyymmdd <= Days.back().Yyyymmdd) {
       throw core::MarketDataError(
           "ClickHouse: даты календаря не упорядочены (дубликат в данных?)");
     }
-    days.push_back(day);
+    Days.push_back(Day);
   }
-  return days;
+  return Days;
 }
 
 } // namespace worker

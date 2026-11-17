@@ -15,337 +15,337 @@ namespace core {
 
 namespace {
 
-bool live(const Order &o) {
-  return o.status == OrderStatus::Active ||
-         o.status == OrderStatus::PartiallyFilled;
+bool live(const Order &O) {
+  return O.Status == OrderStatus::Active ||
+         O.Status == OrderStatus::PartiallyFilled;
 }
 
-bool isStopType(const Order &o) {
-  return o.spec.type == OrderType::Stop ||
-         o.spec.type == OrderType::TrailingStop ||
-         (o.spec.type == OrderType::StopLimit && !o.triggered);
+bool isStopType(const Order &O) {
+  return O.Spec.Type == OrderType::Stop ||
+         O.Spec.Type == OrderType::TrailingStop ||
+         (O.Spec.Type == OrderType::StopLimit && !O.Triggered);
 }
 
 // Лимитная группа: лимит, тейк-профит и стоп-лимит, сработавший раньше.
-bool isLimitType(const Order &o) {
-  return o.spec.type == OrderType::Limit ||
-         o.spec.type == OrderType::TakeProfit ||
-         (o.spec.type == OrderType::StopLimit && o.triggered);
+bool isLimitType(const Order &O) {
+  return O.Spec.Type == OrderType::Limit ||
+         O.Spec.Type == OrderType::TakeProfit ||
+         (O.Spec.Type == OrderType::StopLimit && O.Triggered);
 }
 
-Order *findOrder(std::vector<Order> &orders, std::int64_t id) {
-  for (Order &o : orders) {
-    if (o.id == id)
-      return &o;
+Order *findOrder(std::vector<Order> &Orders, std::int64_t Id) {
+  for (Order &O : Orders) {
+    if (O.Id == Id)
+      return &O;
   }
   return nullptr;
 }
 
 struct Context {
-  std::int64_t step;
-  const std::vector<Instrument> &instruments;
-  const CostConfig &costs;
-  const Timeline &timeline;
-  LiquidityBudget &budget;
-  std::vector<Order> &orders;
-  Portfolio &portfolio;
-  std::vector<Fill> &fills;
-  std::vector<std::int64_t> &changed;
-  std::size_t changedFrom; // с этой позиции changed - записи текущего шага: id
+  std::int64_t Step;
+  const std::vector<Instrument> &Instruments;
+  const CostConfig &Costs;
+  const Timeline &Line;
+  LiquidityBudget &Budget;
+  std::vector<Order> &Orders;
+  Portfolio &Folio;
+  std::vector<Fill> &Fills;
+  std::vector<std::int64_t> &Changed;
+  std::size_t ChangedFrom; // с этой позиции changed - записи текущего шага: id
                            // в них не дублируются
-  std::vector<std::size_t> byId; // индексы orders по возрастанию id
+  std::vector<std::size_t> ById; // индексы orders по возрастанию id
   std::vector<char>
-      triggeredNow; // стоп-лимит сработал на этом шаге (индекс как в orders)
+      TriggeredNow; // стоп-лимит сработал на этом шаге (индекс как в orders)
 
-  void markChanged(std::int64_t id) {
-    if (std::find(changed.begin() + static_cast<std::ptrdiff_t>(changedFrom),
-                  changed.end(), id) == changed.end()) {
-      changed.push_back(id);
+  void markChanged(std::int64_t Id) {
+    if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
+                  Changed.end(), Id) == Changed.end()) {
+      Changed.push_back(Id);
     }
   }
 
-  const Instrument &instrumentOf(const Order &o) const {
-    return instruments[static_cast<std::size_t>(o.spec.instrument)];
+  const Instrument &instrumentOf(const Order &O) const {
+    return Instruments[static_cast<std::size_t>(O.Spec.Instrument)];
   }
 };
 
-void closeOrder(Context &c, Order &o, OrderStatus status, Reason reason) {
-  o.status = status;
-  o.reason = reason;
-  o.closedStep = c.step;
-  c.markChanged(o.id);
+void closeOrder(Context &C, Order &O, OrderStatus Status, Reason Reason) {
+  O.Status = Status;
+  O.ReasonCode = Reason;
+  O.ClosedStep = C.Step;
+  C.markChanged(O.Id);
 }
 
 // Исполнение любого объёма одной ноги OCO снимает вторую.
-void cancelSibling(Context &c, const Order &o) {
-  if (o.ocoSiblingId < 0)
+void cancelSibling(Context &C, const Order &O) {
+  if (O.OcoSiblingId < 0)
     return;
-  Order *sibling = findOrder(c.orders, o.ocoSiblingId);
-  if (sibling != nullptr && live(*sibling))
-    closeOrder(c, *sibling, OrderStatus::Cancelled, Reason::OcoSiblingFilled);
+  Order *Sibling = findOrder(C.Orders, O.OcoSiblingId);
+  if (Sibling != nullptr && live(*Sibling))
+    closeOrder(C, *Sibling, OrderStatus::Cancelled, Reason::OcoSiblingFilled);
 }
 
 // Лимитная заявка на продажу той же бумаги, которую этот бар тоже задел бы (для
 // пометки ФТ-9).
-bool sellLimitWouldFill(const Context &c, const Order &stop,
-                        const StepBar &bar) {
-  for (std::size_t i = 0; i < c.orders.size(); ++i) {
-    const Order &o = c.orders[i];
-    if (&o == &stop || !live(o) || o.placedStep >= c.step ||
-        o.spec.instrument != stop.spec.instrument)
+bool sellLimitWouldFill(const Context &C, const Order &Stop,
+                        const StepBar &Bar) {
+  for (std::size_t I = 0; I < C.Orders.size(); ++I) {
+    const Order &O = C.Orders[I];
+    if (&O == &Stop || !live(O) || O.PlacedStep >= C.Step ||
+        O.Spec.Instrument != Stop.Spec.Instrument)
       continue;
-    if (o.spec.side != Side::Sell || !isLimitType(o) || c.triggeredNow[i] ||
-        !o.spec.limitPrice)
+    if (O.Spec.OrderSide != Side::Sell || !isLimitType(O) ||
+        C.TriggeredNow[I] || !O.Spec.LimitPrice)
       continue;
-    const Decimal &level = *o.spec.limitPrice;
-    if (bar.open >= level || bar.high > level)
+    const Decimal &Level = *O.Spec.LimitPrice;
+    if (Bar.Open >= Level || Bar.High > Level)
       return true;
   }
   return false;
 }
 
 struct Executed {
-  std::int64_t lots;
-  Reason reason; // None - вся заявка исполнена; иначе ограничение, уменьшившее
-                 // количество
+  std::int64_t Lots;
+  Reason ReasonCode; // None - вся заявка исполнена; иначе ограничение,
+                     // уменьшившее количество
 };
 
 // Исполняет остаток заявки по цене priceOf(q): лоты ограничены бюджетом
 // ликвидности, позицией и деньгами. Дописывает сделку, списывает бюджет и
 // снимает вторую ногу OCO; статус заявки не меняет.
 template <class PriceFn>
-Executed execute(Context &c, Order &o, const StepBar &bar, const Decimal &base,
-                 PriceFn &&priceOf, Fill **fillOut) {
-  const Instrument &inst = c.instrumentOf(o);
-  const int instrument = o.spec.instrument;
-  auto quote = [&](std::int64_t q) {
-    const Decimal price = priceOf(q);
-    return Quote{price, amounts(price, q, inst.lotSize, c.costs)};
+Executed execute(Context &C, Order &O, const StepBar &Bar, const Decimal &Base,
+                 PriceFn &&PriceOf, Fill **FillOut) {
+  const Instrument &Inst = C.instrumentOf(O);
+  const int Instrument = O.Spec.Instrument;
+  auto QuoteAt = [&](std::int64_t Q) {
+    const Decimal Price = PriceOf(Q);
+    return Quote{Price, amounts(Price, Q, Inst.LotSize, C.Costs)};
   };
-  const std::optional<std::int64_t> cap =
-      c.budget.remaining(instrument, bar, c.costs);
-  const std::pair<std::int64_t, Reason> chosen =
-      chooseQuantity(o.spec.side, o.spec.lots - o.filledLots, cap,
-                     c.portfolio.lots(instrument), c.portfolio.cash(), quote);
-  const std::int64_t q = chosen.first;
-  if (q > 0) {
-    const Quote x = quote(q);
-    Fill &f =
-        recordFill(c.portfolio, c.fills, o, c.step, q, x, base, inst, c.costs);
-    if (fillOut != nullptr)
-      *fillOut = &f;
-    o.filledLots += q;
-    c.budget.consume(instrument, q);
-    c.markChanged(o.id);
-    cancelSibling(c, o);
+  const std::optional<std::int64_t> Cap =
+      C.Budget.remaining(Instrument, Bar, C.Costs);
+  const std::pair<std::int64_t, Reason> Chosen =
+      chooseQuantity(O.Spec.OrderSide, O.Spec.Lots - O.FilledLots, Cap,
+                     C.Folio.lots(Instrument), C.Folio.cash(), QuoteAt);
+  const std::int64_t Q = Chosen.first;
+  if (Q > 0) {
+    const Quote X = QuoteAt(Q);
+    Fill &F =
+        recordFill(C.Folio, C.Fills, O, C.Step, Q, X, Base, Inst, C.Costs);
+    if (FillOut != nullptr)
+      *FillOut = &F;
+    O.FilledLots += Q;
+    C.Budget.consume(Instrument, Q);
+    C.markChanged(O.Id);
+    cancelSibling(C, O);
   }
-  return Executed{q, chosen.second};
+  return Executed{Q, Chosen.second};
 }
 
 // Уровень трейлинга для пика: peak·(1 − d/100), вниз до шага цены (один
 // направленный режим).
-Decimal trailingLevel(const Decimal &peak, const Decimal &percent,
-                      const Decimal &priceStep) {
-  const Decimal hundred = Decimal::fromUnits(100);
-  return peak
-      .mulDiv(hundred - percent, hundred, Decimal::kScale, RoundingMode::FLOOR)
-      .roundToStep(priceStep, RoundingMode::FLOOR);
+Decimal trailingLevel(const Decimal &Peak, const Decimal &Percent,
+                      const Decimal &PriceStep) {
+  const Decimal Hundred = Decimal::fromUnits(100);
+  return Peak
+      .mulDiv(Hundred - Percent, Hundred, Decimal::kScale, RoundingMode::FLOOR)
+      .roundToStep(PriceStep, RoundingMode::FLOOR);
 }
 
 // Пик при подаче - close бара подачи (последнего бара бумаги не позже шага
 // подачи). false - бара нет.
-bool ensureTrailing(const Context &c, Order &o) {
-  if (o.trailingPeak && o.trailingStopLevel)
+bool ensureTrailing(const Context &C, Order &O) {
+  if (O.TrailingPeak && O.TrailingStopLevel)
     return true;
-  const StepBar *placed = c.timeline.lastBarOf(o.spec.instrument, o.placedStep);
-  if (placed == nullptr || !o.spec.trailingPercent)
+  const StepBar *Placed = C.Line.lastBarOf(O.Spec.Instrument, O.PlacedStep);
+  if (Placed == nullptr || !O.Spec.TrailingPercent)
     return false;
-  o.trailingPeak = placed->close;
-  o.trailingStopLevel = trailingLevel(*o.trailingPeak, *o.spec.trailingPercent,
-                                      c.instrumentOf(o).priceStep);
+  O.TrailingPeak = Placed->Close;
+  O.TrailingStopLevel = trailingLevel(*O.TrailingPeak, *O.Spec.TrailingPercent,
+                                      C.instrumentOf(O).PriceStep);
   return true;
 }
 
-void runStops(Context &c) {
-  for (const std::size_t idx : c.byId) {
-    Order &o = c.orders[idx];
-    if (!live(o) || o.placedStep >= c.step || !isStopType(o))
+void runStops(Context &C) {
+  for (const std::size_t Idx : C.ById) {
+    Order &O = C.Orders[Idx];
+    if (!live(O) || O.PlacedStep >= C.Step || !isStopType(O))
       continue;
-    const StepBar *bar = c.timeline.barOf(o.spec.instrument, c.step);
-    if (bar == nullptr)
+    const StepBar *Bar = C.Line.barOf(O.Spec.Instrument, C.Step);
+    if (Bar == nullptr)
       continue; // ждёт собственного бара бумаги
 
-    const bool buy = o.spec.side == Side::Buy;
-    const bool trailing = o.spec.type == OrderType::TrailingStop;
-    if (trailing) {
-      if (!ensureTrailing(c, o))
+    const bool Buy = O.Spec.OrderSide == Side::Buy;
+    const bool Trailing = O.Spec.Type == OrderType::TrailingStop;
+    if (Trailing) {
+      if (!ensureTrailing(C, O))
         continue;
-    } else if (!o.spec.stopPrice) {
+    } else if (!O.Spec.StopPrice) {
       continue;
     }
-    const Decimal level = trailing ? *o.trailingStopLevel : *o.spec.stopPrice;
+    const Decimal Level = Trailing ? *O.TrailingStopLevel : *O.Spec.StopPrice;
 
-    const bool triggered = buy ? (bar->open >= level || bar->high >= level)
-                               : (bar->open <= level || bar->low <= level);
-    if (!triggered) {
-      if (trailing) {
+    const bool Triggered = Buy ? (Bar->Open >= Level || Bar->High >= Level)
+                               : (Bar->Open <= Level || Bar->Low <= Level);
+    if (!Triggered) {
+      if (Trailing) {
         // Уровень для следующего бара считается по пику с учётом этого бара.
-        if (bar->high > *o.trailingPeak) {
-          o.trailingPeak = bar->high;
-          c.markChanged(o.id);
+        if (Bar->High > *O.TrailingPeak) {
+          O.TrailingPeak = Bar->High;
+          C.markChanged(O.Id);
         }
-        o.trailingStopLevel =
-            trailingLevel(*o.trailingPeak, *o.spec.trailingPercent,
-                          c.instrumentOf(o).priceStep);
+        O.TrailingStopLevel =
+            trailingLevel(*O.TrailingPeak, *O.Spec.TrailingPercent,
+                          C.instrumentOf(O).PriceStep);
       }
       continue;
     }
-    if (o.spec.type == OrderType::StopLimit) {
+    if (O.Spec.Type == OrderType::StopLimit) {
       // Не исполняется на баре срабатывания: с шага b + 1 действует как
       // лимитная.
-      o.triggered = true;
-      c.triggeredNow[idx] = 1;
-      c.markChanged(o.id);
+      O.Triggered = true;
+      C.TriggeredNow[Idx] = 1;
+      C.markChanged(O.Id);
       continue;
     }
 
     // Стоп исполняется на этом же баре как рыночная заявка от base = max(O, S)
     // (покупка) или min(O, S) (продажа).
-    const Decimal base =
-        buy ? std::max(bar->open, level) : std::min(bar->open, level);
-    const bool flag =
-        !buy && sellLimitWouldFill(c, o, *bar); // до снятия второй ноги OCO
-    const Instrument &inst = c.instrumentOf(o);
-    Fill *fill = nullptr;
-    const Executed e = execute(
-        c, o, *bar, base,
-        [&](std::int64_t q) {
-          return fillPrice(o.spec.side, base, q, bar->volumeLots, c.costs,
-                           inst.priceStep);
+    const Decimal Base =
+        Buy ? std::max(Bar->Open, Level) : std::min(Bar->Open, Level);
+    const bool Flag =
+        !Buy && sellLimitWouldFill(C, O, *Bar); // до снятия второй ноги OCO
+    const Instrument &Inst = C.instrumentOf(O);
+    Fill *Fill = nullptr;
+    const Executed E = execute(
+        C, O, *Bar, Base,
+        [&](std::int64_t Q) {
+          return fillPrice(O.Spec.OrderSide, Base, Q, Bar->VolumeLots, C.Costs,
+                           Inst.PriceStep);
         },
-        &fill);
-    if (fill != nullptr && flag)
-      fill->stopAndTakeSameBar = true;
+        &Fill);
+    if (Fill != nullptr && Flag)
+      Fill->StopAndTakeSameBar = true;
     // Остаток стопа не переносится: исполнен целиком или снят с причиной
     // (ликвидность, позиция, деньги).
-    if (e.reason == Reason::None) {
-      closeOrder(c, o, OrderStatus::Filled, Reason::None);
+    if (E.ReasonCode == Reason::None) {
+      closeOrder(C, O, OrderStatus::Filled, Reason::None);
     } else {
-      closeOrder(c, o, OrderStatus::Cancelled, e.reason);
+      closeOrder(C, O, OrderStatus::Cancelled, E.ReasonCode);
     }
   }
 }
 
-void runLimits(Context &c) {
-  for (const std::size_t idx : c.byId) {
-    Order &o = c.orders[idx];
-    if (!live(o) || o.placedStep >= c.step || !isLimitType(o) ||
-        c.triggeredNow[idx] || !o.spec.limitPrice)
+void runLimits(Context &C) {
+  for (const std::size_t Idx : C.ById) {
+    Order &O = C.Orders[Idx];
+    if (!live(O) || O.PlacedStep >= C.Step || !isLimitType(O) ||
+        C.TriggeredNow[Idx] || !O.Spec.LimitPrice)
       continue;
-    const StepBar *bar = c.timeline.barOf(o.spec.instrument, c.step);
-    if (bar == nullptr)
+    const StepBar *Bar = C.Line.barOf(O.Spec.Instrument, C.Step);
+    if (Bar == nullptr)
       continue;
 
-    const Decimal &limit = *o.spec.limitPrice;
-    const bool buy = o.spec.side == Side::Buy;
+    const Decimal &Limit = *O.Spec.LimitPrice;
+    const bool Buy = O.Spec.OrderSide == Side::Buy;
     // Открытие лучше или равно лимиту - исполнение от open; иначе бар должен
     // пройти уровень (касание не исполняет).
-    const bool atOpen = buy ? bar->open <= limit : bar->open >= limit;
-    const bool crossed = atOpen || (buy ? bar->low < limit : bar->high > limit);
-    if (!crossed)
+    const bool AtOpen = Buy ? Bar->Open <= Limit : Bar->Open >= Limit;
+    const bool Crossed = AtOpen || (Buy ? Bar->Low < Limit : Bar->High > Limit);
+    if (!Crossed)
       continue;
 
-    const Instrument &inst = c.instrumentOf(o);
-    const Decimal base = atOpen ? bar->open : limit;
-    Fill *fill = nullptr;
-    const Executed e = execute(
-        c, o, *bar, base,
-        [&](std::int64_t q) {
-          if (!atOpen)
-            return limit;
-          const Decimal p = fillPrice(o.spec.side, bar->open, q,
-                                      bar->volumeLots, c.costs, inst.priceStep);
-          return buy ? std::min(limit, p) : std::max(limit, p);
+    const Instrument &Inst = C.instrumentOf(O);
+    const Decimal Base = AtOpen ? Bar->Open : Limit;
+    Fill *Fill = nullptr;
+    const Executed E = execute(
+        C, O, *Bar, Base,
+        [&](std::int64_t Q) {
+          if (!AtOpen)
+            return Limit;
+          const Decimal P = fillPrice(O.Spec.OrderSide, Bar->Open, Q,
+                                      Bar->VolumeLots, C.Costs, Inst.PriceStep);
+          return Buy ? std::min(Limit, P) : std::max(Limit, P);
         },
-        &fill);
+        &Fill);
     // Исполнение по уровню лимита идёт без спреда и проскальзывания: в отчёте о
     // сделке их стоимость нулевая.
-    if (fill != nullptr && !atOpen) {
-      fill->spreadCost = fill->slippageCost = Decimal::zero();
-    } else if (fill != nullptr && fill->slippageCost.sign() < 0) {
+    if (Fill != nullptr && !AtOpen) {
+      Fill->SpreadCost = Fill->SlippageCost = Decimal::zero();
+    } else if (Fill != nullptr && Fill->SlippageCost.sign() < 0) {
       // Цена от open упёрлась в лимит: вся разница с базовой ценой - спред,
       // отрицательного проскальзывания нет.
-      fill->spreadCost += fill->slippageCost;
-      fill->slippageCost = Decimal::zero();
+      Fill->SpreadCost += Fill->SlippageCost;
+      Fill->SlippageCost = Decimal::zero();
     }
 
-    if (o.filledLots >= o.spec.lots) {
-      closeOrder(c, o, OrderStatus::Filled, Reason::None);
-    } else if (e.reason == Reason::LiquidityLimit) {
+    if (O.FilledLots >= O.Spec.Lots) {
+      closeOrder(C, O, OrderStatus::Filled, Reason::None);
+    } else if (E.ReasonCode == Reason::LiquidityLimit) {
       // Остаток остаётся активным до конца срока (`decisions.md`, «Заявки»).
-      if (e.lots > 0)
-        o.status = OrderStatus::PartiallyFilled;
+      if (E.Lots > 0)
+        O.Status = OrderStatus::PartiallyFilled;
     } else {
-      closeOrder(c, o, OrderStatus::Cancelled,
-                 e.reason); // не хватило денег или позиции
+      closeOrder(C, O, OrderStatus::Cancelled,
+                 E.ReasonCode); // не хватило денег или позиции
     }
   }
 }
 
 // Срок «день»: заявка действует весь торговый день шага s + 1 и снимается после
 // его последнего шага.
-void expireDayOrders(Context &c) {
-  if (!c.timeline.isLastStepOfDay(c.step))
+void expireDayOrders(Context &C) {
+  if (!C.Line.isLastStepOfDay(C.Step))
     return;
-  const std::int32_t today = c.timeline.tradingDayOf(c.step);
-  for (const std::size_t idx : c.byId) {
-    Order &o = c.orders[idx];
-    if (!live(o) || o.spec.tif != TimeInForce::Day ||
-        o.placedStep + 1 >= c.timeline.totalSteps())
+  const std::int32_t Today = C.Line.tradingDayOf(C.Step);
+  for (const std::size_t Idx : C.ById) {
+    Order &O = C.Orders[Idx];
+    if (!live(O) || O.Spec.Tif != TimeInForce::Day ||
+        O.PlacedStep + 1 >= C.Line.totalSteps())
       continue;
-    if (c.timeline.tradingDayOf(o.placedStep + 1) <= today)
-      closeOrder(c, o, OrderStatus::Expired, Reason::DayExpired);
+    if (C.Line.tradingDayOf(O.PlacedStep + 1) <= Today)
+      closeOrder(C, O, OrderStatus::Expired, Reason::DayExpired);
   }
 }
 
 } // namespace
 
 void ExecutionEngine::processConditional(
-    std::int64_t step, const Timeline &timeline, LiquidityBudget &budget,
-    std::vector<Order> &orders, Portfolio &portfolio, std::vector<Fill> &fills,
-    std::vector<std::int64_t> &changed) const {
-  Context c{step,      instruments_, costs_,  timeline,       budget, orders,
-            portfolio, fills,        changed, changed.size(), {},     {}};
-  c.byId.resize(orders.size());
-  std::iota(c.byId.begin(), c.byId.end(), std::size_t{0});
-  std::stable_sort(c.byId.begin(), c.byId.end(),
-                   [&](std::size_t a, std::size_t b) {
-                     return orders[a].id < orders[b].id;
+    std::int64_t Step, const Timeline &Timeline, LiquidityBudget &Budget,
+    std::vector<Order> &Orders, Portfolio &Portfolio, std::vector<Fill> &Fills,
+    std::vector<std::int64_t> &Changed) const {
+  Context C{Step,      Instruments, Costs,   Timeline,       Budget, Orders,
+            Portfolio, Fills,       Changed, Changed.size(), {},     {}};
+  C.ById.resize(Orders.size());
+  std::iota(C.ById.begin(), C.ById.end(), std::size_t{0});
+  std::stable_sort(C.ById.begin(), C.ById.end(),
+                   [&](std::size_t A, std::size_t B) {
+                     return Orders[A].Id < Orders[B].Id;
                    });
-  c.triggeredNow.assign(orders.size(), 0);
+  C.TriggeredNow.assign(Orders.size(), 0);
 
-  runStops(c);
-  runLimits(c);
-  expireDayOrders(c);
+  runStops(C);
+  runLimits(C);
+  expireDayOrders(C);
 }
 
-bool cancelOrder(std::vector<Order> &orders, std::int64_t orderId,
-                 Reason reason, std::int64_t step,
-                 std::vector<std::int64_t> &changed) {
-  Order *o = findOrder(orders, orderId);
-  if (o == nullptr || !live(*o))
+bool cancelOrder(std::vector<Order> &Orders, std::int64_t OrderId,
+                 Reason Reason, std::int64_t Step,
+                 std::vector<std::int64_t> &Changed) {
+  Order *O = findOrder(Orders, OrderId);
+  if (O == nullptr || !live(*O))
     return false;
-  auto close = [&](Order &x) {
-    x.status = OrderStatus::Cancelled;
-    x.reason = reason;
-    x.closedStep = step;
-    changed.push_back(x.id);
+  auto Close = [&](Order &X) {
+    X.Status = OrderStatus::Cancelled;
+    X.ReasonCode = Reason;
+    X.ClosedStep = Step;
+    Changed.push_back(X.Id);
   };
-  close(*o);
-  if (o->ocoSiblingId >= 0) {
-    Order *sibling = findOrder(orders, o->ocoSiblingId);
-    if (sibling != nullptr && live(*sibling))
-      close(*sibling);
+  Close(*O);
+  if (O->OcoSiblingId >= 0) {
+    Order *Sibling = findOrder(Orders, O->OcoSiblingId);
+    if (Sibling != nullptr && live(*Sibling))
+      Close(*Sibling);
   }
   return true;
 }

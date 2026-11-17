@@ -17,12 +17,12 @@ namespace worker {
 // заявки, digest, last_step, total_steps = число шагов шкалы. cost_breakdown
 // задаётся только при наличии цепочки издержек (ФТ-24): шаги - в том порядке, в
 // котором их отдало ядро.
-void toProto(const core::RunOutput &output, const core::Report &report,
-             const std::optional<core::CostBreakdown> &costBreakdown,
-             const core::Timeline &timeline, pb::RunResult *out);
+void toProto(const core::RunOutput &Output, const core::Report &Report,
+             const std::optional<core::CostBreakdown> &CostBreakdown,
+             const core::Timeline &Timeline, pb::RunResult *Out);
 
-pb::RunStatus toProto(core::RunStatus status);
-pb::CostFactor toProto(core::CostFactor factor);
-pb::CostFlag toProto(core::CostFlag flag);
+pb::RunStatus toProto(core::RunStatus Status);
+pb::CostFactor toProto(core::CostFactor Factor);
+pb::CostFlag toProto(core::CostFlag Flag);
 
 } // namespace worker

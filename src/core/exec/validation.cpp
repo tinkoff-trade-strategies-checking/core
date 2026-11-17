@@ -6,84 +6,84 @@ namespace core {
 
 namespace {
 
-Validation invalid(const char *field) {
-  return Validation{false, Reason::InvalidParams, field};
+Validation invalid(const char *Field) {
+  return Validation{false, Reason::InvalidParams, Field};
 }
 
-bool positive(const std::optional<Decimal> &v) {
-  return v.has_value() && v->sign() > 0;
+bool positive(const std::optional<Decimal> &V) {
+  return V.has_value() && V->sign() > 0;
 }
 
 } // namespace
 
-Validation ExecutionEngine::validate(const OrderSpec &spec,
-                                     const Portfolio &portfolio,
-                                     const Timeline &timeline,
-                                     std::int64_t step) const {
-  if (spec.instrument < 0 ||
-      static_cast<std::size_t>(spec.instrument) >= instruments_.size()) {
+Validation ExecutionEngine::validate(const OrderSpec &Spec,
+                                     const Portfolio &Portfolio,
+                                     const Timeline &Timeline,
+                                     std::int64_t Step) const {
+  if (Spec.Instrument < 0 ||
+      static_cast<std::size_t>(Spec.Instrument) >= Instruments.size()) {
     return invalid("instrument");
   }
-  if (spec.lots < 1)
+  if (Spec.Lots < 1)
     return invalid("lots");
 
-  const bool buy = spec.side == Side::Buy;
-  const OrderType type = spec.type;
-  if ((type == OrderType::TakeProfit || type == OrderType::TrailingStop) && buy)
+  const bool Buy = Spec.OrderSide == Side::Buy;
+  const OrderType Type = Spec.Type;
+  if ((Type == OrderType::TakeProfit || Type == OrderType::TrailingStop) && Buy)
     return invalid("side");
 
-  const bool needsLimit = type == OrderType::Limit ||
-                          type == OrderType::StopLimit ||
-                          type == OrderType::TakeProfit;
-  if (needsLimit && !positive(spec.limitPrice))
+  const bool NeedsLimit = Type == OrderType::Limit ||
+                          Type == OrderType::StopLimit ||
+                          Type == OrderType::TakeProfit;
+  if (NeedsLimit && !positive(Spec.LimitPrice))
     return invalid("limitPrice");
-  const bool needsStop =
-      type == OrderType::Stop || type == OrderType::StopLimit;
-  if (needsStop && !positive(spec.stopPrice))
+  const bool NeedsStop =
+      Type == OrderType::Stop || Type == OrderType::StopLimit;
+  if (NeedsStop && !positive(Spec.StopPrice))
     return invalid("stopPrice");
-  if (type == OrderType::TrailingStop) {
-    const bool ok = spec.trailingPercent && spec.trailingPercent->sign() > 0 &&
-                    *spec.trailingPercent <= Decimal::fromUnits(50);
-    if (!ok)
+  if (Type == OrderType::TrailingStop) {
+    const bool Ok = Spec.TrailingPercent && Spec.TrailingPercent->sign() > 0 &&
+                    *Spec.TrailingPercent <= Decimal::fromUnits(50);
+    if (!Ok)
       return invalid("trailingPercent");
   }
 
   // Цена для проверок - close последнего бара бумаги не позже шага подачи
   // (`decisions.md`, «Заявки»).
-  const StepBar *last = timeline.lastBarOf(spec.instrument, step);
-  if (last == nullptr)
+  const StepBar *Last = Timeline.lastBarOf(Spec.Instrument, Step);
+  if (Last == nullptr)
     return invalid("instrument"); // бумага ещё не торговалась: цены нет
-  const Decimal &close = last->close;
+  const Decimal &Close = Last->Close;
 
-  if (needsStop) {
-    const bool rightSide =
-        buy ? *spec.stopPrice > close : *spec.stopPrice < close;
-    if (!rightSide)
+  if (NeedsStop) {
+    const bool RightSide =
+        Buy ? *Spec.StopPrice > Close : *Spec.StopPrice < Close;
+    if (!RightSide)
       return invalid("stopPrice");
   }
-  if (type == OrderType::TakeProfit && !(*spec.limitPrice > close))
+  if (Type == OrderType::TakeProfit && !(*Spec.LimitPrice > Close))
     return invalid("limitPrice");
 
-  if (buy) {
-    const Instrument &inst =
-        instruments_[static_cast<std::size_t>(spec.instrument)];
-    const Decimal factor =
-        Decimal::one() + costs_.commissionRate + costs_.exchangeFeeRate;
+  if (Buy) {
+    const Instrument &Inst =
+        Instruments[static_cast<std::size_t>(Spec.Instrument)];
+    const Decimal Factor =
+        Decimal::one() + Costs.CommissionRate + Costs.ExchangeFeeRate;
     try {
       // Округление вверх: проверка не пропускает заявку, на которую не хватает
       // копейки.
-      const Decimal need =
-          close.times(spec.lots)
-              .times(inst.lotSize)
-              .mul(factor, Decimal::kScale, RoundingMode::CEILING);
-      if (need > portfolio.cash())
+      const Decimal Need =
+          Close.times(Spec.Lots)
+              .times(Inst.LotSize)
+              .mul(Factor, Decimal::kScale, RoundingMode::CEILING);
+      if (Need > Portfolio.cash())
         return Validation{false, Reason::InsufficientCash, ""};
     } catch (const DecimalOverflow &) {
       return Validation{
           false, Reason::InsufficientCash,
           ""}; // сумма не помещается в Decimal - денег точно не хватает
     }
-  } else if (spec.lots > portfolio.lots(spec.instrument)) {
+  } else if (Spec.Lots > Portfolio.lots(Spec.Instrument)) {
     return Validation{false, Reason::InsufficientPosition, ""};
   }
   return Validation{};

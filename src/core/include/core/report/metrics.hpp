@@ -22,41 +22,41 @@ namespace core {
 // Вход расчёта. Вектора по шагам индексируются номером шага шкалы времени
 // сессии (шаг 0, 1, ...).
 struct MetricsInput {
-  Decimal initialCash; // начальный капитал E0 > 0
+  Decimal InitialCash; // начальный капитал E0 > 0
   std::vector<EquityPoint>
-      equity; // стоимость портфеля по шагам, шаги строго по возрастанию
-  std::vector<std::int32_t> tradingDayOfStep; // номер торгового дня шага;
+      Equity; // стоимость портфеля по шагам, шаги строго по возрастанию
+  std::vector<std::int32_t> TradingDayOfStep; // номер торгового дня шага;
                                               // размер > последнего шага equity
-  std::vector<Fill> fills;
-  std::vector<RoundTrip> roundTrips;
-  std::int64_t rejections = 0, partialFills = 0;
+  std::vector<Fill> Fills;
+  std::vector<RoundTrip> RoundTrips;
+  std::int64_t Rejections = 0, PartialFills = 0;
   // [шаг][бумага]: стоимость позиции (>= 0, 0 без позиции) после обработки
   // шага. Пусто - доли позиций не считаются.
-  std::vector<std::vector<Decimal>> positionValuesByStep;
+  std::vector<std::vector<Decimal>> PositionValuesByStep;
   std::optional<std::pair<Decimal, Decimal>>
-      benchmark; // (open первого бара, close последнего бара) IMOEX
+      Benchmark; // (open первого бара, close последнего бара) IMOEX
   std::vector<EquityPoint>
-      benchmarkEquity; // кривая бенчмарка в рублях капитала
+      BenchmarkEquity; // кривая бенчмарка в рублях капитала
                        // (benchmarkEquity()), в отчёт как есть
 };
 
 struct Metrics {
-  double totalReturn = 0, grossReturn = 0;
-  std::optional<double> cagr; // нет при нуле торговых дней
-  double maxDrawdown = 0;     // доля от пика, 0..1
+  double TotalReturn = 0, GrossReturn = 0;
+  std::optional<double> Cagr; // нет при нуле торговых дней
+  double MaxDrawdown = 0;     // доля от пика, 0..1
   // Наибольшая серия подряд идущих точек equity ниже пика; точка equity - один
   // шаг, поэтому это шаги.
-  std::int64_t maxDrawdownSteps = 0;
-  std::optional<double> volatility, sharpe,
-      sortino; // годовые; нет при менее чем двух днях и нулевом разбросе
-  double turnover = 0;
-  std::int64_t fills = 0, roundTrips = 0;
-  std::optional<double> winRate; // нет без закрытых пар
-  std::int64_t rejections = 0, partialFills = 0;
-  double hhiAvg = 0, maxPositionShare = 0;
-  std::optional<double> benchmarkReturn;
-  std::int32_t tradingDays = 0;
-  std::int64_t stopTakeSameBar = 0; // сделок, где стоп и тейк задеты одной
+  std::int64_t MaxDrawdownSteps = 0;
+  std::optional<double> Volatility, Sharpe,
+      Sortino; // годовые; нет при менее чем двух днях и нулевом разбросе
+  double Turnover = 0;
+  std::int64_t Fills = 0, RoundTrips = 0;
+  std::optional<double> WinRate; // нет без закрытых пар
+  std::int64_t Rejections = 0, PartialFills = 0;
+  double HhiAvg = 0, MaxPositionShare = 0;
+  std::optional<double> BenchmarkReturn;
+  std::int32_t TradingDays = 0;
+  std::int64_t StopTakeSameBar = 0; // сделок, где стоп и тейк задеты одной
                                     // свечой (Fill::stopAndTakeSameBar)
 };
 
@@ -64,24 +64,24 @@ struct Metrics {
 // на копейки: у каждой стороны сделки свои округления (`decisions.md`, «Деньги
 // и округление»).
 struct CostTotals {
-  Decimal commission, fee, spread, slippage;
+  Decimal Commission, Fee, Spread, Slippage;
 };
 
 struct Report {
-  Metrics metrics;
-  CostTotals costs;
-  std::vector<EquityPoint> equity;
+  Metrics Stats;
+  CostTotals Costs;
+  std::vector<EquityPoint> Equity;
   Decimal
-      finalEquity; // стоимость на последнем шаге; без точек - начальный капитал
-  std::vector<EquityPoint> benchmarkEquity; // из MetricsInput::benchmarkEquity
+      FinalEquity; // стоимость на последнем шаге; без точек - начальный капитал
+  std::vector<EquityPoint> BenchmarkEquity; // из MetricsInput::benchmarkEquity
 };
 
 // Находка проверок прогона (ФТ-14): код, уровень, сообщение, шаг.
 struct Finding {
-  std::string code;
-  dsl::Level level = dsl::Level::Warning;
-  std::string message;
-  std::int64_t step = 0;
+  std::string Code;
+  dsl::Level Severity = dsl::Level::Warning;
+  std::string Message;
+  std::int64_t Step = 0;
 };
 
 // Факторы цепочки «наивный -> честный» (ФТ-24); цепочку считает задача 27.
@@ -91,18 +91,18 @@ enum class CostFactor { Naive, Delay, Fees, Spread, Slippage, Liquidity };
 enum class CostFlag { CostsOverHalfProfit, SignChange, SharpeOver3 };
 
 struct CostBreakdownStep {
-  CostFactor factor;
-  Decimal netResult;
-  double netReturn;
+  CostFactor Factor;
+  Decimal NetResult;
+  double NetReturn;
 };
 struct CostBreakdown {
-  std::vector<CostBreakdownStep> steps;
-  std::vector<CostFlag> flags;
+  std::vector<CostBreakdownStep> Steps;
+  std::vector<CostFlag> Flags;
 };
 
 // Считает отчёт. std::invalid_argument: initialCash <= 0, шаг точки вне
 // tradingDayOfStep, шаги не по возрастанию, строка positionValuesByStep короче
 // шага точки.
-Report computeReport(const MetricsInput &input);
+Report computeReport(const MetricsInput &Input);
 
 } // namespace core

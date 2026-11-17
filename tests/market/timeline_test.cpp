@@ -22,23 +22,23 @@ constexpr std::int64_t kDayMs = 86'400'000;
 // 2024-01-09 00:00 МСК = 2024-01-08 21:00 UTC.
 constexpr std::int64_t kJan9Ms = 1'704'747'600'000;
 
-Bar bar(std::int64_t tsOpenMs, std::int64_t intervalMs,
-        std::int64_t volume = 100, const char *price = "10") {
-  Bar b;
-  b.tsOpenMs = tsOpenMs;
-  b.availableAtMs = tsOpenMs + intervalMs;
-  b.open = b.high = b.low = b.close = Decimal::parse(price);
-  b.volume = volume;
-  return b;
+Bar bar(std::int64_t TsOpenMs, std::int64_t IntervalMs,
+        std::int64_t Volume = 100, const char *Price = "10") {
+  Bar B;
+  B.TsOpenMs = TsOpenMs;
+  B.AvailableAtMs = TsOpenMs + IntervalMs;
+  B.Open = B.High = B.Low = B.Close = Decimal::parse(Price);
+  B.Volume = Volume;
+  return B;
 }
 
-Instrument instrument(const char *key, std::int64_t lotSize = 1) {
-  return Instrument{key, key, lotSize, Decimal::parse("0.01")};
+Instrument instrument(const char *Key, std::int64_t LotSize = 1) {
+  return Instrument{Key, Key, LotSize, Decimal::parse("0.01")};
 }
 
 Timeline fixtureTimeline() {
-  auto f = core::testing::fixture1();
-  return Timeline::load(f.bars, f.calendar, f.snapshotId, f.instruments,
+  auto F = core::testing::fixture1();
+  return Timeline::load(F.Bars, F.Calendar, F.SnapshotId, F.Instruments,
                         Timeframe::D1, 20240109, 20240122);
 }
 
@@ -54,258 +54,258 @@ TEST(Timeframe, IntervalSeconds) {
 }
 
 TEST(Timeline, MergesInstrumentsByTime) {
-  const Timeline t = fixtureTimeline();
-  ASSERT_EQ(t.totalSteps(), 10);
-  EXPECT_EQ(t.barOf(1, 3), nullptr);
-  ASSERT_EQ(t.barsAt(3).size(), 1u);
-  EXPECT_EQ(t.barsAt(3)[0].instrument, 0);
-  ASSERT_EQ(t.barsAt(2).size(), 2u);
-  EXPECT_EQ(t.barsAt(2)[0].instrument, 0);
-  EXPECT_EQ(t.barsAt(2)[1].instrument, 1);
-  const core::StepBar *b = t.barOf(1, 4);
-  ASSERT_NE(b, nullptr);
-  EXPECT_TRUE(b->afterHalt);
-  EXPECT_EQ(b->step, 4);
+  const Timeline T = fixtureTimeline();
+  ASSERT_EQ(T.totalSteps(), 10);
+  EXPECT_EQ(T.barOf(1, 3), nullptr);
+  ASSERT_EQ(T.barsAt(3).size(), 1u);
+  EXPECT_EQ(T.barsAt(3)[0].Instrument, 0);
+  ASSERT_EQ(T.barsAt(2).size(), 2u);
+  EXPECT_EQ(T.barsAt(2)[0].Instrument, 0);
+  EXPECT_EQ(T.barsAt(2)[1].Instrument, 1);
+  const core::StepBar *B = T.barOf(1, 4);
+  ASSERT_NE(B, nullptr);
+  EXPECT_TRUE(B->AfterHalt);
+  EXPECT_EQ(B->Step, 4);
 }
 
 TEST(Timeline, FixtureValuesAndDays) {
-  const Timeline t = fixtureTimeline();
-  const core::StepBar *a0 = t.barOf(0, 0);
-  ASSERT_NE(a0, nullptr);
-  EXPECT_EQ(a0->open, Decimal::parse("100"));
-  EXPECT_EQ(a0->close, Decimal::parse("100"));
-  EXPECT_EQ(a0->high, Decimal::parse("101"));
-  EXPECT_EQ(a0->low, Decimal::parse("99"));
-  EXPECT_EQ(a0->volumeLots, 10'000);
-  EXPECT_EQ(a0->timeUnixMs, kJan9Ms);
-  EXPECT_EQ(t.barOf(0, 3)->close, Decimal::parse("106"));
-  EXPECT_EQ(t.barOf(0, 4)->open, Decimal::parse("106"));
-  EXPECT_EQ(t.barOf(1, 0)->volumeLots, 100'000);
-  EXPECT_EQ(t.barOf(1, 0)->close, Decimal::parse("0.02"));
-  EXPECT_EQ(t.tradingDays(), 10);
-  EXPECT_EQ(t.tradingDayOf(0), 1);
-  EXPECT_EQ(t.tradingDayOf(9), 10);
-  EXPECT_EQ(t.yyyymmddOf(0), 20240109);
-  EXPECT_EQ(t.yyyymmddOf(3), 20240112);
-  EXPECT_EQ(t.yyyymmddOf(4), 20240115);
-  EXPECT_EQ(t.yyyymmddOf(9), 20240122);
-  EXPECT_FALSE(t.barOf(0, 0)->afterHalt);
+  const Timeline T = fixtureTimeline();
+  const core::StepBar *A0 = T.barOf(0, 0);
+  ASSERT_NE(A0, nullptr);
+  EXPECT_EQ(A0->Open, Decimal::parse("100"));
+  EXPECT_EQ(A0->Close, Decimal::parse("100"));
+  EXPECT_EQ(A0->High, Decimal::parse("101"));
+  EXPECT_EQ(A0->Low, Decimal::parse("99"));
+  EXPECT_EQ(A0->VolumeLots, 10'000);
+  EXPECT_EQ(A0->TimeUnixMs, kJan9Ms);
+  EXPECT_EQ(T.barOf(0, 3)->Close, Decimal::parse("106"));
+  EXPECT_EQ(T.barOf(0, 4)->Open, Decimal::parse("106"));
+  EXPECT_EQ(T.barOf(1, 0)->VolumeLots, 100'000);
+  EXPECT_EQ(T.barOf(1, 0)->Close, Decimal::parse("0.02"));
+  EXPECT_EQ(T.tradingDays(), 10);
+  EXPECT_EQ(T.tradingDayOf(0), 1);
+  EXPECT_EQ(T.tradingDayOf(9), 10);
+  EXPECT_EQ(T.yyyymmddOf(0), 20240109);
+  EXPECT_EQ(T.yyyymmddOf(3), 20240112);
+  EXPECT_EQ(T.yyyymmddOf(4), 20240115);
+  EXPECT_EQ(T.yyyymmddOf(9), 20240122);
+  EXPECT_FALSE(T.barOf(0, 0)->AfterHalt);
 }
 
 TEST(Timeline, WeekendIsNotHalt) {
-  const Timeline t = fixtureTimeline();
-  EXPECT_FALSE(t.barOf(0, 3)->afterHalt);
-  EXPECT_FALSE(t.barOf(0, 4)->afterHalt);
+  const Timeline T = fixtureTimeline();
+  EXPECT_FALSE(T.barOf(0, 3)->AfterHalt);
+  EXPECT_FALSE(T.barOf(0, 4)->AfterHalt);
 }
 
 TEST(Timeline, MissingTradingDayIsHalt) {
   // 16 января бумага не торговалась, а день торговый: бар 17-го идёт после
   // перерыва.
-  const std::vector<TradingDay> calendar = {
+  const std::vector<TradingDay> Calendar = {
       {20240115, true}, {20240116, true}, {20240117, true}};
-  const Timeline t = Timeline::build(
+  const Timeline T = Timeline::build(
       {instrument("A")},
       {{bar(kJan9Ms + 6 * kDayMs, kDayMs), bar(kJan9Ms + 8 * kDayMs, kDayMs)}},
-      calendar);
-  ASSERT_EQ(t.totalSteps(), 2);
-  EXPECT_FALSE(t.barOf(0, 0)->afterHalt);
-  EXPECT_TRUE(t.barOf(0, 1)->afterHalt);
+      Calendar);
+  ASSERT_EQ(T.totalSteps(), 2);
+  EXPECT_FALSE(T.barOf(0, 0)->AfterHalt);
+  EXPECT_TRUE(T.barOf(0, 1)->AfterHalt);
 }
 
 TEST(Timeline, NonTradingDayBetweenIsNotHalt) {
-  const std::vector<TradingDay> calendar = {
+  const std::vector<TradingDay> Calendar = {
       {20240115, true}, {20240116, false}, {20240117, true}};
-  const Timeline t = Timeline::build(
+  const Timeline T = Timeline::build(
       {instrument("A")},
       {{bar(kJan9Ms + 6 * kDayMs, kDayMs), bar(kJan9Ms + 8 * kDayMs, kDayMs)}},
-      calendar);
-  EXPECT_FALSE(t.barOf(0, 1)->afterHalt);
+      Calendar);
+  EXPECT_FALSE(T.barOf(0, 1)->AfterHalt);
 }
 
 TEST(Timeline, IntradayGap) {
-  const std::int64_t open = kJan9Ms + 10 * kHourMs; // 10:00 МСК
-  const std::vector<TradingDay> calendar = {{20240109, true}};
-  const Timeline t =
+  const std::int64_t Open = kJan9Ms + 10 * kHourMs; // 10:00 МСК
+  const std::vector<TradingDay> Calendar = {{20240109, true}};
+  const Timeline T =
       Timeline::build({instrument("A")},
-                      {{bar(open, kMinuteMs), bar(open + kMinuteMs, kMinuteMs),
-                        bar(open + 21 * kMinuteMs, kMinuteMs),
-                        bar(open + 24 * kMinuteMs, kMinuteMs)}},
-                      calendar);
-  ASSERT_EQ(t.totalSteps(), 4);
-  EXPECT_FALSE(t.barOf(0, 1)->afterHalt); // соседний бар
-  EXPECT_TRUE(t.barOf(0, 2)->afterHalt);  // разрыв 20 минут
-  EXPECT_FALSE(t.barOf(0, 3)->afterHalt); // разрыв 3 минуты
+                      {{bar(Open, kMinuteMs), bar(Open + kMinuteMs, kMinuteMs),
+                        bar(Open + 21 * kMinuteMs, kMinuteMs),
+                        bar(Open + 24 * kMinuteMs, kMinuteMs)}},
+                      Calendar);
+  ASSERT_EQ(T.totalSteps(), 4);
+  EXPECT_FALSE(T.barOf(0, 1)->AfterHalt); // соседний бар
+  EXPECT_TRUE(T.barOf(0, 2)->AfterHalt);  // разрыв 20 минут
+  EXPECT_FALSE(T.barOf(0, 3)->AfterHalt); // разрыв 3 минуты
 }
 
 TEST(Timeline, IntradayGapBoundaries) {
-  const std::int64_t open = kJan9Ms + 10 * kHourMs;
+  const std::int64_t Open = kJan9Ms + 10 * kHourMs;
   // M1: ровно 15 минут - перерыв, 14 минут - нет.
-  const Timeline t = Timeline::build(
+  const Timeline T = Timeline::build(
       {instrument("A")},
-      {{bar(open, kMinuteMs), bar(open + 15 * kMinuteMs, kMinuteMs),
-        bar(open + 29 * kMinuteMs, kMinuteMs)}},
+      {{bar(Open, kMinuteMs), bar(Open + 15 * kMinuteMs, kMinuteMs),
+        bar(Open + 29 * kMinuteMs, kMinuteMs)}},
       {});
-  EXPECT_TRUE(t.barOf(0, 1)->afterHalt);
-  EXPECT_FALSE(t.barOf(0, 2)->afterHalt);
+  EXPECT_TRUE(T.barOf(0, 1)->AfterHalt);
+  EXPECT_FALSE(T.barOf(0, 2)->AfterHalt);
   // M10: разрыв 10 минут (1 интервал) - не перерыв, 20 минут - перерыв.
   constexpr std::int64_t kM10 = 10 * kMinuteMs;
-  const Timeline t10 = Timeline::build(
+  const Timeline T10 = Timeline::build(
       {instrument("A")},
-      {{bar(open, kM10), bar(open + kM10, kM10), bar(open + 3 * kM10, kM10)}},
+      {{bar(Open, kM10), bar(Open + kM10, kM10), bar(Open + 3 * kM10, kM10)}},
       {});
-  EXPECT_FALSE(t10.barOf(0, 1)->afterHalt);
-  EXPECT_TRUE(t10.barOf(0, 2)->afterHalt);
+  EXPECT_FALSE(T10.barOf(0, 1)->AfterHalt);
+  EXPECT_TRUE(T10.barOf(0, 2)->AfterHalt);
   // H1: следующий час подряд - не перерыв, хотя больше 15 минут (меньше двух
   // интервалов).
-  const Timeline th =
+  const Timeline Th =
       Timeline::build({instrument("A")},
-                      {{bar(open, kHourMs), bar(open + kHourMs, kHourMs)}}, {});
-  EXPECT_FALSE(th.barOf(0, 1)->afterHalt);
+                      {{bar(Open, kHourMs), bar(Open + kHourMs, kHourMs)}}, {});
+  EXPECT_FALSE(Th.barOf(0, 1)->AfterHalt);
 }
 
 TEST(Timeline, HaltIsPerInstrument) {
   // B торгуется не на каждом шаге A: разрыв считается по барам самой бумаги.
-  const std::int64_t open = kJan9Ms + 10 * kHourMs;
-  const Timeline t = Timeline::build(
+  const std::int64_t Open = kJan9Ms + 10 * kHourMs;
+  const Timeline T = Timeline::build(
       {instrument("A"), instrument("B")},
-      {{bar(open, kMinuteMs), bar(open + kMinuteMs, kMinuteMs),
-        bar(open + 2 * kMinuteMs, kMinuteMs),
-        bar(open + 3 * kMinuteMs, kMinuteMs)},
-       {bar(open, kMinuteMs), bar(open + 3 * kMinuteMs, kMinuteMs)}},
+      {{bar(Open, kMinuteMs), bar(Open + kMinuteMs, kMinuteMs),
+        bar(Open + 2 * kMinuteMs, kMinuteMs),
+        bar(Open + 3 * kMinuteMs, kMinuteMs)},
+       {bar(Open, kMinuteMs), bar(Open + 3 * kMinuteMs, kMinuteMs)}},
       {});
-  ASSERT_EQ(t.totalSteps(), 4);
-  EXPECT_EQ(t.barOf(1, 1), nullptr);
-  EXPECT_FALSE(t.barOf(0, 3)->afterHalt);
-  EXPECT_FALSE(t.barOf(1, 3)->afterHalt); // 3 минуты < 15
+  ASSERT_EQ(T.totalSteps(), 4);
+  EXPECT_EQ(T.barOf(1, 1), nullptr);
+  EXPECT_FALSE(T.barOf(0, 3)->AfterHalt);
+  EXPECT_FALSE(T.barOf(1, 3)->AfterHalt); // 3 минуты < 15
 }
 
 TEST(Timeline, VolumeInLots) {
-  const Timeline t = Timeline::build({instrument("A", 10)},
+  const Timeline T = Timeline::build({instrument("A", 10)},
                                      {{bar(kJan9Ms, kDayMs, 12345)}}, {});
-  EXPECT_EQ(t.barOf(0, 0)->volumeLots, 1234);
-  const Timeline small =
+  EXPECT_EQ(T.barOf(0, 0)->VolumeLots, 1234);
+  const Timeline Small =
       Timeline::build({instrument("A", 10)}, {{bar(kJan9Ms, kDayMs, 9)}}, {});
-  EXPECT_EQ(small.barOf(0, 0)->volumeLots, 0);
+  EXPECT_EQ(Small.barOf(0, 0)->VolumeLots, 0);
 }
 
 TEST(Timeline, MoscowDateAndTradingDays) {
   // Бар за минуту до полуночи МСК - дата 8 января; бар в полночь МСК - 9
   // января.
-  const Timeline t = Timeline::build(
+  const Timeline T = Timeline::build(
       {instrument("A")},
       {{bar(kJan9Ms - kMinuteMs, kMinuteMs), bar(kJan9Ms, kMinuteMs),
         bar(kJan9Ms + 3 * kMinuteMs, kMinuteMs),
         bar(kJan9Ms + kDayMs, kMinuteMs)}},
       {});
-  ASSERT_EQ(t.totalSteps(), 4);
-  EXPECT_EQ(t.yyyymmddOf(0), 20240108);
-  EXPECT_EQ(t.yyyymmddOf(1), 20240109);
-  EXPECT_EQ(t.tradingDayOf(0), 1);
-  EXPECT_EQ(t.tradingDayOf(1), 2);
-  EXPECT_EQ(t.tradingDayOf(2), 2);
-  EXPECT_EQ(t.tradingDayOf(3), 3);
-  EXPECT_EQ(t.tradingDays(), 3);
-  EXPECT_TRUE(t.isLastStepOfDay(0));
-  EXPECT_FALSE(t.isLastStepOfDay(1));
-  EXPECT_TRUE(t.isLastStepOfDay(2));
-  EXPECT_TRUE(t.isLastStepOfDay(3));
+  ASSERT_EQ(T.totalSteps(), 4);
+  EXPECT_EQ(T.yyyymmddOf(0), 20240108);
+  EXPECT_EQ(T.yyyymmddOf(1), 20240109);
+  EXPECT_EQ(T.tradingDayOf(0), 1);
+  EXPECT_EQ(T.tradingDayOf(1), 2);
+  EXPECT_EQ(T.tradingDayOf(2), 2);
+  EXPECT_EQ(T.tradingDayOf(3), 3);
+  EXPECT_EQ(T.tradingDays(), 3);
+  EXPECT_TRUE(T.isLastStepOfDay(0));
+  EXPECT_FALSE(T.isLastStepOfDay(1));
+  EXPECT_TRUE(T.isLastStepOfDay(2));
+  EXPECT_TRUE(T.isLastStepOfDay(3));
 }
 
 TEST(Timeline, LastBarOf) {
-  const Timeline t = fixtureTimeline();
-  ASSERT_NE(t.lastBarOf(1, 3), nullptr);
-  EXPECT_EQ(t.lastBarOf(1, 3)->step,
+  const Timeline T = fixtureTimeline();
+  ASSERT_NE(T.lastBarOf(1, 3), nullptr);
+  EXPECT_EQ(T.lastBarOf(1, 3)->Step,
             2); // на шаге 3 у B бара нет - берётся прежний
-  EXPECT_EQ(t.lastBarOf(1, 4)->step, 4);
-  EXPECT_EQ(t.lastBarOf(0, 0)->step, 0);
-  EXPECT_EQ(t.lastBarOf(0, -1), nullptr);
+  EXPECT_EQ(T.lastBarOf(1, 4)->Step, 4);
+  EXPECT_EQ(T.lastBarOf(0, 0)->Step, 0);
+  EXPECT_EQ(T.lastBarOf(0, -1), nullptr);
 }
 
 TEST(Timeline, LastBarOfBeforeFirstBar) {
-  const Timeline t =
+  const Timeline T =
       Timeline::build({instrument("A"), instrument("B")},
                       {{bar(kJan9Ms, kDayMs), bar(kJan9Ms + kDayMs, kDayMs)},
                        {bar(kJan9Ms + kDayMs, kDayMs)}},
                       {});
-  EXPECT_EQ(t.lastBarOf(1, 0), nullptr);
-  EXPECT_NE(t.lastBarOf(1, 1), nullptr);
+  EXPECT_EQ(T.lastBarOf(1, 0), nullptr);
+  EXPECT_NE(T.lastBarOf(1, 1), nullptr);
 }
 
 TEST(Timeline, IsLastStepOfDayDaily) {
-  const Timeline t = fixtureTimeline();
-  for (std::int64_t s = 0; s < 10; ++s)
-    EXPECT_TRUE(t.isLastStepOfDay(s));
+  const Timeline T = fixtureTimeline();
+  for (std::int64_t S = 0; S < 10; ++S)
+    EXPECT_TRUE(T.isLastStepOfDay(S));
 }
 
 TEST(Timeline, SliceRenumbersSteps) {
-  const Timeline t = fixtureTimeline();
-  const Timeline s = t.slice(3, 5);
-  ASSERT_EQ(s.totalSteps(), 3);
-  EXPECT_EQ(s.tradingDayOf(0), 1);
-  EXPECT_EQ(s.tradingDayOf(2), 3);
-  EXPECT_EQ(s.tradingDays(), 3);
-  EXPECT_EQ(s.barsAt(0)[0].step, 0);
-  EXPECT_EQ(s.barsAt(0)[0].tradingDay, 1);
-  EXPECT_EQ(s.yyyymmddOf(0), 20240111);
-  EXPECT_EQ(s.barOf(0, 0)->close, Decimal::parse("103"));
-  EXPECT_EQ(s.barOf(1, 1), nullptr); // 12 января: у B бара нет
-  EXPECT_EQ(s.barOf(1, 2)->step, 2);
-  EXPECT_TRUE(s.barOf(1, 2)->afterHalt);
-  ASSERT_NE(s.lastBarOf(1, 1), nullptr);
-  EXPECT_EQ(s.lastBarOf(1, 1)->step, 0);
-  EXPECT_EQ(s.instruments().size(), 2u);
-  EXPECT_EQ(t.totalSteps(), 10); // исходная шкала не изменилась
+  const Timeline T = fixtureTimeline();
+  const Timeline S = T.slice(3, 5);
+  ASSERT_EQ(S.totalSteps(), 3);
+  EXPECT_EQ(S.tradingDayOf(0), 1);
+  EXPECT_EQ(S.tradingDayOf(2), 3);
+  EXPECT_EQ(S.tradingDays(), 3);
+  EXPECT_EQ(S.barsAt(0)[0].Step, 0);
+  EXPECT_EQ(S.barsAt(0)[0].TradingDay, 1);
+  EXPECT_EQ(S.yyyymmddOf(0), 20240111);
+  EXPECT_EQ(S.barOf(0, 0)->Close, Decimal::parse("103"));
+  EXPECT_EQ(S.barOf(1, 1), nullptr); // 12 января: у B бара нет
+  EXPECT_EQ(S.barOf(1, 2)->Step, 2);
+  EXPECT_TRUE(S.barOf(1, 2)->AfterHalt);
+  ASSERT_NE(S.lastBarOf(1, 1), nullptr);
+  EXPECT_EQ(S.lastBarOf(1, 1)->Step, 0);
+  EXPECT_EQ(S.instruments().size(), 2u);
+  EXPECT_EQ(T.totalSteps(), 10); // исходная шкала не изменилась
 }
 
 TEST(Timeline, SliceBounds) {
-  const Timeline t = fixtureTimeline();
-  EXPECT_EQ(t.slice(1, 10).totalSteps(), 10);
-  EXPECT_THROW(t.slice(0, 3), std::invalid_argument);
-  EXPECT_THROW(t.slice(5, 11), std::invalid_argument);
-  EXPECT_THROW(t.slice(6, 5), std::invalid_argument);
+  const Timeline T = fixtureTimeline();
+  EXPECT_EQ(T.slice(1, 10).totalSteps(), 10);
+  EXPECT_THROW(T.slice(0, 3), std::invalid_argument);
+  EXPECT_THROW(T.slice(5, 11), std::invalid_argument);
+  EXPECT_THROW(T.slice(6, 5), std::invalid_argument);
 }
 
 TEST(Timeline, LoadUsesSources) {
-  auto f = core::testing::fixture1();
-  const Timeline t =
-      Timeline::load(f.bars, f.calendar, "fixture-1", f.instruments,
+  auto F = core::testing::fixture1();
+  const Timeline T =
+      Timeline::load(F.Bars, F.Calendar, "fixture-1", F.Instruments,
                      Timeframe::D1, 20240109, 20240122);
-  EXPECT_EQ(t.totalSteps(), 10);
-  const Timeline part =
-      Timeline::load(f.bars, f.calendar, "fixture-1", f.instruments,
+  EXPECT_EQ(T.totalSteps(), 10);
+  const Timeline Part =
+      Timeline::load(F.Bars, F.Calendar, "fixture-1", F.Instruments,
                      Timeframe::D1, 20240110, 20240112);
-  EXPECT_EQ(part.totalSteps(), 3);
-  EXPECT_EQ(part.yyyymmddOf(0), 20240110);
-  EXPECT_EQ(part.yyyymmddOf(2), 20240112);
-  EXPECT_THROW(Timeline::load(f.bars, f.calendar, "no-such", f.instruments,
+  EXPECT_EQ(Part.totalSteps(), 3);
+  EXPECT_EQ(Part.yyyymmddOf(0), 20240110);
+  EXPECT_EQ(Part.yyyymmddOf(2), 20240112);
+  EXPECT_THROW(Timeline::load(F.Bars, F.Calendar, "no-such", F.Instruments,
                               Timeframe::D1, 20240109, 20240122),
                core::SnapshotNotFound);
 }
 
 TEST(Timeline, LoadFirstBarOfRangeIsNotAfterHalt) {
-  auto f = core::testing::fixture1();
-  const Timeline t =
-      Timeline::load(f.bars, f.calendar, "fixture-1", f.instruments,
+  auto F = core::testing::fixture1();
+  const Timeline T =
+      Timeline::load(F.Bars, F.Calendar, "fixture-1", F.Instruments,
                      Timeframe::D1, 20240115, 20240119);
-  EXPECT_FALSE(t.barOf(0, 0)->afterHalt);
-  EXPECT_FALSE(t.barOf(1, 0)->afterHalt);
+  EXPECT_FALSE(T.barOf(0, 0)->AfterHalt);
+  EXPECT_FALSE(T.barOf(1, 0)->AfterHalt);
 }
 
 TEST(Timeline, MutableBar) {
-  Timeline t = fixtureTimeline();
-  t.mutableBar(2, 0).close = Decimal::parse("1");
-  EXPECT_EQ(t.barOf(0, 2)->close, Decimal::parse("1"));
-  EXPECT_EQ(t.lastBarOf(0, 5)->step, 5);
-  EXPECT_THROW(t.mutableBar(3, 1), std::out_of_range);
+  Timeline T = fixtureTimeline();
+  T.mutableBar(2, 0).Close = Decimal::parse("1");
+  EXPECT_EQ(T.barOf(0, 2)->Close, Decimal::parse("1"));
+  EXPECT_EQ(T.lastBarOf(0, 5)->Step, 5);
+  EXPECT_THROW(T.mutableBar(3, 1), std::out_of_range);
 }
 
 TEST(Timeline, RangeChecks) {
-  const Timeline t = fixtureTimeline();
-  EXPECT_THROW(t.barsAt(10), std::out_of_range);
-  EXPECT_THROW(t.barsAt(-1), std::out_of_range);
-  EXPECT_THROW(t.barOf(0, 10), std::out_of_range);
-  EXPECT_THROW(t.barOf(2, 0), std::out_of_range);
-  EXPECT_THROW(t.tradingDayOf(10), std::out_of_range);
+  const Timeline T = fixtureTimeline();
+  EXPECT_THROW(T.barsAt(10), std::out_of_range);
+  EXPECT_THROW(T.barsAt(-1), std::out_of_range);
+  EXPECT_THROW(T.barOf(0, 10), std::out_of_range);
+  EXPECT_THROW(T.barOf(2, 0), std::out_of_range);
+  EXPECT_THROW(T.tradingDayOf(10), std::out_of_range);
 }
 
 TEST(Timeline, RejectsBadInput) {
@@ -320,9 +320,9 @@ TEST(Timeline, RejectsBadInput) {
 }
 
 TEST(Timeline, EmptyTimeline) {
-  const Timeline t = Timeline::build({instrument("A")}, {{}}, {});
-  EXPECT_EQ(t.totalSteps(), 0);
-  EXPECT_EQ(t.tradingDays(), 0);
+  const Timeline T = Timeline::build({instrument("A")}, {{}}, {});
+  EXPECT_EQ(T.totalSteps(), 0);
+  EXPECT_EQ(T.tradingDays(), 0);
 }
 
 } // namespace

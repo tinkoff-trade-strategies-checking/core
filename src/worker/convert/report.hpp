@@ -22,20 +22,20 @@ namespace worker {
 // период и кривая по полностью пройденным дням шагов 0…последний шаг кривой
 // стоимости.
 core::MetricsInput
-metricsInput(const core::SessionEngine &engine,
-             const core::Decimal &initialCash, const core::Timeline &timeline,
-             const std::optional<core::BenchmarkSeries> &benchmark);
+metricsInput(const core::SessionEngine &Engine,
+             const core::Decimal &InitialCash, const core::Timeline &Timeline,
+             const std::optional<core::BenchmarkSeries> &Benchmark);
 
 // То же по результату прогона (RunOutput) и заданному начальному капиталу.
 core::MetricsInput
-metricsInput(const core::RunOutput &output, const core::Decimal &initialCash,
-             const core::Timeline &timeline,
-             const std::optional<core::BenchmarkSeries> &benchmark);
+metricsInput(const core::RunOutput &Output, const core::Decimal &InitialCash,
+             const core::Timeline &Timeline,
+             const std::optional<core::BenchmarkSeries> &Benchmark);
 
 // Метрики, издержки, кривая стоимости и итоговая стоимость; необязательные
 // метрики без значения не задаются. Уровень отчёта OK, находок нет: их
 // добавляет вызывающий (прогон - convert/run).
-void toProto(const core::Report &report, pb::Report *out);
-void toProto(const core::Finding &finding, pb::Finding *out);
+void toProto(const core::Report &Report, pb::Report *Out);
+void toProto(const core::Finding &Finding, pb::Finding *Out);
 
 } // namespace worker

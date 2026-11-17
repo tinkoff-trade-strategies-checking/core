@@ -20,64 +20,64 @@ namespace {
 
 // Значения из запроса: 0 (поле не задано в proto3) - значение по умолчанию
 // ядра; отрицательное - отказ.
-std::int32_t orDefault(std::int32_t value, std::int32_t fallback,
-                       const char *name) {
-  if (value < 0)
-    throw std::invalid_argument(std::string("walk-forward: ") + name +
+std::int32_t orDefault(std::int32_t Value, std::int32_t Fallback,
+                       const char *Name) {
+  if (Value < 0)
+    throw std::invalid_argument(std::string("walk-forward: ") + Name +
                                 " не может быть отрицательным");
-  return value == 0 ? fallback : value;
+  return Value == 0 ? Fallback : Value;
 }
 
-core::WalkForwardConfig configOf(const pb::WalkForwardRequest &request) {
-  const core::WalkForwardConfig defaults;
-  core::WalkForwardConfig config;
-  config.fitDays = orDefault(request.fit_days(), defaults.fitDays, "fit_days");
-  config.testDays =
-      orDefault(request.test_days(), defaults.testDays, "test_days");
-  config.shiftDays =
-      orDefault(request.shift_days(), defaults.shiftDays, "shift_days");
-  config.maxGrid = orDefault(request.max_grid(), defaults.maxGrid, "max_grid");
-  return config;
+core::WalkForwardConfig configOf(const pb::WalkForwardRequest &Request) {
+  const core::WalkForwardConfig Defaults;
+  core::WalkForwardConfig Config;
+  Config.FitDays = orDefault(Request.fit_days(), Defaults.FitDays, "fit_days");
+  Config.TestDays =
+      orDefault(Request.test_days(), Defaults.TestDays, "test_days");
+  Config.ShiftDays =
+      orDefault(Request.shift_days(), Defaults.ShiftDays, "shift_days");
+  Config.MaxGrid = orDefault(Request.max_grid(), Defaults.MaxGrid, "max_grid");
+  return Config;
 }
 
 // Московская дата каждого торгового дня шкалы (индекс - номер дня с 1).
-std::vector<std::int32_t> datesOfDays(const core::Timeline &timeline) {
-  std::vector<std::int32_t> dates(
-      static_cast<std::size_t>(timeline.tradingDays()) + 1, 0);
-  for (std::int64_t step = 0; step < timeline.totalSteps(); ++step) {
-    dates[static_cast<std::size_t>(timeline.tradingDayOf(step))] =
-        timeline.yyyymmddOf(step);
+std::vector<std::int32_t> datesOfDays(const core::Timeline &Timeline) {
+  std::vector<std::int32_t> Dates(
+      static_cast<std::size_t>(Timeline.tradingDays()) + 1, 0);
+  for (std::int64_t Step = 0; Step < Timeline.totalSteps(); ++Step) {
+    Dates[static_cast<std::size_t>(Timeline.tradingDayOf(Step))] =
+        Timeline.yyyymmddOf(Step);
   }
-  return dates;
+  return Dates;
 }
 
-void fillResult(const core::WalkForwardResult &result, const Strategy &strategy,
-                const core::Timeline &timeline, pb::WalkForwardResult *out) {
-  const std::vector<std::int32_t> dates = datesOfDays(timeline);
-  const auto dateOf = [&](std::int32_t day) {
-    return formatIsoDate(dates[static_cast<std::size_t>(day)]);
+void fillResult(const core::WalkForwardResult &Result, const Strategy &Strategy,
+                const core::Timeline &Timeline, pb::WalkForwardResult *Out) {
+  const std::vector<std::int32_t> Dates = datesOfDays(Timeline);
+  const auto DateOf = [&](std::int32_t Day) {
+    return formatIsoDate(Dates[static_cast<std::size_t>(Day)]);
   };
-  for (const core::WalkForwardSegment &s : result.segments) {
-    pb::WalkForwardSegment *segment = out->add_segments();
-    segment->set_index(s.index);
-    segment->set_fit_from(dateOf(s.fitFromDay));
-    segment->set_fit_to(dateOf(s.fitToDay));
-    segment->set_test_from(dateOf(s.testFromDay));
-    segment->set_test_to(dateOf(s.testToDay));
-    for (const core::dsl::ResolvedParam &p :
-         strategy.params) { // порядок объявления, не алфавитный
-      pb::ParamValue *value = segment->add_chosen();
-      value->set_name(p.name);
-      value->set_value(s.chosen.at(p.name));
+  for (const core::WalkForwardSegment &S : Result.Segments) {
+    pb::WalkForwardSegment *Segment = Out->add_segments();
+    Segment->set_index(S.Index);
+    Segment->set_fit_from(DateOf(S.FitFromDay));
+    Segment->set_fit_to(DateOf(S.FitToDay));
+    Segment->set_test_from(DateOf(S.TestFromDay));
+    Segment->set_test_to(DateOf(S.TestToDay));
+    for (const core::dsl::ResolvedParam &P :
+         Strategy.Params) { // порядок объявления, не алфавитный
+      pb::ParamValue *Value = Segment->add_chosen();
+      Value->set_name(P.Name);
+      Value->set_value(S.Chosen.at(P.Name));
     }
-    segment->set_fit_net_return(s.fitNetReturn);
+    Segment->set_fit_net_return(S.FitNetReturn);
     // Шаги и сделки проверки - в нумерации среза шкалы: перевод идёт по нему.
-    const core::Timeline testTimeline =
-        timeline.slice(s.testFromDay, s.testToDay);
-    toProto(s.test, s.testReport, std::nullopt, testTimeline,
-            segment->mutable_test_result());
+    const core::Timeline TestTimeline =
+        Timeline.slice(S.TestFromDay, S.TestToDay);
+    toProto(S.Test, S.TestReport, std::nullopt, TestTimeline,
+            Segment->mutable_test_result());
   }
-  out->set_chained_return(result.chainedReturn);
+  Out->set_chained_return(Result.ChainedReturn);
 }
 
 } // namespace
@@ -86,22 +86,22 @@ void fillResult(const core::WalkForwardResult &result, const Strategy &strategy,
 // собирается целиком и пишется в поток последним сообщением; до него идёт
 // только прогресс.
 grpc::Status handleRunWalkForward(
-    Context &context, const pb::WalkForwardRequest &request,
-    grpc::ServerWriterInterface<pb::WalkForwardUpdate> *writer) {
+    Context &Context, const pb::WalkForwardRequest &Request,
+    grpc::ServerWriterInterface<pb::WalkForwardUpdate> *Writer) {
   try {
-    const core::SessionSpec spec = toSessionSpec(request.market());
-    const core::WalkForwardConfig config = configOf(request);
-    const Strategy strategy = loadStrategy(request.source());
-    const std::shared_ptr<const core::Timeline> timeline =
-        loadTimeline(context, request.market());
+    const core::SessionSpec Spec = toSessionSpec(Request.market());
+    const core::WalkForwardConfig Config = configOf(Request);
+    const Strategy Strategy = loadStrategy(Request.source());
+    const std::shared_ptr<const core::Timeline> Timeline =
+        loadTimeline(Context, Request.market());
 
-    const core::WalkForwardResult result =
-        core::walkForward(spec, timeline, strategy.program, strategy.params,
-                          config, progressWriter(writer));
+    const core::WalkForwardResult Result =
+        core::walkForward(Spec, Timeline, Strategy.Program, Strategy.Params,
+                          Config, progressWriter(Writer));
 
-    pb::WalkForwardUpdate update;
-    fillResult(result, strategy, *timeline, update.mutable_result());
-    if (!writer->Write(update))
+    pb::WalkForwardUpdate Update;
+    fillResult(Result, Strategy, *Timeline, Update.mutable_result());
+    if (!Writer->Write(Update))
       return grpc::Status(grpc::StatusCode::CANCELLED, "клиент закрыл поток");
     return grpc::Status::OK;
   } catch (const StreamClosed &) {

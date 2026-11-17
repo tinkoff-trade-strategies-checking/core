@@ -11,141 +11,141 @@ namespace {
 constexpr int kKopeckScale = 2;
 
 // value * part / whole до копейки HALF_UP одним шагом.
-Decimal share(const Decimal &value, std::int64_t part, std::int64_t whole) {
-  return value.mulDiv(Decimal::fromUnits(part), Decimal::fromUnits(whole),
-                      kKopeckScale, RoundingMode::HALF_UP);
+Decimal share(const Decimal &Value, std::int64_t Part, std::int64_t Whole) {
+  return Value.mulDiv(Decimal::fromUnits(Part), Decimal::fromUnits(Whole),
+                      kKopeckScale, RoundingMode::HalfUp);
 }
 
 } // namespace
 
-Portfolio::Portfolio(Decimal initialCash, std::size_t instrumentCount)
-    : cash_(initialCash), positions_(instrumentCount) {}
+Portfolio::Portfolio(Decimal InitialCash, std::size_t InstrumentCount)
+    : Cash(InitialCash), Positions(InstrumentCount) {}
 
-Portfolio::Position &Portfolio::position(int instrument) {
-  if (instrument < 0 ||
-      static_cast<std::size_t>(instrument) >= positions_.size()) {
+Portfolio::Position &Portfolio::position(int Instrument) {
+  if (Instrument < 0 ||
+      static_cast<std::size_t>(Instrument) >= Positions.size()) {
     throw std::out_of_range("Portfolio: нет бумаги с номером " +
-                            std::to_string(instrument));
+                            std::to_string(Instrument));
   }
-  return positions_[static_cast<std::size_t>(instrument)];
+  return Positions[static_cast<std::size_t>(Instrument)];
 }
 
-const Portfolio::Position &Portfolio::position(int instrument) const {
-  if (instrument < 0 ||
-      static_cast<std::size_t>(instrument) >= positions_.size()) {
+const Portfolio::Position &Portfolio::position(int Instrument) const {
+  if (Instrument < 0 ||
+      static_cast<std::size_t>(Instrument) >= Positions.size()) {
     throw std::out_of_range("Portfolio: нет бумаги с номером " +
-                            std::to_string(instrument));
+                            std::to_string(Instrument));
   }
-  return positions_[static_cast<std::size_t>(instrument)];
+  return Positions[static_cast<std::size_t>(Instrument)];
 }
 
-std::int64_t Portfolio::lots(int instrument) const {
-  return position(instrument).lots;
+std::int64_t Portfolio::lots(int Instrument) const {
+  return position(Instrument).Lots;
 }
 
-Decimal Portfolio::avgPrice(int instrument) const {
-  return position(instrument).avgPrice;
+Decimal Portfolio::avgPrice(int Instrument) const {
+  return position(Instrument).AvgPrice;
 }
 
-void Portfolio::applyFill(int instrument, Side side, std::int64_t lots,
-                          const Decimal &price, const Decimal &value,
-                          const Decimal &commission, const Decimal &fee,
-                          std::int64_t step, std::int64_t orderId) {
-  Position &pos = position(instrument);
-  if (lots <= 0)
+void Portfolio::applyFill(int Instrument, Side Side, std::int64_t Lots,
+                          const Decimal &Price, const Decimal &Value,
+                          const Decimal &Commission, const Decimal &Fee,
+                          std::int64_t Step, std::int64_t OrderId) {
+  Position &Pos = position(Instrument);
+  if (Lots <= 0)
     throw std::invalid_argument(
         "Portfolio: число лотов должно быть положительным");
-  if (price.sign() < 0 || value.sign() < 0 || commission.sign() < 0 ||
-      fee.sign() < 0) {
+  if (Price.sign() < 0 || Value.sign() < 0 || Commission.sign() < 0 ||
+      Fee.sign() < 0) {
     throw std::invalid_argument(
         "Portfolio: цена, сумма, комиссия и сбор не могут быть отрицательными");
   }
 
-  if (side == Side::Buy) {
+  if (Side == Side::Buy) {
     // (старые лоты * старая средняя + новые лоты * цена) / все лоты, один шаг
     // округления.
-    const Decimal total = pos.avgPrice.times(pos.lots) + price.times(lots);
-    const Decimal newCash = cash_ - (value + commission + fee);
-    const Decimal newAvg = total.div(Decimal::fromUnits(pos.lots + lots),
-                                     Decimal::kScale, RoundingMode::HALF_UP);
+    const Decimal Total = Pos.AvgPrice.times(Pos.Lots) + Price.times(Lots);
+    const Decimal NewCash = Cash - (Value + Commission + Fee);
+    const Decimal NewAvg = Total.div(Decimal::fromUnits(Pos.Lots + Lots),
+                                     Decimal::kScale, RoundingMode::HalfUp);
     // Всё, что может выбросить исключение, посчитано выше: состояние меняется
     // целиком или никак.
-    cash_ = newCash;
-    pos.lots += lots;
-    pos.avgPrice = newAvg;
-    pos.open.push_back(
-        OpenLot{step, orderId, lots, lots, value, commission + fee});
+    Cash = NewCash;
+    Pos.Lots += Lots;
+    Pos.AvgPrice = NewAvg;
+    Pos.Open.push_back(
+        OpenLot{Step, OrderId, Lots, Lots, Value, Commission + Fee});
     return;
   }
 
-  if (lots > pos.lots) {
-    throw std::logic_error("Portfolio: продажа " + std::to_string(lots) +
-                           " лотов больше позиции " + std::to_string(pos.lots));
+  if (Lots > Pos.Lots) {
+    throw std::logic_error("Portfolio: продажа " + std::to_string(Lots) +
+                           " лотов больше позиции " + std::to_string(Pos.Lots));
   }
-  const Decimal newCash = cash_ + (value - commission - fee);
-  const Decimal sellCosts = commission + fee;
-  std::vector<RoundTrip> trips;
-  std::int64_t toMatch = lots;
-  for (OpenLot &buy : pos.open) {
-    if (toMatch == 0)
+  const Decimal NewCash = Cash + (Value - Commission - Fee);
+  const Decimal SellCosts = Commission + Fee;
+  std::vector<RoundTrip> Trips;
+  std::int64_t ToMatch = Lots;
+  for (OpenLot &Buy : Pos.Open) {
+    if (ToMatch == 0)
       break;
-    const std::int64_t matched = std::min(toMatch, buy.lotsLeft);
-    RoundTrip trip;
-    trip.instrument = instrument;
-    trip.entryStep = buy.step;
-    trip.exitStep = step;
-    trip.entryOrderId = buy.orderId;
-    trip.lots = matched;
-    trip.entryValue = share(buy.value, matched, buy.lots);
-    trip.exitValue = share(value, matched, lots);
-    trip.costs =
-        share(buy.costs, matched, buy.lots) + share(sellCosts, matched, lots);
-    trip.netPnl = trip.exitValue - trip.entryValue - trip.costs;
-    trips.push_back(trip);
-    toMatch -= matched;
+    const std::int64_t Matched = std::min(ToMatch, Buy.LotsLeft);
+    RoundTrip Trip;
+    Trip.Instrument = Instrument;
+    Trip.EntryStep = Buy.Step;
+    Trip.ExitStep = Step;
+    Trip.EntryOrderId = Buy.OrderId;
+    Trip.Lots = Matched;
+    Trip.EntryValue = share(Buy.Value, Matched, Buy.Lots);
+    Trip.ExitValue = share(Value, Matched, Lots);
+    Trip.Costs =
+        share(Buy.Costs, Matched, Buy.Lots) + share(SellCosts, Matched, Lots);
+    Trip.NetPnl = Trip.ExitValue - Trip.EntryValue - Trip.Costs;
+    Trips.push_back(Trip);
+    ToMatch -= Matched;
   }
   // Применяем после расчёта: при переполнении Decimal состояние не портится.
-  toMatch = lots;
-  while (toMatch > 0) {
-    OpenLot &buy = pos.open.front();
-    const std::int64_t matched = std::min(toMatch, buy.lotsLeft);
-    buy.lotsLeft -= matched;
-    toMatch -= matched;
-    if (buy.lotsLeft == 0)
-      pos.open.pop_front();
+  ToMatch = Lots;
+  while (ToMatch > 0) {
+    OpenLot &Buy = Pos.Open.front();
+    const std::int64_t Matched = std::min(ToMatch, Buy.LotsLeft);
+    Buy.LotsLeft -= Matched;
+    ToMatch -= Matched;
+    if (Buy.LotsLeft == 0)
+      Pos.Open.pop_front();
   }
-  cash_ = newCash;
-  roundTrips_.insert(roundTrips_.end(), trips.begin(), trips.end());
-  pos.lots -= lots;
-  if (pos.lots == 0)
-    pos.avgPrice = Decimal::zero();
+  Cash = NewCash;
+  RoundTrips.insert(RoundTrips.end(), Trips.begin(), Trips.end());
+  Pos.Lots -= Lots;
+  if (Pos.Lots == 0)
+    Pos.AvgPrice = Decimal::zero();
 }
 
-Decimal Portfolio::positionValue(std::int64_t lots, std::int64_t lotSize,
-                                 const Decimal &close) {
-  return close.times(lots).times(lotSize).round(kKopeckScale,
-                                                RoundingMode::HALF_UP);
+Decimal Portfolio::positionValue(std::int64_t Lots, std::int64_t LotSize,
+                                 const Decimal &Close) {
+  return Close.times(Lots).times(LotSize).round(kKopeckScale,
+                                                RoundingMode::HalfUp);
 }
 
-Decimal Portfolio::equity(const std::vector<std::optional<Decimal>> &lastClose,
-                          const std::vector<std::int64_t> &lotSizes) const {
-  if (lastClose.size() != positions_.size() ||
-      lotSizes.size() != positions_.size()) {
+Decimal Portfolio::equity(const std::vector<std::optional<Decimal>> &LastClose,
+                          const std::vector<std::int64_t> &LotSizes) const {
+  if (LastClose.size() != Positions.size() ||
+      LotSizes.size() != Positions.size()) {
     throw std::invalid_argument("Portfolio::equity: размеры lastClose и "
                                 "lotSizes должны равняться числу бумаг");
   }
-  Decimal total = cash_;
-  for (std::size_t i = 0; i < positions_.size(); ++i) {
-    if (positions_[i].lots == 0)
+  Decimal Total = Cash;
+  for (std::size_t I = 0; I < Positions.size(); ++I) {
+    if (Positions[I].Lots == 0)
       continue;
-    if (!lastClose[i]) {
+    if (!LastClose[I]) {
       throw std::logic_error("Portfolio::equity: у бумаги " +
-                             std::to_string(i) +
+                             std::to_string(I) +
                              " есть позиция, но нет цены close");
     }
-    total += positionValue(positions_[i].lots, lotSizes[i], *lastClose[i]);
+    Total += positionValue(Positions[I].Lots, LotSizes[I], *LastClose[I]);
   }
-  return total;
+  return Total;
 }
 
 } // namespace core

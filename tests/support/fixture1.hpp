@@ -12,10 +12,10 @@
 namespace core::testing {
 
 struct Fixture {
-  InMemoryBarSource bars;
-  InMemoryCalendarSource calendar;
-  std::vector<Instrument> instruments;
-  std::string snapshotId;
+  InMemoryBarSource Bars;
+  InMemoryCalendarSource Calendar;
+  std::vector<Instrument> Instruments;
+  std::string SnapshotId;
 };
 
 // Снапшот "fixture-1", шаг D1, 10 торговых дней 2024-01-09…12, 15…19, 22.

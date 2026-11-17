@@ -1,7 +1,9 @@
 # Именование по LLVM (core#10). Сгенерированный код (build/) и внешние заголовки не проверяются.
 Checks: '-*,readability-identifier-naming'
+# HeaderFilterRegex привязан к пути /src внутри контейнера (scripts/dev.sh): на хосте без
+# Docker заголовки не проверяются. Запускать только через `scripts/dev.sh tidy`.
 HeaderFilterRegex: '^/src/(src|tests)/'
-WarningsAsErrors: ''
+WarningsAsErrors: 'readability-identifier-naming'
 CheckOptions:
   readability-identifier-naming.ClassCase: CamelCase
   readability-identifier-naming.StructCase: CamelCase

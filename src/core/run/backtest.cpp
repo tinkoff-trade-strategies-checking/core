@@ -12,54 +12,55 @@ namespace core {
 
 namespace {
 
-bool isActive(const Order &o) {
-  return o.status == OrderStatus::Active ||
-         o.status == OrderStatus::PartiallyFilled;
+bool isActive(const Order &O) {
+  return O.Status == OrderStatus::Active ||
+         O.Status == OrderStatus::PartiallyFilled;
 }
 
-bool sameSpec(const OrderSpec &a, const OrderSpec &b) {
-  return a.instrument == b.instrument && a.side == b.side && a.type == b.type &&
-         a.lots == b.lots && a.limitPrice == b.limitPrice &&
-         a.stopPrice == b.stopPrice && a.trailingPercent == b.trailingPercent &&
-         a.tif == b.tif;
+bool sameSpec(const OrderSpec &A, const OrderSpec &B) {
+  return A.Instrument == B.Instrument && A.OrderSide == B.OrderSide &&
+         A.Type == B.Type && A.Lots == B.Lots && A.LimitPrice == B.LimitPrice &&
+         A.StopPrice == B.StopPrice && A.TrailingPercent == B.TrailingPercent &&
+         A.Tif == B.Tif;
 }
 
 // Прогон одной стратегии: состояние цикла собрано в класс, чтобы цикл читался
 // сверху вниз.
 class Runner {
 public:
-  Runner(const SessionSpec &spec, std::shared_ptr<const Timeline> timeline,
-         const dsl::Program &program,
-         const std::vector<dsl::ResolvedParam> &params,
-         const dsl::ParamValues &overrides, const Progress &progress,
-         const detail::StepHook &hook, std::int64_t lastStep)
-      : spec_(spec), timeline_(timeline), engine_(spec, std::move(timeline)),
-        strategy_(program, params, overrides, spec.instruments.size()),
-        progress_(progress), hook_(hook), lastStep_(lastStep),
-        barsInPosition_(spec.instruments.size()) {}
+  Runner(const SessionSpec &SessionConfig,
+         std::shared_ptr<const Timeline> Timeline, const dsl::Program &Program,
+         const std::vector<dsl::ResolvedParam> &Params,
+         const dsl::ParamValues &Overrides, const Progress &Progress,
+         const detail::StepHook &StepHookRef, std::int64_t LastStepIndex)
+      : Spec(SessionConfig), TimelineRef(Timeline),
+        Engine(SessionConfig, std::move(Timeline)),
+        Strategy(Program, Params, Overrides, SessionConfig.Instruments.size()),
+        ProgressFn(Progress), Hook(StepHookRef), LastStep(LastStepIndex),
+        BarsInPosition(SessionConfig.Instruments.size()) {}
 
-  RunOutput run(dsl::Level staticLevel) {
-    RunOutput out;
-    std::optional<Finding> violation;
-    detail::warmUp(strategy_, *timeline_, spec_);
+  RunOutput run(dsl::Level StaticLevel) {
+    RunOutput Out;
+    std::optional<Finding> Violation;
+    detail::warmUp(Strategy, *TimelineRef, Spec);
     try {
       loop();
-    } catch (const IntegrityViolation &e) {
-      violation = detail::integrityFinding(e, engine_.currentStep());
+    } catch (const IntegrityViolation &E) {
+      Violation = detail::integrityFinding(E, Engine.currentStep());
       // Последний отсчёт прогресса уходит и при остановке: done - число шагов с
       // точкой кривой стоимости.
-      reportProgress(engine_.equity().back().step + 1);
+      reportProgress(Engine.equity().back().Step + 1);
     }
-    collect(out, violation.has_value());
-    if (violation) {
-      out.findings.push_back(*violation);
+    collect(Out, Violation.has_value());
+    if (Violation) {
+      Out.Findings.push_back(*Violation);
     } else {
-      out.findings = detail::runtimeFindings(*timeline_, out.orders, out.fills,
-                                             out.roundTrips);
+      Out.Findings = detail::runtimeFindings(*TimelineRef, Out.Orders,
+                                             Out.Fills, Out.RoundTrips);
     }
-    out.level = detail::worstLevel(staticLevel, out.findings);
-    out.digest = digestOf(out);
-    return out;
+    Out.Severity = detail::worstLevel(StaticLevel, Out.Findings);
+    Out.Digest = digestOf(Out);
+    return Out;
   }
 
 private:
@@ -67,256 +68,256 @@ private:
 
   void loop() {
     for (;;) {
-      const std::int64_t k = engine_.currentStep();
-      if (hook_)
-        hook_(engine_);
-      if (engine_.status() == SessionStatus::Running) {
-        cancelFlatSells(k);
-        decide(k);
+      const std::int64_t K = Engine.currentStep();
+      if (Hook)
+        Hook(Engine);
+      if (Engine.status() == SessionStatus::Running) {
+        cancelFlatSells(K);
+        decide(K);
       }
       // Прогон до lastStep: на нём стратегия ещё решает (заявка не исполнится),
       // дальше шаги не обрабатываются.
-      const bool stop =
-          engine_.status() != SessionStatus::Running || k >= lastStep_;
-      if (!stop && (k + 1) % kProgressEvery == 0)
-        reportProgress(k + 1);
-      if (stop)
+      const bool Stop =
+          Engine.status() != SessionStatus::Running || K >= LastStep;
+      if (!Stop && (K + 1) % kProgressEvery == 0)
+        reportProgress(K + 1);
+      if (Stop)
         break;
-      engine_.advance();
+      Engine.advance();
     }
-    reportProgress(engine_.currentStep() + 1);
+    reportProgress(Engine.currentStep() + 1);
   }
 
   // Отсчёт прогресса без повтора одного и того же значения.
-  void reportProgress(std::int64_t done) {
-    if (!progress_ || done == reportedDone_)
+  void reportProgress(std::int64_t Done) {
+    if (!ProgressFn || Done == ReportedDone)
       return;
-    reportedDone_ = done;
-    progress_(done, timeline_->totalSteps());
+    ReportedDone = Done;
+    ProgressFn(Done, TimelineRef->totalSteps());
   }
 
-  const Order *order(std::int64_t id) const {
-    const auto &orders = engine_.orders();
-    const auto it = std::lower_bound(
-        orders.begin(), orders.end(), id,
-        [](const Order &o, std::int64_t value) { return o.id < value; });
-    return it != orders.end() && it->id == id ? &*it : nullptr;
+  const Order *order(std::int64_t Id) const {
+    const auto &Orders = Engine.orders();
+    const auto It = std::lower_bound(
+        Orders.begin(), Orders.end(), Id,
+        [](const Order &O, std::int64_t Value) { return O.Id < Value; });
+    return It != Orders.end() && It->Id == Id ? &*It : nullptr;
   }
 
   // Запись журнала стратегии и её применение тем же путём, что у журнала
   // человека (INV-3).
-  template <typename Command>
-  CommandResult apply(std::int64_t step, Command command,
-                      const std::string &rule, const std::string &because) {
-    JournalEntry entry;
-    entry.seq = seq_++;
-    entry.step = step;
-    entry.command = std::move(command);
-    entry.ruleName = rule;
-    entry.because = because;
-    journal_.push_back(entry);
-    return engine_.apply(entry);
+  template <typename CommandT>
+  CommandResult apply(std::int64_t Step, CommandT Command,
+                      const std::string &Rule, const std::string &Because) {
+    JournalEntry Entry;
+    Entry.Seq = Seq++;
+    Entry.Step = Step;
+    Entry.Command = std::move(Command);
+    Entry.RuleName = Rule;
+    Entry.Because = Because;
+    Journal.push_back(Entry);
+    return Engine.apply(Entry);
   }
 
   // После шага: по бумагам с нулевой позицией активные продажи стратегии
   // снимаются.
-  void cancelFlatSells(std::int64_t k) {
-    for (auto it = book_.begin(); it != book_.end();) {
-      const Order *o = order(it->second);
-      if (o == nullptr || !isActive(*o)) {
-        it = book_.erase(it);
-      } else if (o->spec.side == Side::Sell &&
-                 engine_.portfolio().lots(o->spec.instrument) == 0) {
-        const std::string rule = o->ruleName;
-        apply(k, CancelCmd{o->id, Reason::PositionClosed}, rule,
+  void cancelFlatSells(std::int64_t K) {
+    for (auto It = Book.begin(); It != Book.end();) {
+      const Order *O = order(It->second);
+      if (O == nullptr || !isActive(*O)) {
+        It = Book.erase(It);
+      } else if (O->Spec.OrderSide == Side::Sell &&
+                 Engine.portfolio().lots(O->Spec.Instrument) == 0) {
+        const std::string Rule = O->RuleName;
+        apply(K, CancelCmd{O->Id, Reason::PositionClosed}, Rule,
               "позиция закрыта");
-        it = book_.erase(it);
+        It = Book.erase(It);
       } else {
-        ++it;
+        ++It;
       }
     }
   }
 
-  void decide(std::int64_t k) {
-    for (std::size_t i = 0; i < spec_.instruments.size(); ++i) {
-      const int instrument = static_cast<int>(i);
-      const StepBar *bar =
-          timeline_->barOf(instrument, k); // только бар текущего шага (INV-1)
-      if (bar == nullptr)
+  void decide(std::int64_t K) {
+    for (std::size_t I = 0; I < Spec.Instruments.size(); ++I) {
+      const int Instrument = static_cast<int>(I);
+      const StepBar *Bar =
+          TimelineRef->barOf(Instrument, K); // только бар текущего шага (INV-1)
+      if (Bar == nullptr)
         continue;
-      strategy_.onBar(instrument, *bar);
-      updateBarsInPosition(instrument);
-      const std::vector<dsl::Intent> intents =
-          strategy_.evaluate(instrument, *bar, spec_.instruments[i].lotSize,
-                             spec_.instruments[i].priceStep, state(instrument));
-      for (const dsl::Intent &intent : intents)
-        handle(k, intent);
+      Strategy.onBar(Instrument, *Bar);
+      updateBarsInPosition(Instrument);
+      const std::vector<dsl::Intent> Intents =
+          Strategy.evaluate(Instrument, *Bar, Spec.Instruments[I].LotSize,
+                            Spec.Instruments[I].PriceStep, state(Instrument));
+      for (const dsl::Intent &Intent : Intents)
+        handle(K, Intent);
     }
   }
 
   // Раз на каждый бар бумаги, до evaluate: баров с открытия позиции (0 -
   // открыта на этом баре); позиции нет - сброс.
-  void updateBarsInPosition(int instrument) {
-    auto &bars = barsInPosition_[static_cast<std::size_t>(instrument)];
-    if (engine_.portfolio().lots(instrument) > 0) {
-      bars = bars ? *bars + 1 : 0;
+  void updateBarsInPosition(int Instrument) {
+    auto &Bars = BarsInPosition[static_cast<std::size_t>(Instrument)];
+    if (Engine.portfolio().lots(Instrument) > 0) {
+      Bars = Bars ? *Bars + 1 : 0;
     } else {
-      bars.reset();
+      Bars.reset();
     }
   }
 
   // Чтение состояния на закрытии бара, без побочных эффектов.
-  dsl::StateView state(int instrument) const {
-    dsl::StateView s;
-    const Portfolio &p = engine_.portfolio();
-    s.positionLots = p.lots(instrument);
-    s.cash = p.cash().toDouble();
-    s.equity = engine_.equity().back().equity.toDouble();
-    if (s.positionLots > 0) {
-      s.entryPrice = p.avgPrice(instrument).toDouble();
-      s.barsInPosition = barsInPosition_[static_cast<std::size_t>(instrument)];
+  dsl::StateView state(int Instrument) const {
+    dsl::StateView S;
+    const Portfolio &P = Engine.portfolio();
+    S.PositionLots = P.lots(Instrument);
+    S.Cash = P.cash().toDouble();
+    S.Equity = Engine.equity().back().Equity.toDouble();
+    if (S.PositionLots > 0) {
+      S.EntryPrice = P.avgPrice(Instrument).toDouble();
+      S.BarsInPosition = BarsInPosition[static_cast<std::size_t>(Instrument)];
     }
-    return s;
+    return S;
   }
 
-  void handle(std::int64_t k, const dsl::Intent &intent) {
-    if (intent.cancelAll) {
-      for (auto it = book_.begin(); it != book_.end();) {
-        const Order *o = order(it->second);
-        if (o == nullptr || !isActive(*o)) {
-          it = book_.erase(it);
-        } else if (o->spec.instrument == intent.instrument) {
-          apply(k, CancelCmd{o->id, Reason::CancelledByUser}, intent.ruleName,
-                intent.because);
-          it = book_.erase(it);
+  void handle(std::int64_t K, const dsl::Intent &Intent) {
+    if (Intent.CancelAll) {
+      for (auto It = Book.begin(); It != Book.end();) {
+        const Order *O = order(It->second);
+        if (O == nullptr || !isActive(*O)) {
+          It = Book.erase(It);
+        } else if (O->Spec.Instrument == Intent.Instrument) {
+          apply(K, CancelCmd{O->Id, Reason::CancelledByUser}, Intent.RuleName,
+                Intent.Because);
+          It = Book.erase(It);
         } else {
-          ++it;
+          ++It;
         }
       }
       return;
     }
-    const auto key = std::make_pair(intent.ruleName, intent.instrument);
-    const auto found = book_.find(key);
-    if (found != book_.end()) {
-      const Order *old = order(found->second);
-      if (old != nullptr && isActive(*old)) {
-        if (sameSpec(old->spec, intent.order))
+    const auto Key = std::make_pair(Intent.RuleName, Intent.Instrument);
+    const auto Found = Book.find(Key);
+    if (Found != Book.end()) {
+      const Order *Old = order(Found->second);
+      if (Old != nullptr && isActive(*Old)) {
+        if (sameSpec(Old->Spec, Intent.Order))
           return; // та же заявка уже стоит
         // Замена атомарна (ReplaceCmd, причина RuleReplaced): отклонённая новая
         // заявка не отнимает у правила прежнюю.
-        const CommandResult replaced =
-            apply(k, ReplaceCmd{old->id, PlaceCmd{intent.order, std::nullopt}},
-                  intent.ruleName, intent.because);
-        if (replaced.accepted)
-          found->second = replaced.orderIds.front();
+        const CommandResult Replaced =
+            apply(K, ReplaceCmd{Old->Id, PlaceCmd{Intent.Order, std::nullopt}},
+                  Intent.RuleName, Intent.Because);
+        if (Replaced.Accepted)
+          Found->second = Replaced.OrderIds.front();
         return;
       }
-      book_.erase(found);
+      Book.erase(Found);
     }
-    const CommandResult result = apply(k, PlaceCmd{intent.order, std::nullopt},
-                                       intent.ruleName, intent.because);
-    if (result.accepted)
-      book_[key] = result.orderIds.front();
+    const CommandResult Result = apply(K, PlaceCmd{Intent.Order, std::nullopt},
+                                       Intent.RuleName, Intent.Because);
+    if (Result.Accepted)
+      Book[Key] = Result.OrderIds.front();
   }
 
-  void collect(RunOutput &out, bool invalid) {
-    out.orders = engine_.orders();
-    out.fills = engine_.fills();
-    out.equity = engine_.equity();
-    out.roundTrips = engine_.portfolio().roundTrips();
-    out.positionValuesByStep = engine_.positionValues();
-    out.journal = journal_;
-    out.finalEquity = out.equity.back().equity;
-    out.lastStep = out.equity.back().step;
-    out.status = invalid ? RunStatus::Invalid
-                         : (engine_.status() == SessionStatus::Bankrupt
+  void collect(RunOutput &Out, bool Invalid) {
+    Out.Orders = Engine.orders();
+    Out.Fills = Engine.fills();
+    Out.Equity = Engine.equity();
+    Out.RoundTrips = Engine.portfolio().roundTrips();
+    Out.PositionValuesByStep = Engine.positionValues();
+    Out.Journal = Journal;
+    Out.FinalEquity = Out.Equity.back().Equity;
+    Out.LastStep = Out.Equity.back().Step;
+    Out.Status = Invalid ? RunStatus::Invalid
+                         : (Engine.status() == SessionStatus::Bankrupt
                                 ? RunStatus::BankruptStop
                                 : RunStatus::Completed);
-    for (const Order &o : out.orders) {
-      if (o.status == OrderStatus::Rejected)
-        ++out.rejections;
-      if (o.filledLots > 0 && o.filledLots < o.spec.lots)
-        ++out.partialFills;
+    for (const Order &O : Out.Orders) {
+      if (O.Status == OrderStatus::Rejected)
+        ++Out.Rejections;
+      if (O.FilledLots > 0 && O.FilledLots < O.Spec.Lots)
+        ++Out.PartialFills;
     }
   }
 
-  const SessionSpec &spec_;
-  std::shared_ptr<const Timeline> timeline_;
-  SessionEngine engine_;
-  dsl::StrategyInstance strategy_;
-  const Progress &progress_;
-  const detail::StepHook &hook_;
-  std::int64_t lastStep_;
+  const SessionSpec &Spec;
+  std::shared_ptr<const Timeline> TimelineRef;
+  SessionEngine Engine;
+  dsl::StrategyInstance Strategy;
+  const Progress &ProgressFn;
+  const detail::StepHook &Hook;
+  std::int64_t LastStep;
   std::map<std::pair<std::string, int>, std::int64_t>
-      book_; // (правило, бумага) -> id активной заявки
-  std::vector<std::optional<std::int64_t>> barsInPosition_;
-  std::vector<JournalEntry> journal_;
-  std::int64_t seq_ = 0;
-  std::int64_t reportedDone_ = -1;
+      Book; // (правило, бумага) -> id активной заявки
+  std::vector<std::optional<std::int64_t>> BarsInPosition;
+  std::vector<JournalEntry> Journal;
+  std::int64_t Seq = 0;
+  std::int64_t ReportedDone = -1;
 };
 
 } // namespace
 
 namespace detail {
 
-RunOutput runBacktestWithHook(const SessionSpec &spec,
-                              std::shared_ptr<const Timeline> timeline,
-                              const dsl::Program &program,
-                              const std::vector<dsl::ResolvedParam> &params,
-                              const dsl::ParamValues &overrides,
-                              dsl::Level staticLevel, const Progress &progress,
-                              const StepHook &hook) {
-  if (!timeline)
+RunOutput runBacktestWithHook(const SessionSpec &Spec,
+                              std::shared_ptr<const Timeline> Timeline,
+                              const dsl::Program &Program,
+                              const std::vector<dsl::ResolvedParam> &Params,
+                              const dsl::ParamValues &Overrides,
+                              dsl::Level StaticLevel, const Progress &Progress,
+                              const StepHook &Hook) {
+  if (!Timeline)
     throw std::invalid_argument("runBacktest: нет шкалы времени");
-  const std::int64_t lastStep = timeline->totalSteps() - 1;
-  Runner runner(spec, std::move(timeline), program, params, overrides, progress,
-                hook, lastStep);
-  return runner.run(staticLevel);
+  const std::int64_t LastStep = Timeline->totalSteps() - 1;
+  Runner Runner(Spec, std::move(Timeline), Program, Params, Overrides, Progress,
+                Hook, LastStep);
+  return Runner.run(StaticLevel);
 }
 
-RunOutput runBacktestToStep(const SessionSpec &spec,
-                            std::shared_ptr<const Timeline> timeline,
-                            const dsl::Program &program,
-                            const std::vector<dsl::ResolvedParam> &params,
-                            const dsl::ParamValues &overrides,
-                            dsl::Level staticLevel, std::int64_t lastStep) {
-  if (!timeline)
+RunOutput runBacktestToStep(const SessionSpec &Spec,
+                            std::shared_ptr<const Timeline> Timeline,
+                            const dsl::Program &Program,
+                            const std::vector<dsl::ResolvedParam> &Params,
+                            const dsl::ParamValues &Overrides,
+                            dsl::Level StaticLevel, std::int64_t LastStep) {
+  if (!Timeline)
     throw std::invalid_argument("runBacktestToStep: нет шкалы времени");
-  if (lastStep < 0 || lastStep >= timeline->totalSteps()) {
+  if (LastStep < 0 || LastStep >= Timeline->totalSteps()) {
     throw std::invalid_argument(
         "runBacktestToStep: lastStep вне шкалы времени");
   }
-  const Progress noProgress;
-  const StepHook noHook;
-  Runner runner(spec, std::move(timeline), program, params, overrides,
-                noProgress, noHook, lastStep);
-  return runner.run(staticLevel);
+  const Progress NoProgress;
+  const StepHook NoHook;
+  Runner Runner(Spec, std::move(Timeline), Program, Params, Overrides,
+                NoProgress, NoHook, LastStep);
+  return Runner.run(StaticLevel);
 }
 
-void warmUp(dsl::StrategyInstance &strategy, const Timeline &timeline,
-            const SessionSpec &spec) {
-  dsl::StateView flat;
-  flat.cash = spec.initialCash.toDouble();
-  flat.equity = flat.cash;
-  for (const StepBar &bar : timeline.warmupBars()) {
-    const Instrument &instrument =
-        spec.instruments.at(static_cast<std::size_t>(bar.instrument));
-    strategy.onBar(bar.instrument, bar);
-    (void)strategy.evaluate(bar.instrument, bar, instrument.lotSize,
-                            instrument.priceStep, flat);
+void warmUp(dsl::StrategyInstance &Strategy, const Timeline &Timeline,
+            const SessionSpec &Spec) {
+  dsl::StateView Flat;
+  Flat.Cash = Spec.InitialCash.toDouble();
+  Flat.Equity = Flat.Cash;
+  for (const StepBar &Bar : Timeline.warmupBars()) {
+    const Instrument &Instrument =
+        Spec.Instruments.at(static_cast<std::size_t>(Bar.Instrument));
+    Strategy.onBar(Bar.Instrument, Bar);
+    (void)Strategy.evaluate(Bar.Instrument, Bar, Instrument.LotSize,
+                            Instrument.PriceStep, Flat);
   }
 }
 
 } // namespace detail
 
-RunOutput runBacktest(const SessionSpec &spec,
-                      std::shared_ptr<const Timeline> timeline,
-                      const dsl::Program &program,
-                      const std::vector<dsl::ResolvedParam> &params,
-                      const dsl::ParamValues &overrides, dsl::Level staticLevel,
-                      const Progress &progress) {
-  return detail::runBacktestWithHook(spec, std::move(timeline), program, params,
-                                     overrides, staticLevel, progress, {});
+RunOutput runBacktest(const SessionSpec &Spec,
+                      std::shared_ptr<const Timeline> Timeline,
+                      const dsl::Program &Program,
+                      const std::vector<dsl::ResolvedParam> &Params,
+                      const dsl::ParamValues &Overrides, dsl::Level StaticLevel,
+                      const Progress &OnProgress) {
+  return detail::runBacktestWithHook(Spec, std::move(Timeline), Program, Params,
+                                     Overrides, StaticLevel, OnProgress, {});
 }
 
 } // namespace core

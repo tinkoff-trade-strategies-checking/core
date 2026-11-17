@@ -19,9 +19,9 @@
 namespace core {
 
 struct Validation {
-  bool ok = true;
-  Reason reason = Reason::None;
-  std::string field; // при InvalidParams: instrument, lots, side, limitPrice,
+  bool Ok = true;
+  Reason ReasonCode = Reason::None;
+  std::string Field; // при InvalidParams: instrument, lots, side, limitPrice,
                      // stopPrice, trailingPercent
 };
 
@@ -30,34 +30,34 @@ struct Validation {
 // передаётся каждой стадии исполнения.
 class LiquidityBudget {
 public:
-  explicit LiquidityBudget(std::size_t instrumentCount)
-      : left_(instrumentCount) {}
+  explicit LiquidityBudget(std::size_t InstrumentCount)
+      : Left(InstrumentCount) {}
   // Остаток бюджета бумаги по бару шага; nullopt - без лимита (liquidityShare
   // не задан). Бар без объёма при заданном лимите даёт 0.
-  std::optional<std::int64_t> remaining(int instrument, const StepBar &bar,
-                                        const CostConfig &costs);
+  std::optional<std::int64_t> remaining(int Instrument, const StepBar &Bar,
+                                        const CostConfig &Costs);
   // Списывает исполненные лоты; без лимита ничего не делает.
-  void consume(int instrument, std::int64_t lots);
+  void consume(int Instrument, std::int64_t Lots);
 
 private:
-  std::vector<std::optional<std::int64_t>> left_;
+  std::vector<std::optional<std::int64_t>> Left;
 };
 
 class ExecutionEngine {
 public:
   // instruments - бумаги сессии в порядке индексов; naive - признак режима
   // ФТ-24 (вызывающий выбирает между processStep и processNaive сам).
-  ExecutionEngine(std::vector<Instrument> instruments, CostConfig costs,
-                  bool naive);
+  ExecutionEngine(std::vector<Instrument> Instruments, CostConfig Costs,
+                  bool Naive);
 
-  bool naive() const { return naive_; }
-  const CostConfig &costs() const { return costs_; }
+  bool naive() const { return Naive; }
+  const CostConfig &costs() const { return Costs; }
 
   // Проверка заявки при подаче на шаге step: параметры, затем деньги (по close
   // последнего бара бумаги, с комиссией и сбором, без резерва под другие
   // заявки) или позиция.
-  Validation validate(const OrderSpec &spec, const Portfolio &portfolio,
-                      const Timeline &timeline, std::int64_t step) const;
+  Validation validate(const OrderSpec &Spec, const Portfolio &Portfolio,
+                      const Timeline &Timeline, std::int64_t Step) const;
 
   // Исполняет активные заявки на барах шага step; меняет orders и portfolio,
   // дописывает fills и id изменённых заявок. Порядок: рыночные -> стоп-типы
@@ -65,41 +65,41 @@ public:
   // затем снятие заявок «день» (первый допустимый шаг s + 1, снимаются после
   // последнего шага его торгового дня). Бюджет ликвидности бумаги - floor(p·V)
   // лотов на все заявки шага; заявка ждёт собственного бара бумаги.
-  void processStep(std::int64_t step, const Timeline &timeline,
-                   std::vector<Order> &orders, Portfolio &portfolio,
-                   std::vector<Fill> &fills,
-                   std::vector<std::int64_t> &changed) const;
+  void processStep(std::int64_t Step, const Timeline &Timeline,
+                   std::vector<Order> &Orders, Portfolio &Portfolio,
+                   std::vector<Fill> &Fills,
+                   std::vector<std::int64_t> &Changed) const;
 
   // ФТ-24: только для движка с naive = true, иначе std::logic_error (исключение
   // из INV-2 доступно лишь за флагом). Рыночные заявки (поданные на шагах <=
   // step) по close последнего бара бумаги не позже step; без издержек, спреда,
   // проскальзывания и лимита ликвидности. Деньги и позиция ограничивают объём.
-  void processNaive(std::int64_t step, const Timeline &timeline,
-                    std::vector<Order> &orders, Portfolio &portfolio,
-                    std::vector<Fill> &fills,
-                    std::vector<std::int64_t> &changed) const;
+  void processNaive(std::int64_t Step, const Timeline &Timeline,
+                    std::vector<Order> &Orders, Portfolio &Portfolio,
+                    std::vector<Fill> &Fills,
+                    std::vector<std::int64_t> &Changed) const;
 
 private:
-  void processConditional(std::int64_t step, const Timeline &timeline,
-                          LiquidityBudget &budget, std::vector<Order> &orders,
-                          Portfolio &portfolio, std::vector<Fill> &fills,
-                          std::vector<std::int64_t> &changed) const;
-  void processMarket(std::int64_t step, const Timeline &timeline,
-                     LiquidityBudget &budget, std::vector<Order> &orders,
-                     Portfolio &portfolio, std::vector<Fill> &fills,
-                     std::vector<std::int64_t> &changed) const;
+  void processConditional(std::int64_t Step, const Timeline &Timeline,
+                          LiquidityBudget &Budget, std::vector<Order> &Orders,
+                          Portfolio &Portfolio, std::vector<Fill> &Fills,
+                          std::vector<std::int64_t> &Changed) const;
+  void processMarket(std::int64_t Step, const Timeline &Timeline,
+                     LiquidityBudget &Budget, std::vector<Order> &Orders,
+                     Portfolio &Portfolio, std::vector<Fill> &Fills,
+                     std::vector<std::int64_t> &Changed) const;
 
-  std::vector<Instrument> instruments_;
-  CostConfig costs_;
-  bool naive_;
+  std::vector<Instrument> Instruments;
+  CostConfig Costs;
+  bool Naive;
 };
 
 // Снимает активную заявку orderId с причиной reason на шаге step; у заявки OCO
 // снимается и вторая нога (с той же причиной). false - заявки нет или она не
 // активна (ORDER_NOT_ACTIVE): ничего не меняется. Дописывает id снятых заявок в
 // changed.
-bool cancelOrder(std::vector<Order> &orders, std::int64_t orderId,
-                 Reason reason, std::int64_t step,
-                 std::vector<std::int64_t> &changed);
+bool cancelOrder(std::vector<Order> &Orders, std::int64_t OrderId,
+                 Reason ReasonCode, std::int64_t Step,
+                 std::vector<std::int64_t> &Changed);
 
 } // namespace core

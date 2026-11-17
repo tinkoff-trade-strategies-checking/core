@@ -17,22 +17,22 @@ namespace core {
 class InMemoryBarSource final : public BarSource {
 public:
   // Регистрирует инструмент в версии данных (и саму версию).
-  void addSecurity(const std::string &snapshotId, const Security &security);
+  void addSecurity(const std::string &SnapshotId, const Security &Security);
   // Добавляет серию. Бары сортируются по tsOpenMs; index из аргумента
   // игнорируется (при load нумеруется заново). Дубликаты tsOpenMs -
   // std::invalid_argument. Заменяет серию целиком.
-  void addSeries(const std::string &snapshotId, const std::string &secid,
-                 std::int32_t intervalSec, std::vector<Bar> bars);
+  void addSeries(const std::string &SnapshotId, const std::string &Secid,
+                 std::int32_t IntervalSec, std::vector<Bar> Bars);
 
-  std::vector<Bar> load(const BarRequest &request) override;
-  Security security(const std::string &snapshotId,
-                    const std::string &secid) override;
+  std::vector<Bar> load(const BarRequest &Request) override;
+  Security security(const std::string &SnapshotId,
+                    const std::string &Secid) override;
 
 private:
   using SeriesKey = std::tuple<std::string, std::string, std::int32_t>;
-  std::set<std::string> snapshots_;
-  std::map<std::pair<std::string, std::string>, Security> securities_;
-  std::map<SeriesKey, std::vector<Bar>> series_;
+  std::set<std::string> Snapshots;
+  std::map<std::pair<std::string, std::string>, Security> Securities;
+  std::map<SeriesKey, std::vector<Bar>> Series;
 };
 
 } // namespace core

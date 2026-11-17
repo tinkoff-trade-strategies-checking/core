@@ -28,16 +28,16 @@ public:
 };
 
 struct ClickHouseConfig {
-  std::string baseUrl = "http://127.0.0.1:8123"; // без пути и учётных данных
-  std::string database = "default";
-  std::string user;
-  std::string password;
-  long timeoutSec = 60;
+  std::string BaseUrl = "http://127.0.0.1:8123"; // без пути и учётных данных
+  std::string Database = "default";
+  std::string User;
+  std::string Password;
+  long TimeoutSec = 60;
 
   // Разбор адреса вида http[s]://[user[:password]@]host[:port][/database] (как
   // у импортёра `marketdata-import`, `$CLICKHOUSE_URL`); user и password
   // декодируются из %XX. Неверный адрес - std::invalid_argument.
-  static ClickHouseConfig fromUrl(const std::string &url);
+  static ClickHouseConfig fromUrl(const std::string &Url);
 };
 
 // Именованные параметры запроса: (имя без префикса param_, значение в текстовом
@@ -50,17 +50,17 @@ public:
   virtual ~ClickHouseClient() = default;
   // Выполняет запрос и возвращает тело ответа как есть (формат задаёт сам SQL
   // через FORMAT). Любая ошибка транспорта или статус не 200 - ClickHouseError.
-  virtual std::string query(const std::string &sql,
-                            const QueryParams &params) = 0;
+  virtual std::string query(const std::string &Sql,
+                            const QueryParams &Params) = 0;
 };
 
 class CurlClickHouseClient final : public ClickHouseClient {
 public:
-  explicit CurlClickHouseClient(ClickHouseConfig config);
-  std::string query(const std::string &sql, const QueryParams &params) override;
+  explicit CurlClickHouseClient(ClickHouseConfig Config);
+  std::string query(const std::string &Sql, const QueryParams &Params) override;
 
 private:
-  ClickHouseConfig config_;
+  ClickHouseConfig Config;
 };
 
 // Разбор ответа FORMAT TabSeparated: строки разделены \n, поля - \t,
@@ -68,6 +68,6 @@ private:
 // (\t \n \\ \' \0 и др.) снимается. Пустой ответ - ноль строк; непустой ответ
 // без завершающего \n считается оборванным (ClickHouseError).
 std::vector<std::vector<std::string>>
-parseTabSeparated(const std::string &body);
+parseTabSeparated(const std::string &Body);
 
 } // namespace worker

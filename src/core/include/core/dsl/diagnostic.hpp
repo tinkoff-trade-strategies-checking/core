@@ -12,10 +12,10 @@ namespace core::dsl {
 // UTF-8 (не в байтах), конец исключающий: столбец сразу после последнего
 // символа диапазона.
 struct SourceRange {
-  int startLine = 0;
-  int startColumn = 0;
-  int endLine = 0;
-  int endColumn = 0;
+  int StartLine = 0;
+  int StartColumn = 0;
+  int EndLine = 0;
+  int EndColumn = 0;
 
   friend bool operator==(const SourceRange &, const SourceRange &) = default;
 };
@@ -25,16 +25,16 @@ enum class Level { Ok, Warning, Error }; // по возрастанию серь
 // Замена «диапазон -> текст». Вставка - пустой диапазон; удаление - пустой
 // text.
 struct TextEdit {
-  SourceRange range;
-  std::string text;
+  SourceRange Range;
+  std::string Text;
 };
 
 struct Diagnostic {
-  std::string code; // "E-SYN", "E-TYPE", "L001", ...
-  Level level = Level::Error;
-  SourceRange range;
-  std::string message;
-  std::vector<TextEdit> fix; // пусто, если исправления нет
+  std::string Code; // "E-SYN", "E-TYPE", "L001", ...
+  Level Severity = Level::Error;
+  SourceRange Range;
+  std::string Message;
+  std::vector<TextEdit> Fix; // пусто, если исправления нет
 };
 
 } // namespace core::dsl

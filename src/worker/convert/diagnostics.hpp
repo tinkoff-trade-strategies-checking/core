@@ -13,13 +13,13 @@ namespace worker::convert {
 
 namespace pb = pac::simulation::v1;
 
-pb::Level toProto(core::dsl::Level level);
-pb::Diagnostic toProto(const core::dsl::Diagnostic &diagnostic);
-pb::ParamDecl toProto(const core::dsl::ResolvedParam &param);
+pb::Level toProto(core::dsl::Level Level);
+pb::Diagnostic toProto(const core::dsl::Diagnostic &Diagnostic);
+pb::ParamDecl toProto(const core::dsl::ResolvedParam &Param);
 
 // Диагностики в детерминированном порядке: по позиции начала (строка, столбец),
 // затем по коду; равные по обоим ключам сохраняют исходный порядок (INV-4).
 std::vector<core::dsl::Diagnostic>
-sortedByPosition(std::vector<core::dsl::Diagnostic> diagnostics);
+sortedByPosition(std::vector<core::dsl::Diagnostic> Diagnostics);
 
 } // namespace worker::convert

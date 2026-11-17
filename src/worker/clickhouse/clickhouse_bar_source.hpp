@@ -31,22 +31,22 @@ namespace worker {
 //  диапазонов - позже.
 class ClickHouseBarSource final : public core::BarSource {
 public:
-  explicit ClickHouseBarSource(std::unique_ptr<ClickHouseClient> client);
+  explicit ClickHouseBarSource(std::unique_ptr<ClickHouseClient> Client);
   // Боевая сборка: libcurl-клиент по настройкам.
-  explicit ClickHouseBarSource(const ClickHouseConfig &config);
+  explicit ClickHouseBarSource(const ClickHouseConfig &Config);
 
-  std::vector<core::Bar> load(const core::BarRequest &request) override;
-  core::Security security(const std::string &snapshotId,
-                          const std::string &secid) override;
+  std::vector<core::Bar> load(const core::BarRequest &Request) override;
+  core::Security security(const std::string &SnapshotId,
+                          const std::string &Secid) override;
 
 private:
-  void requireReadySnapshot(const std::string &snapshotId);
+  void requireReadySnapshot(const std::string &SnapshotId);
   // Возвращает число записей инструмента в версии (>= 1); SecurityNotFound,
   // если нет.
-  std::int64_t requireSecurity(const std::string &snapshotId,
-                               const std::string &secid);
+  std::int64_t requireSecurity(const std::string &SnapshotId,
+                               const std::string &Secid);
 
-  std::unique_ptr<ClickHouseClient> client_;
+  std::unique_ptr<ClickHouseClient> Client;
 };
 
 } // namespace worker

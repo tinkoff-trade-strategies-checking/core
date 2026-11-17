@@ -8,38 +8,38 @@
 namespace core {
 
 std::optional<std::pair<Decimal, Decimal>>
-benchmarkRange(const BenchmarkSeries &series) {
-  if (series.closes.empty())
+benchmarkRange(const BenchmarkSeries &Series) {
+  if (Series.Closes.empty())
     return std::nullopt;
-  return std::make_pair(series.firstOpen, series.closes.back().close);
+  return std::make_pair(Series.FirstOpen, Series.Closes.back().Close);
 }
 
-std::vector<EquityPoint> benchmarkEquity(const BenchmarkSeries &series,
-                                         const Decimal &initialCash,
-                                         const Timeline &timeline,
-                                         std::int64_t lastStep) {
-  if (series.firstOpen <= Decimal::zero())
+std::vector<EquityPoint> benchmarkEquity(const BenchmarkSeries &Series,
+                                         const Decimal &InitialCash,
+                                         const Timeline &Timeline,
+                                         std::int64_t LastStep) {
+  if (Series.FirstOpen <= Decimal::zero())
     throw std::invalid_argument("benchmarkEquity: open первого дня <= 0");
-  if (lastStep < 0 || lastStep >= timeline.totalSteps()) {
+  if (LastStep < 0 || LastStep >= Timeline.totalSteps()) {
     throw std::invalid_argument("benchmarkEquity: lastStep вне шкалы времени");
   }
-  std::vector<EquityPoint> out;
-  for (std::int64_t step = 0; step <= lastStep; ++step) {
-    if (!timeline.isLastStepOfDay(step))
+  std::vector<EquityPoint> Out;
+  for (std::int64_t Step = 0; Step <= LastStep; ++Step) {
+    if (!Timeline.isLastStepOfDay(Step))
       continue;
-    const std::int32_t ymd = timeline.yyyymmddOf(step);
-    const auto it =
-        std::lower_bound(series.closes.begin(), series.closes.end(), ymd,
-                         [](const DailyClose &c, std::int32_t value) {
-                           return c.yyyymmdd < value;
+    const std::int32_t Ymd = Timeline.yyyymmddOf(Step);
+    const auto It =
+        std::lower_bound(Series.Closes.begin(), Series.Closes.end(), Ymd,
+                         [](const DailyClose &C, std::int32_t Value) {
+                           return C.Yyyymmdd < Value;
                          });
-    if (it == series.closes.end() || it->yyyymmdd != ymd)
+    if (It == Series.Closes.end() || It->Yyyymmdd != Ymd)
       continue;
-    out.push_back(
-        EquityPoint{step, initialCash.mul(it->close, RoundingMode::HALF_UP)
-                              .div(series.firstOpen, RoundingMode::HALF_UP)});
+    Out.push_back(
+        EquityPoint{Step, InitialCash.mul(It->Close, RoundingMode::HalfUp)
+                              .div(Series.FirstOpen, RoundingMode::HalfUp)});
   }
-  return out;
+  return Out;
 }
 
 } // namespace core

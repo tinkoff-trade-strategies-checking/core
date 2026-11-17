@@ -20,98 +20,98 @@ constexpr const char *kFixture = "ec6b3c97-7036-56cf-ba4d-ec4e919e682d";
 
 // Дни от 1970-01-01 до гражданской даты (алгоритм Говарда Хиннанта), чистая
 // арифметика без часов.
-std::int64_t daysFromCivil(std::int64_t y, unsigned m, unsigned d) {
-  y -= m <= 2;
-  const std::int64_t era = (y >= 0 ? y : y - 399) / 400;
-  const unsigned yoe = static_cast<unsigned>(y - era * 400);
-  const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  return era * 146097 + static_cast<std::int64_t>(doe) - 719468;
+std::int64_t daysFromCivil(std::int64_t Y, unsigned M, unsigned D) {
+  Y -= M <= 2;
+  const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
+  const unsigned Yoe = static_cast<unsigned>(Y - Era * 400);
+  const unsigned Doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
+  const unsigned Doe = Yoe * 365 + Yoe / 4 - Yoe / 100 + Doy;
+  return Era * 146097 + static_cast<std::int64_t>(Doe) - 719468;
 }
 
 // Миллисекунды Unix UTC для момента по UTC.
-std::int64_t utcMs(int y, int mo, int d, int h = 0, int mi = 0, int s = 0) {
-  return (daysFromCivil(y, static_cast<unsigned>(mo),
-                        static_cast<unsigned>(d)) *
+std::int64_t utcMs(int Y, int Mo, int D, int H = 0, int Mi = 0, int S = 0) {
+  return (daysFromCivil(Y, static_cast<unsigned>(Mo),
+                        static_cast<unsigned>(D)) *
               86400 +
-          h * 3600 + mi * 60 + s) *
+          H * 3600 + Mi * 60 + S) *
          1000;
 }
 
 class ClickHouseIntegration : public ::testing::Test {
 protected:
   void SetUp() override {
-    const char *url = std::getenv("CLICKHOUSE_URL");
-    if (url == nullptr || std::string(url).empty()) {
+    const char *Url = std::getenv("CLICKHOUSE_URL");
+    if (Url == nullptr || std::string(Url).empty()) {
       GTEST_SKIP() << "CLICKHOUSE_URL не задан: интеграционный тест пропущен";
     }
-    source_ = std::make_unique<worker::ClickHouseBarSource>(
-        worker::ClickHouseConfig::fromUrl(url));
+    Source = std::make_unique<worker::ClickHouseBarSource>(
+        worker::ClickHouseConfig::fromUrl(Url));
   }
-  std::unique_ptr<worker::ClickHouseBarSource> source_;
+  std::unique_ptr<worker::ClickHouseBarSource> Source;
 };
 
 TEST_F(ClickHouseIntegration, DailyCandlesFromStoredCandles) {
-  const auto bars = source_->load(
+  const auto Bars = Source->load(
       {kFixture, "SBER", 86400, utcMs(2026, 10, 1), utcMs(2026, 11, 30)});
-  ASSERT_EQ(bars.size(), 10u); // 10 торговых дней 19-30.10.2026
-  for (std::size_t i = 0; i < bars.size(); ++i) {
-    EXPECT_EQ(bars[i].index, static_cast<std::int64_t>(i));
-    if (i > 0) {
-      EXPECT_LT(bars[i - 1].tsOpenMs, bars[i].tsOpenMs);
+  ASSERT_EQ(Bars.size(), 10u); // 10 торговых дней 19-30.10.2026
+  for (std::size_t I = 0; I < Bars.size(); ++I) {
+    EXPECT_EQ(Bars[I].Index, static_cast<std::int64_t>(I));
+    if (I > 0) {
+      EXPECT_LT(Bars[I - 1].TsOpenMs, Bars[I].TsOpenMs);
     }
-    EXPECT_GE(bars[i].availableAtMs, bars[i].tsOpenMs);
+    EXPECT_GE(Bars[I].AvailableAtMs, Bars[I].TsOpenMs);
   }
   // 2026-10-19 00:00 МСК = 2026-10-18 21:00 UTC; значения - из candles_1d.csv.
-  const auto &first = bars.front();
-  EXPECT_EQ(first.tsOpenMs, utcMs(2026, 10, 18, 21));
-  EXPECT_EQ(first.open, Decimal::parse("287.49"));
-  EXPECT_EQ(first.high, Decimal::parse("291.9"));
-  EXPECT_EQ(first.low, Decimal::parse("286.42"));
-  EXPECT_EQ(first.close, Decimal::parse("290.7"));
-  EXPECT_EQ(first.volume, 36293649);
-  EXPECT_EQ(first.value, Decimal::parse("10497642939.88"));
+  const auto &First = Bars.front();
+  EXPECT_EQ(First.TsOpenMs, utcMs(2026, 10, 18, 21));
+  EXPECT_EQ(First.Open, Decimal::parse("287.49"));
+  EXPECT_EQ(First.High, Decimal::parse("291.9"));
+  EXPECT_EQ(First.Low, Decimal::parse("286.42"));
+  EXPECT_EQ(First.Close, Decimal::parse("290.7"));
+  EXPECT_EQ(First.Volume, 36293649);
+  EXPECT_EQ(First.Value, Decimal::parse("10497642939.88"));
   // Дневная свеча доступна не раньше конца торгового дня: для дня без
   // внутридневных данных - 00:00 МСК следующих суток.
-  EXPECT_EQ(first.availableAtMs, utcMs(2026, 10, 19, 21));
+  EXPECT_EQ(First.AvailableAtMs, utcMs(2026, 10, 19, 21));
 }
 
 TEST_F(ClickHouseIntegration, MinuteCandlesAndHalfOpenRange) {
   // 2026-10-28 06:59 МСК = 03:59 UTC - первая минутная свеча SBER.
-  const std::int64_t t0 = utcMs(2026, 10, 28, 3, 59);
-  const auto one = source_->load({kFixture, "SBER", 60, t0, t0 + 60000});
-  ASSERT_EQ(one.size(), 1u); // правая граница не включается
-  EXPECT_EQ(one[0].tsOpenMs, t0);
-  EXPECT_EQ(one[0].index, 0);
-  EXPECT_EQ(one[0].open, Decimal::parse("298.2"));
-  EXPECT_EQ(one[0].close, Decimal::parse("298.2"));
-  EXPECT_EQ(one[0].volume, 4755);
-  EXPECT_EQ(one[0].value, Decimal::parse("1417941"));
-  EXPECT_EQ(one[0].availableAtMs, t0 + 60000);
+  const std::int64_t T0 = utcMs(2026, 10, 28, 3, 59);
+  const auto One = Source->load({kFixture, "SBER", 60, T0, T0 + 60000});
+  ASSERT_EQ(One.size(), 1u); // правая граница не включается
+  EXPECT_EQ(One[0].TsOpenMs, T0);
+  EXPECT_EQ(One[0].Index, 0);
+  EXPECT_EQ(One[0].Open, Decimal::parse("298.2"));
+  EXPECT_EQ(One[0].Close, Decimal::parse("298.2"));
+  EXPECT_EQ(One[0].Volume, 4755);
+  EXPECT_EQ(One[0].Value, Decimal::parse("1417941"));
+  EXPECT_EQ(One[0].AvailableAtMs, T0 + 60000);
 
-  const auto two = source_->load({kFixture, "SBER", 60, t0, t0 + 120000});
-  ASSERT_EQ(two.size(), 2u);
-  EXPECT_EQ(two[1].index, 1);
-  EXPECT_EQ(two[1].open, Decimal::parse("298.21"));
-  EXPECT_EQ(two[1].close, Decimal::parse("298.58"));
+  const auto Two = Source->load({kFixture, "SBER", 60, T0, T0 + 120000});
+  ASSERT_EQ(Two.size(), 2u);
+  EXPECT_EQ(Two[1].Index, 1);
+  EXPECT_EQ(Two[1].Open, Decimal::parse("298.21"));
+  EXPECT_EQ(Two[1].Close, Decimal::parse("298.58"));
 
   // Диапазон со сдвигом: нумерация снова с нуля.
-  const auto shifted =
-      source_->load({kFixture, "SBER", 60, t0 + 60000, t0 + 180000});
-  ASSERT_EQ(shifted.size(), 2u);
-  EXPECT_EQ(shifted[0].index, 0);
-  EXPECT_EQ(shifted[0].tsOpenMs, t0 + 60000);
+  const auto Shifted =
+      Source->load({kFixture, "SBER", 60, T0 + 60000, T0 + 180000});
+  ASSERT_EQ(Shifted.size(), 2u);
+  EXPECT_EQ(Shifted[0].Index, 0);
+  EXPECT_EQ(Shifted[0].TsOpenMs, T0 + 60000);
 }
 
 TEST_F(ClickHouseIntegration, BarNotYetAvailableByToMsIsExcluded) {
   // Дневная свеча 19.10 (открытие 18.10 21:00 UTC) доступна в 19.10 21:00 UTC
   // (INV-1).
-  const std::int64_t from = utcMs(2026, 10, 18, 21);
+  const std::int64_t From = utcMs(2026, 10, 18, 21);
   EXPECT_TRUE(
-      source_->load({kFixture, "SBER", 86400, from, utcMs(2026, 10, 19, 12)})
+      Source->load({kFixture, "SBER", 86400, From, utcMs(2026, 10, 19, 12)})
           .empty());
   EXPECT_EQ(
-      source_->load({kFixture, "SBER", 86400, from, utcMs(2026, 10, 19, 21)})
+      Source->load({kFixture, "SBER", 86400, From, utcMs(2026, 10, 19, 21)})
           .size(),
       1u);
 }
@@ -119,74 +119,72 @@ TEST_F(ClickHouseIntegration, BarNotYetAvailableByToMsIsExcluded) {
 TEST_F(ClickHouseIntegration, CandlesAggregatedFromTrades) {
   // SYNTH: только сделки; свечей в candles нет. Ожидания - из fixtures/README и
   // test_clickhouse.py.
-  const auto bars = source_->load(
+  const auto Bars = Source->load(
       {kFixture, "SYNTH", 60, utcMs(2026, 10, 1), utcMs(2026, 11, 30)});
-  ASSERT_EQ(bars.size(), 6u);
+  ASSERT_EQ(Bars.size(), 6u);
   // 10:00 МСК = 07:00 UTC
-  EXPECT_EQ(bars[0].tsOpenMs, utcMs(2026, 10, 28, 7, 0));
-  EXPECT_EQ(bars[0].open, Decimal::parse("100"));
-  EXPECT_EQ(bars[0].high, Decimal::parse("101.5"));
-  EXPECT_EQ(bars[0].low, Decimal::parse("99.5"));
-  EXPECT_EQ(bars[0].close, Decimal::parse("99.5"));
-  EXPECT_EQ(bars[0].volume, 42);
-  EXPECT_EQ(bars[0].value, Decimal::parse("4224"));
-  EXPECT_EQ(bars[0].availableAtMs, utcMs(2026, 10, 28, 7, 1)); // закрытие свечи
+  EXPECT_EQ(Bars[0].TsOpenMs, utcMs(2026, 10, 28, 7, 0));
+  EXPECT_EQ(Bars[0].Open, Decimal::parse("100"));
+  EXPECT_EQ(Bars[0].High, Decimal::parse("101.5"));
+  EXPECT_EQ(Bars[0].Low, Decimal::parse("99.5"));
+  EXPECT_EQ(Bars[0].Close, Decimal::parse("99.5"));
+  EXPECT_EQ(Bars[0].Volume, 42);
+  EXPECT_EQ(Bars[0].Value, Decimal::parse("4224"));
+  EXPECT_EQ(Bars[0].AvailableAtMs, utcMs(2026, 10, 28, 7, 1)); // закрытие свечи
   // Две сделки в одну микросекунду: close по большему trade_no.
-  EXPECT_EQ(bars[1].open, Decimal::parse("100"));
-  EXPECT_EQ(bars[1].high, Decimal::parse("102"));
-  EXPECT_EQ(bars[1].low, Decimal::parse("98"));
-  EXPECT_EQ(bars[1].close, Decimal::parse("98"));
-  EXPECT_EQ(bars[1].volume, 13);
-  for (std::size_t i = 0; i < bars.size(); ++i)
-    EXPECT_EQ(bars[i].index, static_cast<std::int64_t>(i));
+  EXPECT_EQ(Bars[1].Open, Decimal::parse("100"));
+  EXPECT_EQ(Bars[1].High, Decimal::parse("102"));
+  EXPECT_EQ(Bars[1].Low, Decimal::parse("98"));
+  EXPECT_EQ(Bars[1].Close, Decimal::parse("98"));
+  EXPECT_EQ(Bars[1].Volume, 13);
+  for (std::size_t I = 0; I < Bars.size(); ++I)
+    EXPECT_EQ(Bars[I].Index, static_cast<std::int64_t>(I));
 
   // Сутки по Москве: сделки 23:59:59.999999 и 00:00:00 МСК попадают в разные
   // дни.
-  const auto days = source_->load(
+  const auto Days = Source->load(
       {kFixture, "SYNTH", 86400, utcMs(2026, 10, 1), utcMs(2026, 11, 30)});
-  ASSERT_EQ(days.size(), 2u);
-  EXPECT_EQ(days[0].tsOpenMs, utcMs(2026, 10, 27, 21));
-  EXPECT_EQ(days[0].volume, 65);
-  EXPECT_EQ(days[1].volume, 10);
+  ASSERT_EQ(Days.size(), 2u);
+  EXPECT_EQ(Days[0].TsOpenMs, utcMs(2026, 10, 27, 21));
+  EXPECT_EQ(Days[0].Volume, 65);
+  EXPECT_EQ(Days[1].Volume, 10);
 }
 
 TEST_F(ClickHouseIntegration, LoadIsDeterministic) {
-  const core::BarRequest req{kFixture, "GAZP", 60, utcMs(2026, 10, 28),
+  const core::BarRequest Req{kFixture, "GAZP", 60, utcMs(2026, 10, 28),
                              utcMs(2026, 10, 30)};
-  const auto a = source_->load(req);
-  const auto b = source_->load(req);
-  ASSERT_FALSE(a.empty());
-  EXPECT_EQ(a, b);
+  const auto A = Source->load(Req);
+  const auto B = Source->load(Req);
+  ASSERT_FALSE(A.empty());
+  EXPECT_EQ(A, B);
 }
 
 TEST_F(ClickHouseIntegration, Security) {
-  const auto sber = source_->security(kFixture, "SBER");
-  EXPECT_EQ(sber.secid, "SBER");
-  EXPECT_EQ(sber.sector, "Финансы");
-  EXPECT_EQ(sber.lotSize, 1);
-  EXPECT_EQ(sber.priceStep, Decimal::parse("0.01"));
-  const auto gazp = source_->security(kFixture, "GAZP");
-  EXPECT_EQ(gazp.lotSize, 10);
-  EXPECT_EQ(source_->security(kFixture, "LKOH").priceStep,
+  const auto Sber = Source->security(kFixture, "SBER");
+  EXPECT_EQ(Sber.Secid, "SBER");
+  EXPECT_EQ(Sber.Sector, "Финансы");
+  EXPECT_EQ(Sber.LotSize, 1);
+  EXPECT_EQ(Sber.PriceStep, Decimal::parse("0.01"));
+  const auto Gazp = Source->security(kFixture, "GAZP");
+  EXPECT_EQ(Gazp.LotSize, 10);
+  EXPECT_EQ(Source->security(kFixture, "LKOH").PriceStep,
             Decimal::parse("0.5"));
 }
 
 TEST_F(ClickHouseIntegration, UnknownSnapshotAndSecurity) {
-  EXPECT_THROW(source_->load({"00000000-0000-4000-8000-000000000000", "SBER",
-                              60, 0, 1000}),
+  EXPECT_THROW(Source->load({"00000000-0000-4000-8000-000000000000", "SBER", 60,
+                             0, 1000}),
                core::SnapshotNotFound);
-  EXPECT_THROW(
-      source_->security("00000000-0000-4000-8000-000000000000", "SBER"),
-      core::SnapshotNotFound);
-  EXPECT_THROW(source_->load({kFixture, "NOSUCH", 60, 0, 1000}),
+  EXPECT_THROW(Source->security("00000000-0000-4000-8000-000000000000", "SBER"),
+               core::SnapshotNotFound);
+  EXPECT_THROW(Source->load({kFixture, "NOSUCH", 60, 0, 1000}),
                core::SecurityNotFound);
-  EXPECT_THROW(source_->security(kFixture, "NOSUCH"), core::SecurityNotFound);
+  EXPECT_THROW(Source->security(kFixture, "NOSUCH"), core::SecurityNotFound);
 }
 
 TEST_F(ClickHouseIntegration, EmptyRangeIsNotAnError) {
   EXPECT_TRUE(
-      source_
-          ->load({kFixture, "SBER", 60, utcMs(2020, 1, 1), utcMs(2020, 1, 2)})
+      Source->load({kFixture, "SBER", 60, utcMs(2020, 1, 1), utcMs(2020, 1, 2)})
           .empty());
 }
 

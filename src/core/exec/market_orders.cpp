@@ -17,102 +17,102 @@ namespace {
 // true (ФТ-24): заявки, поданные не позже шага, по close последнего бара бумаги
 // без издержек и лимита. budget - бюджет ликвидности шага (nullptr в режиме
 // naive).
-void runMarketOrders(bool naive, std::int64_t step,
-                     const std::vector<Instrument> &instruments,
-                     const CostConfig &costs, const Timeline &timeline,
-                     LiquidityBudget *budget, std::vector<Order> &orders,
-                     Portfolio &portfolio, std::vector<Fill> &fills,
-                     std::vector<std::int64_t> &changed) {
-  const CostConfig zeroCosts = CostConfig::zero();
-  const CostConfig &cfg = naive ? zeroCosts : costs;
+void runMarketOrders(bool Naive, std::int64_t Step,
+                     const std::vector<Instrument> &Instruments,
+                     const CostConfig &Costs, const Timeline &Timeline,
+                     LiquidityBudget *Budget, std::vector<Order> &Orders,
+                     Portfolio &Portfolio, std::vector<Fill> &Fills,
+                     std::vector<std::int64_t> &Changed) {
+  const CostConfig ZeroCosts = CostConfig::zero();
+  const CostConfig &Cfg = Naive ? ZeroCosts : Costs;
 
   // Заявки - по возрастанию id.
-  std::vector<std::size_t> order(orders.size());
-  std::iota(order.begin(), order.end(), std::size_t{0});
-  std::stable_sort(order.begin(), order.end(),
-                   [&](std::size_t a, std::size_t b) {
-                     return orders[a].id < orders[b].id;
+  std::vector<std::size_t> ByOrderId(Orders.size());
+  std::iota(ByOrderId.begin(), ByOrderId.end(), std::size_t{0});
+  std::stable_sort(ByOrderId.begin(), ByOrderId.end(),
+                   [&](std::size_t A, std::size_t B) {
+                     return Orders[A].Id < Orders[B].Id;
                    });
 
-  for (const std::size_t index : order) {
-    Order &o = orders[index];
-    if (o.spec.type != OrderType::Market)
+  for (const std::size_t Index : ByOrderId) {
+    Order &O = Orders[Index];
+    if (O.Spec.Type != OrderType::Market)
       continue;
-    if (o.status != OrderStatus::Active &&
-        o.status != OrderStatus::PartiallyFilled)
+    if (O.Status != OrderStatus::Active &&
+        O.Status != OrderStatus::PartiallyFilled)
       continue;
-    if (naive ? o.placedStep > step : o.placedStep >= step)
+    if (Naive ? O.PlacedStep > Step : O.PlacedStep >= Step)
       continue; // INV-2: не раньше следующего бара
 
-    const int instrument = o.spec.instrument;
-    const Instrument &inst = instruments[static_cast<std::size_t>(instrument)];
+    const int InstrIdx = O.Spec.Instrument;
+    const Instrument &Inst = Instruments[static_cast<std::size_t>(InstrIdx)];
     // Заявка ждёт бара своей бумаги: чужие бары шага ей не подходят.
-    const StepBar *bar = naive ? timeline.lastBarOf(instrument, step)
-                               : timeline.barOf(instrument, step);
-    if (bar == nullptr)
+    const StepBar *Bar = Naive ? Timeline.lastBarOf(InstrIdx, Step)
+                               : Timeline.barOf(InstrIdx, Step);
+    if (Bar == nullptr)
       continue;
 
-    const Decimal base = naive ? bar->close : bar->open;
+    const Decimal Base = Naive ? Bar->Close : Bar->Open;
     // nullopt - без лимита (ФТ-24 и liquidityShare не задан); бар без объёма
     // при заданном лимите даёт 0.
-    const std::optional<std::int64_t> cap =
-        budget != nullptr ? budget->remaining(instrument, *bar, costs)
+    const std::optional<std::int64_t> Cap =
+        Budget != nullptr ? Budget->remaining(InstrIdx, *Bar, Costs)
                           : std::nullopt;
 
-    auto quote = [&](std::int64_t q) {
-      const Decimal price =
-          naive ? base
-                : fillPrice(o.spec.side, base, q, bar->volumeLots, cfg,
-                            inst.priceStep);
-      return Quote{price, amounts(price, q, inst.lotSize, cfg)};
+    auto QuoteAt = [&](std::int64_t Q) {
+      const Decimal Price =
+          Naive ? Base
+                : fillPrice(O.Spec.OrderSide, Base, Q, Bar->VolumeLots, Cfg,
+                            Inst.PriceStep);
+      return Quote{Price, amounts(Price, Q, Inst.LotSize, Cfg)};
     };
-    const std::int64_t remaining = o.spec.lots - o.filledLots;
+    const std::int64_t Remaining = O.Spec.Lots - O.FilledLots;
     const auto [q, reason] =
-        chooseQuantity(o.spec.side, remaining, cap, portfolio.lots(instrument),
-                       portfolio.cash(), quote);
+        chooseQuantity(O.Spec.OrderSide, Remaining, Cap,
+                       Portfolio.lots(InstrIdx), Portfolio.cash(), QuoteAt);
 
     if (q > 0) {
-      const Quote x = quote(q);
-      recordFill(portfolio, fills, o, step, q, x, base, inst, cfg);
-      o.filledLots += q;
-      if (budget != nullptr)
-        budget->consume(instrument, q);
+      const Quote X = QuoteAt(q);
+      recordFill(Portfolio, Fills, O, Step, q, X, Base, Inst, Cfg);
+      O.FilledLots += q;
+      if (Budget != nullptr)
+        Budget->consume(InstrIdx, q);
     }
     // Остаток рыночной заявки не переносится: заявка исполнена целиком или
     // снята с причиной.
     if (reason == Reason::None) {
-      o.status = OrderStatus::Filled;
+      O.Status = OrderStatus::Filled;
     } else {
-      o.status = OrderStatus::Cancelled;
-      o.reason = reason;
+      O.Status = OrderStatus::Cancelled;
+      O.ReasonCode = reason;
     }
-    o.closedStep = step;
-    changed.push_back(o.id);
+    O.ClosedStep = Step;
+    Changed.push_back(O.Id);
   }
 }
 
 } // namespace
 
-void ExecutionEngine::processMarket(std::int64_t step, const Timeline &timeline,
-                                    LiquidityBudget &budget,
-                                    std::vector<Order> &orders,
-                                    Portfolio &portfolio,
-                                    std::vector<Fill> &fills,
-                                    std::vector<std::int64_t> &changed) const {
-  runMarketOrders(false, step, instruments_, costs_, timeline, &budget, orders,
-                  portfolio, fills, changed);
+void ExecutionEngine::processMarket(std::int64_t Step, const Timeline &Timeline,
+                                    LiquidityBudget &Budget,
+                                    std::vector<Order> &Orders,
+                                    Portfolio &Portfolio,
+                                    std::vector<Fill> &Fills,
+                                    std::vector<std::int64_t> &Changed) const {
+  runMarketOrders(false, Step, Instruments, Costs, Timeline, &Budget, Orders,
+                  Portfolio, Fills, Changed);
 }
 
-void ExecutionEngine::processNaive(std::int64_t step, const Timeline &timeline,
-                                   std::vector<Order> &orders,
-                                   Portfolio &portfolio,
-                                   std::vector<Fill> &fills,
-                                   std::vector<std::int64_t> &changed) const {
-  if (!naive_)
+void ExecutionEngine::processNaive(std::int64_t Step, const Timeline &Timeline,
+                                   std::vector<Order> &Orders,
+                                   Portfolio &Portfolio,
+                                   std::vector<Fill> &Fills,
+                                   std::vector<std::int64_t> &Changed) const {
+  if (!Naive)
     throw std::logic_error(
         "processNaive: движок создан без режима naive (ФТ-24)");
-  runMarketOrders(true, step, instruments_, costs_, timeline, nullptr, orders,
-                  portfolio, fills, changed);
+  runMarketOrders(true, Step, Instruments, Costs, Timeline, nullptr, Orders,
+                  Portfolio, Fills, Changed);
 }
 
 } // namespace core
