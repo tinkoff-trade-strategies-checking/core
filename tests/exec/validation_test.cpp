@@ -241,4 +241,61 @@ TEST(Validation, UsesLastCloseOfOwnInstrument) {
   EXPECT_TRUE(F.Engine.validate(Order, Enough, F.Line, 2).Ok);
 }
 
+TEST(OcoValidation, ValidPairsPass) {
+  // Stop + TakeProfit на одной бумаге и стороне
+  OrderSpec Stop = spec(Side::Sell, OrderType::Stop, 5, 0);
+  Stop.StopPrice = d("90");
+  OrderSpec Take = spec(Side::Sell, OrderType::TakeProfit, 5, 0);
+  Take.LimitPrice = d("110");
+  EXPECT_TRUE(core::validateOcoPair(Stop, Take).Ok);
+  // Обратный порядок ног: TakeProfit + Stop
+  EXPECT_TRUE(core::validateOcoPair(Take, Stop).Ok);
+
+  // StopLimit + TakeProfit
+  OrderSpec StopLimit = spec(Side::Sell, OrderType::StopLimit, 5, 0);
+  StopLimit.StopPrice = d("90");
+  StopLimit.LimitPrice = d("89");
+  EXPECT_TRUE(core::validateOcoPair(StopLimit, Take).Ok);
+  EXPECT_TRUE(core::validateOcoPair(Take, StopLimit).Ok);
+}
+
+TEST(OcoValidation, RejectsDifferentInstruments) {
+  OrderSpec Stop = spec(Side::Sell, OrderType::Stop, 5, 0);
+  Stop.StopPrice = d("90");
+  OrderSpec Take = spec(Side::Sell, OrderType::TakeProfit, 5, 1);
+  Take.LimitPrice = d("110");
+  expectInvalid(core::validateOcoPair(Stop, Take), "instrument");
+}
+
+TEST(OcoValidation, RejectsDifferentSides) {
+  OrderSpec Stop = spec(Side::Sell, OrderType::Stop, 5, 0);
+  Stop.StopPrice = d("90");
+  OrderSpec Take = spec(Side::Buy, OrderType::TakeProfit, 5, 0);
+  Take.LimitPrice = d("110");
+  expectInvalid(core::validateOcoPair(Stop, Take), "side");
+}
+
+TEST(OcoValidation, RejectsInvalidTypes) {
+  OrderSpec Stop = spec(Side::Sell, OrderType::Stop, 5, 0);
+  Stop.StopPrice = d("90");
+  OrderSpec Take = spec(Side::Sell, OrderType::TakeProfit, 5, 0);
+  Take.LimitPrice = d("110");
+  OrderSpec Limit = spec(Side::Sell, OrderType::Limit, 5, 0);
+  Limit.LimitPrice = d("105");
+  OrderSpec Market = spec(Side::Sell, OrderType::Market, 5, 0);
+  OrderSpec Trailing = spec(Side::Sell, OrderType::TrailingStop, 5, 0);
+  Trailing.TrailingPercent = d("5");
+
+  // Лимит + тейк-профит
+  expectInvalid(core::validateOcoPair(Limit, Take), "type");
+  // Стоп + стоп
+  expectInvalid(core::validateOcoPair(Stop, Stop), "type");
+  // Тейк + тейк
+  expectInvalid(core::validateOcoPair(Take, Take), "type");
+  // Рыночная + стоп
+  expectInvalid(core::validateOcoPair(Market, Stop), "type");
+  // Трейлинг + тейк
+  expectInvalid(core::validateOcoPair(Trailing, Take), "type");
+}
+
 } // namespace

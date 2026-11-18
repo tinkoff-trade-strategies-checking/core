@@ -89,4 +89,26 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
   return Validation{};
 }
 
+Validation validateOcoPair(const OrderSpec &First, const OrderSpec &Second) {
+  if (First.Instrument != Second.Instrument) {
+    return invalid("instrument");
+  }
+  if (First.OrderSide != Second.OrderSide) {
+    return invalid("side");
+  }
+  const bool FirstIsStop =
+      First.Type == OrderType::Stop || First.Type == OrderType::StopLimit;
+  const bool FirstIsTake = First.Type == OrderType::TakeProfit;
+  const bool SecondIsStop =
+      Second.Type == OrderType::Stop || Second.Type == OrderType::StopLimit;
+  const bool SecondIsTake = Second.Type == OrderType::TakeProfit;
+
+  const bool ValidTypes =
+      (FirstIsStop && SecondIsTake) || (FirstIsTake && SecondIsStop);
+  if (!ValidTypes) {
+    return invalid("type");
+  }
+  return Validation{};
+}
+
 } // namespace core

@@ -45,6 +45,11 @@ Validation
 SessionEngine::validateLegs(const std::vector<const OrderSpec *> &Legs) const {
   if (Status != SessionStatus::Running)
     return Validation{false, Reason::SessionNotActive, ""};
+  if (Legs.size() == 2) {
+    Validation OcoVerdict = validateOcoPair(*Legs[0], *Legs[1]);
+    if (!OcoVerdict.Ok)
+      return OcoVerdict;
+  }
   for (const OrderSpec *Leg : Legs) {
     Validation V = Exec.validate(*Leg, PortfolioState, *TimelineRef, Step);
     if (!V.Ok)
