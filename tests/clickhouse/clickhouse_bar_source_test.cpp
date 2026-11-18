@@ -321,4 +321,45 @@ TEST(ClickHouseBarSource, ParsesSecurity) {
   EXPECT_EQ(Sec.PriceStep, Decimal::parse("0.5"));
 }
 
+TEST(ClickHouseBarSource, AggregationParsesOhlcvAndLastAvailableAt) {
+  Fixture F;
+  F.CandleCount = "0\n";
+  F.Rows = "1792000000000\t1792000300000\t100.000000\t105.500000\t99."
+           "500000\t103.000000\t150\t15300.000000\n";
+  auto Source = F.make();
+  const auto Bars =
+      Source.load({kSnap, "SBER", 300, 1792000000000, 1792000600000});
+  ASSERT_EQ(Bars.size(), 1u);
+  EXPECT_EQ(Bars[0].Index, 0);
+  EXPECT_EQ(Bars[0].TsOpenMs, 1792000000000);
+  EXPECT_EQ(Bars[0].AvailableAtMs, 1792000300000);
+  EXPECT_EQ(Bars[0].Open, Decimal::parse("100.0"));
+  EXPECT_EQ(Bars[0].High, Decimal::parse("105.5"));
+  EXPECT_EQ(Bars[0].Low, Decimal::parse("99.5"));
+  EXPECT_EQ(Bars[0].Close, Decimal::parse("103.0"));
+  EXPECT_EQ(Bars[0].Volume, 150);
+  EXPECT_EQ(Bars[0].Value, Decimal::parse("15300.0"));
+}
+
+TEST(ClickHouseBarSource, AggregationParametersPassedCorrectly) {
+  Fixture F;
+  F.CandleCount = "0\n";
+  auto Source = F.make();
+  Source.load({kSnap, "GAZP", 900, 1000000, 2000000});
+  const Call &Last = F.Calls->back();
+  bool HasIntervalMs = false;
+  bool HasFromMs = false;
+  bool HasToMs = false;
+  for (const auto &[name, value] : Last.Params) {
+    if (name == "interval_ms" && value == "900000")
+      HasIntervalMs = true;
+    if (name == "from_ms" && value == "1000000")
+      HasFromMs = true;
+    if (name == "to_ms" && value == "2000000")
+      HasToMs = true;
+  }
+  EXPECT_TRUE(HasIntervalMs && HasFromMs && HasToMs);
+  EXPECT_NE(Last.Sql.find("ORDER BY bar_ts_open ASC"), std::string::npos);
+}
+
 } // namespace
