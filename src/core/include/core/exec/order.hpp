@@ -54,6 +54,9 @@ struct OrderSpec {
   std::int64_t Lots = 0;
   std::optional<Decimal> LimitPrice, StopPrice, TrailingPercent;
   TimeInForce Tif = TimeInForce::Gtc;
+  bool IsBlindPrice = false;
+
+  friend bool operator==(const OrderSpec &, const OrderSpec &) = default;
 };
 
 // Заявка в журнале сессии. -1 в ocoSiblingId и closedStep - «нет».
@@ -68,7 +71,7 @@ struct Order {
   std::int64_t FilledLots = 0;
   std::int64_t OcoSiblingId = -1;
   std::optional<Decimal> TrailingPeak, TrailingStopLevel;
-  bool Triggered = false; // стоп-лимит сработал
+  bool Triggered = false;       // стоп-лимит сработал
   std::int64_t ClosedStep = -1; // шаг, на котором заявка стала неактивной
 };
 

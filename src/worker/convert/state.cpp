@@ -80,6 +80,7 @@ core::OrderSpec specFromProto(const pb::OrderSpec &Spec,
   if (Spec.has_trailing_percent())
     Out.TrailingPercent = core::fromProto(Spec.trailing_percent());
   Out.Tif = tifFromProto(Spec.time_in_force());
+  Out.IsBlindPrice = Spec.is_blind_price();
   return Out;
 }
 
@@ -105,6 +106,7 @@ void specToProto(const core::OrderSpec &Spec, const core::Timeline &Timeline,
   if (Spec.TrailingPercent)
     core::toProto(*Spec.TrailingPercent, Out->mutable_trailing_percent());
   Out->set_time_in_force(toProto(Spec.Tif));
+  Out->set_is_blind_price(Spec.IsBlindPrice);
 }
 
 } // namespace

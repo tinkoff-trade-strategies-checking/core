@@ -250,4 +250,38 @@ BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
   return Out;
 }
 
+OrderSpec convertBlindOrder(const OrderSpec &Spec, const Timeline &Timeline,
+                            const std::vector<Instrument> &Instruments,
+                            std::int64_t UpToStep) {
+  if (!Spec.IsBlindPrice)
+    return Spec;
+
+  OrderSpec Out = Spec;
+  if (Spec.Instrument < 0 ||
+      static_cast<std::size_t>(Spec.Instrument) >= Instruments.size())
+    return Out;
+
+  const StepBar *FirstBar =
+      firstSessionBar(Timeline, Spec.Instrument, UpToStep);
+  if (FirstBar == nullptr || FirstBar->Open <= Decimal::zero())
+    return Out;
+
+  const Decimal &P0 = FirstBar->Open;
+  const Decimal &PriceStep =
+      Instruments[static_cast<std::size_t>(Spec.Instrument)].PriceStep;
+  const RoundingMode Mode =
+      Spec.OrderSide == Side::Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
+
+  if (Out.LimitPrice && *Out.LimitPrice > Decimal::zero()) {
+    Out.LimitPrice = Out.LimitPrice->mulDiv(P0, kHundred, Decimal::kScale, Mode)
+                         .roundToStep(PriceStep, Mode);
+  }
+  if (Out.StopPrice && *Out.StopPrice > Decimal::zero()) {
+    Out.StopPrice = Out.StopPrice->mulDiv(P0, kHundred, Decimal::kScale, Mode)
+                        .roundToStep(PriceStep, Mode);
+  }
+  Out.IsBlindPrice = false;
+  return Out;
+}
+
 } // namespace core
