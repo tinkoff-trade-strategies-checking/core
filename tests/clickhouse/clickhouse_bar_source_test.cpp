@@ -360,6 +360,35 @@ TEST(ClickHouseBarSource, AggregationParametersPassedCorrectly) {
   }
   EXPECT_TRUE(HasIntervalMs && HasFromMs && HasToMs);
   EXPECT_NE(Last.Sql.find("ORDER BY bar_ts_open ASC"), std::string::npos);
+  // Верхняя граница в WHERE (core#27), чтобы не сканировать весь снапшот
+  EXPECT_NE(Last.Sql.find("ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
+                          "{interval_ms:Int64}, 'UTC')"),
+            std::string::npos);
+}
+
+TEST(ClickHouseBarSource, DailyAggregationParametersAndSql) {
+  Fixture F;
+  F.CandleCount = "0\n";
+  auto Source = F.make();
+  Source.load({kSnap, "GAZP", 86400, 1000000, 2000000});
+  const Call &Last = F.Calls->back();
+  bool HasIntervalMs = false;
+  bool HasFromMs = false;
+  bool HasToMs = false;
+  for (const auto &[name, value] : Last.Params) {
+    if (name == "interval_ms" && value == "86400000")
+      HasIntervalMs = true;
+    if (name == "from_ms" && value == "1000000")
+      HasFromMs = true;
+    if (name == "to_ms" && value == "2000000")
+      HasToMs = true;
+  }
+  EXPECT_TRUE(HasIntervalMs && HasFromMs && HasToMs);
+  EXPECT_NE(Last.Sql.find("toStartOfDay"), std::string::npos);
+  // Верхняя граница в WHERE (core#27)
+  EXPECT_NE(Last.Sql.find("ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
+                          "{interval_ms:Int64}, 'UTC')"),
+            std::string::npos);
 }
 
 } // namespace

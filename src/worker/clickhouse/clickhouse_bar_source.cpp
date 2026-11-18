@@ -109,6 +109,8 @@ const char *const kAggregateMinutesSql =
     "WHERE snapshot_id = {snapshot_id:UUID} AND secid = {secid:String} AND "
     "interval_sec = 60 "
     "AND ts_open >= fromUnixTimestamp64Milli({from_ms:Int64}, 'UTC') "
+    "AND ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
+    "{interval_ms:Int64}, 'UTC') "
     "GROUP BY bar_ts_open "
     "HAVING bar_ts_open >= {from_ms:Int64} "
     "AND bar_ts_open < {to_ms:Int64} "
@@ -130,6 +132,8 @@ const char *const kAggregateDailySql =
     "WHERE snapshot_id = {snapshot_id:UUID} AND secid = {secid:String} AND "
     "interval_sec = 60 "
     "AND ts_open >= fromUnixTimestamp64Milli({from_ms:Int64}, 'UTC') "
+    "AND ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
+    "{interval_ms:Int64}, 'UTC') "
     "GROUP BY bar_ts_open "
     "HAVING bar_ts_open >= {from_ms:Int64} "
     "AND bar_ts_open < {to_ms:Int64} "
@@ -253,10 +257,13 @@ ClickHouseBarSource::load(const core::BarRequest &Request) {
     Params.emplace_back("to_ms", std::to_string(Request.ToMs));
     Rows = parseTabSeparated(Client->query(kCandlesSql, Params));
   } else if (Request.IntervalSec == 86400) {
-    QueryParams Params{{"snapshot_id", Request.SnapshotId},
-                       {"secid", escapeParam(Request.Secid)},
-                       {"from_ms", std::to_string(Request.FromMs)},
-                       {"to_ms", std::to_string(Request.ToMs)}};
+    QueryParams Params{
+        {"snapshot_id", Request.SnapshotId},
+        {"secid", escapeParam(Request.Secid)},
+        {"interval_ms",
+         std::to_string(static_cast<std::int64_t>(Request.IntervalSec) * 1000)},
+        {"from_ms", std::to_string(Request.FromMs)},
+        {"to_ms", std::to_string(Request.ToMs)}};
     Rows = parseTabSeparated(Client->query(kAggregateDailySql, Params));
   } else {
     QueryParams Params{
