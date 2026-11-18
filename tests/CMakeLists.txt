@@ -8,7 +8,7 @@ add_executable(core_tests
   build/flags_test.cpp
   ${support_sources})
 target_include_directories(core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(core_tests PRIVATE core::simulation_core GTest::gtest_main core_warnings)
+target_link_libraries(core_tests PRIVATE core::simulation_core GTest::gtest_main rapidcheck_gtest core_warnings)
 # Файлы с тестовыми данными (эталонный портфель): testdata/ в корне репозитория.
 target_compile_definitions(core_tests PRIVATE CORE_TESTDATA_DIR="${PROJECT_SOURCE_DIR}/testdata")
 
