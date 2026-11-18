@@ -27,6 +27,8 @@ service SimulationWorker {
   rpc ReplaySession(ReplaySessionRequest) returns (ReplaySessionResponse);
   // Бары по диапазону шагов общей шкалы времени сессии.
   rpc GetBars(GetBarsRequest) returns (GetBarsResponse);
+  // Оценка заявки по close последнего бара до курсора (без изменения журнала, INV-1, INV-8).
+  rpc EstimateOrder(EstimateOrderRequest) returns (EstimateOrderResponse);
 }
 
 message PingRequest {}
@@ -487,4 +489,26 @@ message GetBarsResponse {
   int64 total_steps = 1;
   repeated Bar bars = 2;
   int64 warmup_steps = 3;        // шагов прогрева: допустимый from_step начинается с -warmup_steps
+}
+
+message EstimateOrderRequest {
+  MarketSpec market = 1;
+  repeated JournalEntry journal = 2;
+  int64 up_to_step = 3;
+  OrderSpec order = 4;
+}
+
+message EstimateOrderResponse {
+  bool can_place = 1;
+  Reason reason = 2;
+  string invalid_field = 3;
+  Decimal reference_price = 4;      // close последнего бара (шаг <= up_to_step)
+  Decimal amount = 5;               // сумма заявки в ₽ (2 знака HALF_UP)
+  Decimal commission = 6;           // комиссия брокера в ₽ (2 знака CEILING)
+  Decimal exchange_fee = 7;         // биржевой сбор в ₽ (2 знака CEILING)
+  Decimal required_cash = 8;        // сумма с комиссией и сбором как при проверке денег
+  Decimal amount_pct = 9;           // % от начального капитала (2 знака HALF_UP)
+  Decimal commission_pct = 10;      // % от начального капитала (2 знака HALF_UP)
+  Decimal exchange_fee_pct = 11;    // % от начального капитала (2 знака HALF_UP)
+  Decimal required_cash_pct = 12;   // % от начального капитала (2 знака HALF_UP)
 }

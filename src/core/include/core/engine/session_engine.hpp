@@ -133,4 +133,25 @@ ReplayResult replaySession(const SessionSpec &Spec,
                            std::span<const JournalEntry> Journal,
                            std::int64_t UpToStep, std::int64_t EventsFromStep);
 
+struct OrderEstimate {
+  Validation Check;
+  Decimal ReferencePrice;
+  Decimal Value;
+  Decimal Commission;
+  Decimal Fee;
+  Decimal RequiredCash;
+  Decimal ValuePct;
+  Decimal CommissionPct;
+  Decimal FeePct;
+  Decimal RequiredCashPct;
+};
+
+// Оценка заявки на шаге UpToStep по close последнего бара (шаг <= курсора)
+// с проверкой денег/позиции как при подаче (`decisions.md`, «Заявки»).
+// Журнал не меняется (INV-8), бары позже UpToStep не используются (INV-1).
+OrderEstimate estimateOrder(const SessionSpec &Spec,
+                            std::shared_ptr<const Timeline> Timeline,
+                            std::span<const JournalEntry> Journal,
+                            std::int64_t UpToStep, const OrderSpec &Order);
+
 } // namespace core

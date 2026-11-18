@@ -24,6 +24,9 @@ public:
   grpc::Status GetBars(grpc::ServerContext *Context,
                        const pb::GetBarsRequest *Request,
                        pb::GetBarsResponse *Response) override;
+  grpc::Status EstimateOrder(grpc::ServerContext *Context,
+                             const pb::EstimateOrderRequest *Request,
+                             pb::EstimateOrderResponse *Response) override;
 
 private:
   Context HandlerContext;

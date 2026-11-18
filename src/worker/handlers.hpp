@@ -33,4 +33,7 @@ grpc::Status handleReplaySession(Context &Context,
                                  pb::ReplaySessionResponse *Response);
 grpc::Status handleGetBars(Context &Context, const pb::GetBarsRequest &Request,
                            pb::GetBarsResponse *Response);
+grpc::Status handleEstimateOrder(Context &Context,
+                                 const pb::EstimateOrderRequest &Request,
+                                 pb::EstimateOrderResponse *Response);
 } // namespace worker

@@ -94,4 +94,10 @@ bool cancelOrder(std::vector<Order> &Orders, std::int64_t OrderId,
 // полем ("instrument", "side", "type").
 Validation validateOcoPair(const OrderSpec &First, const OrderSpec &Second);
 
+// Сумма денег, необходимая при подаче заявки на покупку по цене Price:
+// Price * Lots * LotSize * (1 + CommissionRate + ExchangeFeeRate) вверх
+// (`decisions.md`, «Заявки»).
+Decimal requiredCashForOrder(const Decimal &Price, std::int64_t Lots,
+                             std::int64_t LotSize, const CostConfig &Costs);
+
 } // namespace core
