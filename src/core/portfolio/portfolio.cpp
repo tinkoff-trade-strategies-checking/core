@@ -74,7 +74,7 @@ void Portfolio::applyFill(int Instrument, Side Side, std::int64_t Lots,
     Pos.Lots += Lots;
     Pos.AvgPrice = NewAvg;
     Pos.Open.push_back(
-        OpenLot{Step, OrderId, Lots, Lots, Value, Commission + Fee});
+        OpenLot{Step, OrderId, Lots, Lots, Price, Value, Commission + Fee});
     return;
   }
 
@@ -96,6 +96,8 @@ void Portfolio::applyFill(int Instrument, Side Side, std::int64_t Lots,
     Trip.ExitStep = Step;
     Trip.EntryOrderId = Buy.OrderId;
     Trip.Lots = Matched;
+    Trip.EntryPrice = Buy.Price;
+    Trip.ExitPrice = Price;
     Trip.EntryValue = share(Buy.Value, Matched, Buy.Lots);
     Trip.ExitValue = share(Value, Matched, Lots);
     Trip.Costs =

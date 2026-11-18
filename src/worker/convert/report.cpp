@@ -99,7 +99,8 @@ metricsInput(const core::SessionEngine &Engine,
   return In;
 }
 
-void toProto(const core::Report &Report, pb::Report *Out) {
+void toProto(const core::Report &Report, const core::Timeline &Timeline,
+             pb::Report *Out) {
   metricsToProto(Report.Stats, Out->mutable_metrics());
   pb::CostTotals *Costs = Out->mutable_costs();
   core::toProto(Report.Costs.Commission, Costs->mutable_commission());
@@ -116,6 +117,19 @@ void toProto(const core::Report &Report, pb::Report *Out) {
     pb::EquityPoint *Point = Out->add_benchmark_equity();
     Point->set_step(P.Step);
     core::toProto(P.Equity, Point->mutable_equity());
+  }
+  for (const core::RoundTrip &T : Report.RoundTrips) {
+    pb::RoundTrip *Trip = Out->add_round_trips();
+    Trip->set_instrument_key(
+        Timeline.instruments().at(static_cast<std::size_t>(T.Instrument)).Key);
+    Trip->set_entry_step(T.EntryStep);
+    Trip->set_exit_step(T.ExitStep);
+    Trip->set_lots(T.Lots);
+    core::toProto(T.EntryPrice, Trip->mutable_entry_price());
+    core::toProto(T.ExitPrice, Trip->mutable_exit_price());
+    core::toProto(T.ExitValue - T.EntryValue, Trip->mutable_gross_pnl());
+    core::toProto(T.Costs, Trip->mutable_costs());
+    core::toProto(T.NetPnl, Trip->mutable_net_pnl());
   }
 }
 

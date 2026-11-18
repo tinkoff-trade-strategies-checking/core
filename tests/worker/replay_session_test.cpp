@@ -319,6 +319,38 @@ TEST_F(ReplaySession, NoDataIsFailedPrecondition) {
             grpc::StatusCode::FAILED_PRECONDITION);
 }
 
+// Пары FIFO попадают в отчёт: ключ бумаги, шаги, лоты, цены, P&L до и после
+// издержек сходятся с покупкой и продажей из ответа.
+TEST_F(ReplaySession, ReportRoundTrips) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5),
+             marketOrder(1, 4, "A", pb::SELL, 5)};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(9, -1, &Response, false, true).ok());
+  ASSERT_EQ(Response.fills_size(), 2);
+  const pb::Report &Report = Response.report();
+  ASSERT_EQ(Report.round_trips_size(), 1);
+  EXPECT_EQ(Report.metrics().round_trips(), 1);
+  const pb::RoundTrip &T = Report.round_trips(0);
+  const pb::Fill &Buy = Response.fills(0);
+  const pb::Fill &Sell = Response.fills(1);
+  EXPECT_EQ(T.instrument_key(), Buy.instrument_key());
+  EXPECT_EQ(T.entry_step(), Buy.step());
+  EXPECT_EQ(T.exit_step(), Sell.step());
+  EXPECT_EQ(T.lots(), 5);
+  EXPECT_EQ(T.entry_price().SerializeAsString(),
+            Buy.price().SerializeAsString());
+  EXPECT_EQ(T.exit_price().SerializeAsString(),
+            Sell.price().SerializeAsString());
+  const auto Nanos = [](const pb::Decimal &D) {
+    return D.units() * 1'000'000'000LL + D.nano();
+  };
+  EXPECT_EQ(Nanos(T.gross_pnl()), Nanos(Sell.value()) - Nanos(Buy.value()));
+  EXPECT_EQ(Nanos(T.net_pnl()), Nanos(T.gross_pnl()) - Nanos(T.costs()));
+  EXPECT_EQ(Nanos(T.costs()),
+            Nanos(Buy.commission()) + Nanos(Buy.exchange_fee()) +
+                Nanos(Sell.commission()) + Nanos(Sell.exchange_fee()));
+}
+
 // INV-4: один и тот же запрос даёт побайтно одинаковый ответ.
 TEST_F(ReplaySession, Deterministic) {
   Journal = {marketOrder(0, 0, "A", pb::BUY, 5),

@@ -29,6 +29,8 @@ metricsInput(const core::SessionEngine &Engine,
 
 // Метрики, издержки, кривая стоимости и итоговая стоимость; необязательные
 // метрики без значения не задаются.
-void toProto(const core::Report &Report, pb::Report *Out);
+// Пары FIFO получают ключ бумаги из шкалы времени.
+void toProto(const core::Report &Report, const core::Timeline &Timeline,
+             pb::Report *Out);
 
 } // namespace worker
