@@ -36,4 +36,7 @@ grpc::Status handleGetBars(Context &Context, const pb::GetBarsRequest &Request,
 grpc::Status handleEstimateOrder(Context &Context,
                                  const pb::EstimateOrderRequest &Request,
                                  pb::EstimateOrderResponse *Response);
+grpc::Status handleClassifyPeriods(Context &Context,
+                                   const pb::ClassifyPeriodsRequest &Request,
+                                   pb::ClassifyPeriodsResponse *Response);
 } // namespace worker

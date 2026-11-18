@@ -27,6 +27,9 @@ public:
   grpc::Status EstimateOrder(grpc::ServerContext *Context,
                              const pb::EstimateOrderRequest *Request,
                              pb::EstimateOrderResponse *Response) override;
+  grpc::Status ClassifyPeriods(grpc::ServerContext *Context,
+                               const pb::ClassifyPeriodsRequest *Request,
+                               pb::ClassifyPeriodsResponse *Response) override;
 
 private:
   Context HandlerContext;

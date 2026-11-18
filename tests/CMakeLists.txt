@@ -22,7 +22,7 @@ if(CORE_BUILD_WORKER)
 endif()
 
 # Подкаталоги областей добавляют *_test.cpp к core_tests (и worker_tests). Сначала executables, потом области.
-foreach(area money market portfolio exec engine report blind)
+foreach(area money market portfolio exec engine report blind analysis)
   add_subdirectory(${area})
 endforeach()
 

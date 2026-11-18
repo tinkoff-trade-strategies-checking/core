@@ -29,6 +29,8 @@ service SimulationWorker {
   rpc GetBars(GetBarsRequest) returns (GetBarsResponse);
   // Оценка заявки по close последнего бара до курсора (без изменения журнала, INV-1, INV-8).
   rpc EstimateOrder(EstimateOrderRequest) returns (EstimateOrderResponse);
+  // Классификация исторических периодов по волатильности и просадке IMOEX (`decisions.md`, «Стресс-сценарии»).
+  rpc ClassifyPeriods(ClassifyPeriodsRequest) returns (ClassifyPeriodsResponse);
 }
 
 message PingRequest {}
@@ -511,4 +513,34 @@ message EstimateOrderResponse {
   Decimal commission_pct = 10;      // % от начального капитала (2 знака HALF_UP)
   Decimal exchange_fee_pct = 11;    // % от начального капитала (2 знака HALF_UP)
   Decimal required_cash_pct = 12;   // % от начального капитала (2 знака HALF_UP)
+}
+
+enum PeriodCategory {
+  PERIOD_CATEGORY_UNSPECIFIED = 0;
+  CALM = 1;
+  MEDIUM = 2;
+  STRESS = 3;
+}
+
+message PeriodWindow {
+  string start_date = 1;     // ISO yyyy-mm-dd
+  string end_date = 2;       // ISO yyyy-mm-dd
+  double sigma = 3;          // годовая реализованная волатильность
+  double mdd = 4;            // максимальная просадка (доля 0..1)
+  PeriodCategory category = 5;
+}
+
+message ClassifyPeriodsRequest {
+  string snapshot_id = 1;
+  int32 window_length = 2;          // длина окна L в торговых днях (>= 3)
+  string from_date = 3;             // ISO yyyy-mm-dd, включительно
+  string to_date = 4;               // ISO yyyy-mm-dd, включительно
+  optional string start_date = 5;   // «своя дата»: вернуть одно окно с этим началом
+  string benchmark_ticker = 6;      // пусто -> "IMOEX"
+}
+
+message ClassifyPeriodsResponse {
+  repeated PeriodWindow windows = 1;
+  double p33 = 2;
+  double p80 = 3;
 }
