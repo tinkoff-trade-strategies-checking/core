@@ -58,6 +58,46 @@ void TimelineCache::clear() {
   std::lock_guard<std::mutex> Lock(Mutex);
   Items.clear();
   Index.clear();
+  PrevDays.clear();
+  PrevDayIndex.clear();
+}
+
+std::optional<std::int32_t>
+TimelineCache::getPreviousTradingDay(const std::string &SnapshotId,
+                                     std::int32_t FirstYmd) {
+  std::lock_guard<std::mutex> Lock(Mutex);
+  const auto It = PrevDayIndex.find(PrevDayKey{SnapshotId, FirstYmd});
+  if (It == PrevDayIndex.end()) {
+    return std::nullopt;
+  }
+  PrevDays.splice(PrevDays.begin(), PrevDays, It->second);
+  return It->second->second;
+}
+
+void TimelineCache::putPreviousTradingDay(std::string SnapshotId,
+                                          std::int32_t FirstYmd,
+                                          std::int32_t PrevYmd) {
+  std::lock_guard<std::mutex> Lock(Mutex);
+  PrevDayKey Key{std::move(SnapshotId), FirstYmd};
+  const auto It = PrevDayIndex.find(Key);
+  if (It != PrevDayIndex.end()) {
+    It->second->second = PrevYmd;
+    PrevDays.splice(PrevDays.begin(), PrevDays, It->second);
+    return;
+  }
+
+  PrevDays.emplace_front(Key, PrevYmd);
+  try {
+    PrevDayIndex.emplace(std::move(Key), PrevDays.begin());
+  } catch (...) {
+    PrevDays.pop_front();
+    throw;
+  }
+  if (PrevDays.size() > Capacity) {
+    const auto Last = --PrevDays.end();
+    PrevDayIndex.erase(Last->first);
+    PrevDays.pop_back();
+  }
 }
 
 } // namespace worker

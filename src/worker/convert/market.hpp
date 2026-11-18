@@ -51,14 +51,15 @@ std::optional<core::BenchmarkSeries>
 loadBenchmark(Context &Context, const pb::MarketSpec &Market,
               std::int32_t UpToYmd = std::numeric_limits<std::int32_t>::max());
 
-// Дневной ряд ставок RUONIA до даты UpToYmd включительно.
 // Торговый день перед первым днём шкалы: последний торговый день календаря
-// версии данных раньше него (окно поиска растёт до года); нет в календаре -
-// последний день прогрева шкалы, если он раньше первого дня; иначе 0. INV-1:
-// только прошлое.
+// версии данных раньше него (окно поиска растёт до года: 31…366 дней); нет в
+// календаре - последний день прогрева шкалы, если он раньше первого дня; иначе
+// 0. При наличии Context.Cache ответ календаря кэшируется. INV-1: только
+// прошлое.
 std::int32_t previousTradingDay(Context &Context, const pb::MarketSpec &Market,
                                 const core::Timeline &Timeline);
 
+// Дневной ряд ставок RUONIA до даты UpToYmd включительно.
 core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,
                               std::int32_t UpToYmd);
 

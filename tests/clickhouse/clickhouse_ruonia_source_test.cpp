@@ -102,6 +102,26 @@ TEST(ClickHouseRuoniaSource, BadRateThrowsMarketDataError) {
                core::MarketDataError);
 }
 
+TEST(ClickHouseRuoniaSource, ZeroRateThrowsMarketDataError) {
+  FakeRuoniaClient F;
+  F.RuoniaRows = "2024-01-09\t0\n";
+  worker::ClickHouseRuoniaSource Source(F.client());
+  EXPECT_THROW((void)Source.ruoniaRates(kSnap, 20240115),
+               core::MarketDataError);
+
+  F.RuoniaRows = "2024-01-09\t0.00\n";
+  EXPECT_THROW((void)Source.ruoniaRates(kSnap, 20240115),
+               core::MarketDataError);
+}
+
+TEST(ClickHouseRuoniaSource, NegativeRateThrowsMarketDataError) {
+  FakeRuoniaClient F;
+  F.RuoniaRows = "2024-01-09\t-1.5\n";
+  worker::ClickHouseRuoniaSource Source(F.client());
+  EXPECT_THROW((void)Source.ruoniaRates(kSnap, 20240115),
+               core::MarketDataError);
+}
+
 TEST(ClickHouseRuoniaSource, BadDateThrowsMarketDataError) {
   FakeRuoniaClient F;
   F.RuoniaRows = "2024-13-40\t15.25\n";

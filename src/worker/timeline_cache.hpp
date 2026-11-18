@@ -6,7 +6,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/market/instrument.hpp"
@@ -56,13 +58,24 @@ public:
   // Очистить кэш.
   void clear();
 
+  // Кэш предыдущего торгового дня из календаря по ключу (snapshot_id,
+  // FirstYmd). Значение 0 означает, что в окне поиска торговый день не найден.
+  std::optional<std::int32_t>
+  getPreviousTradingDay(const std::string &SnapshotId, std::int32_t FirstYmd);
+  void putPreviousTradingDay(std::string SnapshotId, std::int32_t FirstYmd,
+                             std::int32_t PrevYmd);
+
 private:
   using Item = std::pair<TimelineKey, std::shared_ptr<const core::Timeline>>;
+  using PrevDayKey = std::pair<std::string, std::int32_t>;
+  using PrevDayItem = std::pair<PrevDayKey, std::int32_t>;
 
   const std::size_t Capacity;
   mutable std::mutex Mutex;
   std::list<Item> Items;
   std::map<TimelineKey, std::list<Item>::iterator> Index;
+  std::list<PrevDayItem> PrevDays;
+  std::map<PrevDayKey, std::list<PrevDayItem>::iterator> PrevDayIndex;
 };
 
 } // namespace worker
