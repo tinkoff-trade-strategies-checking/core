@@ -19,10 +19,6 @@ namespace {
 
 core::Timeframe timeframeFromProto(pb::Timeframe Timeframe) {
   switch (Timeframe) {
-  case pb::S1:
-    return core::Timeframe::S1;
-  case pb::S10:
-    return core::Timeframe::S10;
   case pb::M1:
     return core::Timeframe::M1;
   case pb::M5:

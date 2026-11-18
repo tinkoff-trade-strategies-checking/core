@@ -116,38 +116,19 @@ TEST_F(ClickHouseIntegration, BarNotYetAvailableByToMsIsExcluded) {
       1u);
 }
 
-TEST_F(ClickHouseIntegration, CandlesAggregatedFromTrades) {
-  // SYNTH: только сделки; свечей в candles нет. Ожидания - из fixtures/README и
-  // test_clickhouse.py.
-  const auto Bars = Source->load(
-      {kFixture, "SYNTH", 60, utcMs(2026, 10, 1), utcMs(2026, 11, 30)});
-  ASSERT_EQ(Bars.size(), 6u);
-  // 10:00 МСК = 07:00 UTC
-  EXPECT_EQ(Bars[0].TsOpenMs, utcMs(2026, 10, 28, 7, 0));
-  EXPECT_EQ(Bars[0].Open, Decimal::parse("100"));
-  EXPECT_EQ(Bars[0].High, Decimal::parse("101.5"));
-  EXPECT_EQ(Bars[0].Low, Decimal::parse("99.5"));
-  EXPECT_EQ(Bars[0].Close, Decimal::parse("99.5"));
-  EXPECT_EQ(Bars[0].Volume, 42);
-  EXPECT_EQ(Bars[0].Value, Decimal::parse("4224"));
-  EXPECT_EQ(Bars[0].AvailableAtMs, utcMs(2026, 10, 28, 7, 1)); // закрытие свечи
-  // Две сделки в одну микросекунду: close по большему trade_no.
-  EXPECT_EQ(Bars[1].Open, Decimal::parse("100"));
-  EXPECT_EQ(Bars[1].High, Decimal::parse("102"));
-  EXPECT_EQ(Bars[1].Low, Decimal::parse("98"));
-  EXPECT_EQ(Bars[1].Close, Decimal::parse("98"));
-  EXPECT_EQ(Bars[1].Volume, 13);
-  for (std::size_t I = 0; I < Bars.size(); ++I)
-    EXPECT_EQ(Bars[I].Index, static_cast<std::int64_t>(I));
-
-  // Сутки по Москве: сделки 23:59:59.999999 и 00:00:00 МСК попадают в разные
-  // дни.
-  const auto Days = Source->load(
-      {kFixture, "SYNTH", 86400, utcMs(2026, 10, 1), utcMs(2026, 11, 30)});
-  ASSERT_EQ(Days.size(), 2u);
-  EXPECT_EQ(Days[0].TsOpenMs, utcMs(2026, 10, 27, 21));
-  EXPECT_EQ(Days[0].Volume, 65);
-  EXPECT_EQ(Days[1].Volume, 10);
+TEST_F(ClickHouseIntegration, CandlesAggregatedFromMinutes) {
+  // SBER: 5-минутных свечей в таблице candles нет, они агрегируются из
+  // минутных.
+  const std::int64_t T0 = utcMs(2026, 10, 28, 3, 59);
+  const auto FiveMin = Source->load({kFixture, "SBER", 300, T0, T0 + 600000});
+  ASSERT_FALSE(FiveMin.empty());
+  for (std::size_t I = 0; I < FiveMin.size(); ++I) {
+    EXPECT_EQ(FiveMin[I].Index, static_cast<std::int64_t>(I));
+    EXPECT_GE(FiveMin[I].AvailableAtMs, FiveMin[I].TsOpenMs);
+    if (I > 0) {
+      EXPECT_LT(FiveMin[I - 1].TsOpenMs, FiveMin[I].TsOpenMs);
+    }
+  }
 }
 
 TEST_F(ClickHouseIntegration, LoadIsDeterministic) {

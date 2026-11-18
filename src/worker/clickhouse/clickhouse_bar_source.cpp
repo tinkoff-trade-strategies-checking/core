@@ -11,9 +11,6 @@ namespace worker {
 
 namespace {
 
-constexpr std::int32_t kMaxTradeAggregationSec =
-    86400; // предел candles_from_trades
-
 // UUID в каноническом виде 8-4-4-4-12; иное ClickHouse всё равно отвергнет, но
 // так ответ однозначно SnapshotNotFound, а не ошибка сервера.
 bool looksLikeUuid(const std::string &S) {
@@ -97,17 +94,47 @@ const char *const kCandlesSql =
     "AND available_at <= fromUnixTimestamp64Milli({to_ms:Int64}, 'UTC') "
     "ORDER BY ts_open ASC FORMAT TabSeparated";
 
-const char *const kTradesSql =
-    "SELECT toUnixTimestamp64Milli(ts_open), "
-    "toUnixTimestamp64Milli(available_at), "
-    "open, high, low, close, volume, value "
-    "FROM candles_from_trades(snapshot_id = {snapshot_id:UUID}, interval_sec = "
-    "{interval_sec:UInt32}) "
-    "WHERE secid = {secid:String} "
+const char *const kAggregateMinutesSql =
+    "SELECT intDiv(toUnixTimestamp64Milli(ts_open), {interval_ms:Int64}) * "
+    "{interval_ms:Int64} AS bar_ts_open, "
+    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS "
+    "bar_available_at, "
+    "argMin(open, ts_open) AS bar_open, "
+    "max(high) AS bar_high, "
+    "min(low) AS bar_low, "
+    "argMax(close, ts_open) AS bar_close, "
+    "sum(volume) AS bar_volume, "
+    "sum(value) AS bar_value "
+    "FROM candles "
+    "WHERE snapshot_id = {snapshot_id:UUID} AND secid = {secid:String} AND "
+    "interval_sec = 60 "
     "AND ts_open >= fromUnixTimestamp64Milli({from_ms:Int64}, 'UTC') "
-    "AND ts_open < fromUnixTimestamp64Milli({to_ms:Int64}, 'UTC') "
-    "AND available_at <= fromUnixTimestamp64Milli({to_ms:Int64}, 'UTC') "
-    "ORDER BY ts_open ASC FORMAT TabSeparated";
+    "GROUP BY bar_ts_open "
+    "HAVING bar_ts_open >= {from_ms:Int64} "
+    "AND bar_ts_open < {to_ms:Int64} "
+    "AND bar_available_at <= {to_ms:Int64} "
+    "ORDER BY bar_ts_open ASC FORMAT TabSeparated";
+
+const char *const kAggregateDailySql =
+    "SELECT toUnixTimestamp64Milli(toDateTime64(toStartOfDay(ts_open, "
+    "'Europe/Moscow'), 3, 'Europe/Moscow')) AS bar_ts_open, "
+    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS "
+    "bar_available_at, "
+    "argMin(open, ts_open) AS bar_open, "
+    "max(high) AS bar_high, "
+    "min(low) AS bar_low, "
+    "argMax(close, ts_open) AS bar_close, "
+    "sum(volume) AS bar_volume, "
+    "sum(value) AS bar_value "
+    "FROM candles "
+    "WHERE snapshot_id = {snapshot_id:UUID} AND secid = {secid:String} AND "
+    "interval_sec = 60 "
+    "AND ts_open >= fromUnixTimestamp64Milli({from_ms:Int64}, 'UTC') "
+    "GROUP BY bar_ts_open "
+    "HAVING bar_ts_open >= {from_ms:Int64} "
+    "AND bar_ts_open < {to_ms:Int64} "
+    "AND bar_available_at <= {to_ms:Int64} "
+    "ORDER BY bar_ts_open ASC FORMAT TabSeparated";
 
 } // namespace
 
@@ -179,8 +206,25 @@ std::int64_t ClickHouseBarSource::requireSecurity(const std::string &SnapshotId,
 
 std::vector<core::Bar>
 ClickHouseBarSource::load(const core::BarRequest &Request) {
-  if (Request.IntervalSec < 1)
+  if (Request.IntervalSec < 1) {
     throw std::invalid_argument("BarRequest: intervalSec должен быть >= 1");
+  }
+  if (Request.IntervalSec < 60) {
+    throw IntervalUnavailable("интервал " +
+                              std::to_string(Request.IntervalSec) +
+                              " с меньше 1 мин и не хранится в архиве");
+  }
+  if (Request.IntervalSec > 86400) {
+    throw IntervalUnavailable("интервал " +
+                              std::to_string(Request.IntervalSec) +
+                              " с не хранится как свечи и не агрегируется из "
+                              "минутных свечей (максимум 86400)");
+  }
+  if (Request.IntervalSec % 60 != 0) {
+    throw IntervalUnavailable("интервал " +
+                              std::to_string(Request.IntervalSec) +
+                              " с не кратен 1 мин");
+  }
   requireReadySnapshot(Request.SnapshotId);
   if (requireSecurity(Request.SnapshotId, Request.Secid) > 1) {
     throw core::MarketDataError(
@@ -202,18 +246,28 @@ ClickHouseBarSource::load(const core::BarRequest &Request) {
     throw core::MarketDataError("ClickHouse: неожиданный ответ candles");
   const bool FromCandles = parseInt64(Stored[0][0], "count") > 0;
 
-  if (!FromCandles && Request.IntervalSec > kMaxTradeAggregationSec) {
-    throw IntervalUnavailable("интервал " +
-                              std::to_string(Request.IntervalSec) +
-                              " с не хранится как свечи и не агрегируется из "
-                              "сделок (максимум 86400)");
+  std::vector<std::vector<std::string>> Rows;
+  if (FromCandles) {
+    QueryParams Params = Base;
+    Params.emplace_back("from_ms", std::to_string(Request.FromMs));
+    Params.emplace_back("to_ms", std::to_string(Request.ToMs));
+    Rows = parseTabSeparated(Client->query(kCandlesSql, Params));
+  } else if (Request.IntervalSec == 86400) {
+    QueryParams Params{{"snapshot_id", Request.SnapshotId},
+                       {"secid", escapeParam(Request.Secid)},
+                       {"from_ms", std::to_string(Request.FromMs)},
+                       {"to_ms", std::to_string(Request.ToMs)}};
+    Rows = parseTabSeparated(Client->query(kAggregateDailySql, Params));
+  } else {
+    QueryParams Params{
+        {"snapshot_id", Request.SnapshotId},
+        {"secid", escapeParam(Request.Secid)},
+        {"interval_ms",
+         std::to_string(static_cast<std::int64_t>(Request.IntervalSec) * 1000)},
+        {"from_ms", std::to_string(Request.FromMs)},
+        {"to_ms", std::to_string(Request.ToMs)}};
+    Rows = parseTabSeparated(Client->query(kAggregateMinutesSql, Params));
   }
-
-  QueryParams Params = Base;
-  Params.emplace_back("from_ms", std::to_string(Request.FromMs));
-  Params.emplace_back("to_ms", std::to_string(Request.ToMs));
-  const auto Rows = parseTabSeparated(
-      Client->query(FromCandles ? kCandlesSql : kTradesSql, Params));
 
   std::vector<core::Bar> Bars;
   Bars.reserve(Rows.size());
