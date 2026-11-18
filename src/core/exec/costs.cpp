@@ -6,7 +6,7 @@ namespace core {
 
 CostConfig CostConfig::defaults() {
   CostConfig C;
-  C.CommissionRate = Decimal::parse("0.0005");
+  C.CommissionRate = Decimal::parse("0.003");
   C.ExchangeFeeRate = Decimal::parse("0.0001");
   C.Spread = Decimal::parse("0.001");
   C.SlippageKappa = Decimal::parse("0.1");

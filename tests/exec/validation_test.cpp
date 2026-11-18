@@ -177,13 +177,13 @@ TEST(Validation, TakeProfitMustBeAboveClose) {
 }
 
 TEST(Validation, InsufficientCashUsesLastCloseWithCommissionAndFee) {
-  // 100 лотов * 10 * 100 = 100 000; с комиссией и сбором 100 000 * 1.0006 = 100
-  // 060.
+  // 100 лотов * 10 * 100 = 100 000; с комиссией и сбором 100 000 * 1.0031 = 100
+  // 310.
   Fixture F;
   const OrderSpec Order = spec(Side::Buy, OrderType::Market, 100);
-  Portfolio Enough(d("100060"), 2);
+  Portfolio Enough(d("100310"), 2);
   EXPECT_TRUE(F.Engine.validate(Order, Enough, F.Line, 2).Ok);
-  Portfolio NotEnough(d("100059.99"), 2);
+  Portfolio NotEnough(d("100309.99"), 2);
   const Validation V = F.Engine.validate(Order, NotEnough, F.Line, 2);
   EXPECT_FALSE(V.Ok);
   EXPECT_EQ(V.ReasonCode, Reason::InsufficientCash);
@@ -231,13 +231,13 @@ TEST(Validation, UnknownOrUntradedInstrument) {
 
 TEST(Validation, UsesLastCloseOfOwnInstrument) {
   // Цена B - 0.0200 (бар шага 2): 1 лот = 10 000 штук = 200 ₽, с издержками
-  // 200.12.
+  // 200.62.
   Fixture F;
   const OrderSpec Order = spec(Side::Buy, OrderType::Market, 1, 1);
-  Portfolio Poor(d("200.11"), 2);
+  Portfolio Poor(d("200.61"), 2);
   EXPECT_EQ(F.Engine.validate(Order, Poor, F.Line, 2).ReasonCode,
             Reason::InsufficientCash);
-  Portfolio Enough(d("200.12"), 2);
+  Portfolio Enough(d("200.62"), 2);
   EXPECT_TRUE(F.Engine.validate(Order, Enough, F.Line, 2).Ok);
 }
 

@@ -18,7 +18,7 @@ constexpr std::int64_t kLotB = 10000;
 
 TEST(Costs, Defaults) {
   const CostConfig C = CostConfig::defaults();
-  EXPECT_EQ(C.CommissionRate, d("0.0005"));
+  EXPECT_EQ(C.CommissionRate, d("0.003"));
   EXPECT_EQ(C.ExchangeFeeRate, d("0.0001"));
   EXPECT_EQ(C.Spread, d("0.001"));
   EXPECT_EQ(C.SlippageKappa, d("0.1"));
@@ -43,7 +43,7 @@ TEST(Costs, FillPriceBuyA) {
   EXPECT_EQ(Price, d("271.54"));
   const Amounts A = core::amounts(Price, 100, kLotA, C);
   EXPECT_EQ(A.Value, d("271540.00"));
-  EXPECT_EQ(A.Commission, d("135.77"));
+  EXPECT_EQ(A.Commission, d("814.62"));
   EXPECT_EQ(A.Fee, d("27.16"));
 }
 
@@ -55,7 +55,7 @@ TEST(Costs, FillPriceBuyB) {
   EXPECT_EQ(Price, d("0.024525"));
   const Amounts A = core::amounts(Price, 300, kLotB, C);
   EXPECT_EQ(A.Value, d("73575.00"));
-  EXPECT_EQ(A.Commission, d("36.79"));
+  EXPECT_EQ(A.Commission, d("220.73"));
   EXPECT_EQ(A.Fee, d("7.36"));
 }
 
@@ -67,7 +67,7 @@ TEST(Costs, FillPriceSellA) {
   EXPECT_EQ(Price, d("274.03"));
   const Amounts A = core::amounts(Price, 30, kLotA, C);
   EXPECT_EQ(A.Value, d("82209.00"));
-  EXPECT_EQ(A.Commission, d("41.11"));
+  EXPECT_EQ(A.Commission, d("246.63"));
   EXPECT_EQ(A.Fee, d("8.23"));
 }
 
