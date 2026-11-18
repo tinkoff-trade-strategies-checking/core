@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "convert/blind.hpp"
 #include "convert/market.hpp"
 #include "convert/report.hpp"
 #include "convert/state.hpp"
@@ -90,16 +91,22 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
     toProto(F, *Timeline, Out->add_fills());
   for (const core::CommandResult &R : Result.CommandResults)
     toProto(R, Out->add_command_results());
+  std::optional<core::Report> CoreReport;
   if (Request.include_report()) {
     const std::int32_t UpToYmd = Timeline->yyyymmddOf(Result.LastStep);
     const core::RuoniaSeries Ruonia = loadRuonia(Context, Market, UpToYmd);
     const std::int32_t PreviousDay =
         previousTradingDay(Context, Market, *Timeline);
-    toProto(core::computeReport(metricsInput(
-                Engine, Spec.InitialCash, *Timeline,
-                benchmarkUpTo(Context, Market, *Timeline, Result.LastStep),
-                Ruonia, PreviousDay)),
-            *Timeline, Out->mutable_report());
+    CoreReport = core::computeReport(metricsInput(
+        Engine, Spec.InitialCash, *Timeline,
+        benchmarkUpTo(Context, Market, *Timeline, Result.LastStep), Ruonia,
+        PreviousDay));
+    toProto(*CoreReport, *Timeline, Out->mutable_report());
+  }
+  if (Request.blind()) {
+    fillBlindView(*Timeline, Spec.InitialCash, Result.LastStep,
+                  Request.include_history(), Result.Events, Engine, CoreReport,
+                  Out->mutable_blind_view());
   }
 }
 

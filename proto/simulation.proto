@@ -332,6 +332,119 @@ message Report {
 }
 
 // ---------------------------------------------------------------------------
+// Слепой режим (`decisions.md`, «Слепой режим», INV-1, INV-6)
+// ---------------------------------------------------------------------------
+
+message BlindInstrument {
+  string instrument_key = 1;
+  // Стоимость 1 лота в % от начального капитала по первой показанной свече
+  // (шаг <= курсора), 2 знака HALF_UP; не задано до первой свечи.
+  optional Decimal lot_value_at_start = 2;
+}
+
+message BlindBar {
+  int64 step = 1;
+  string instrument_key = 2;
+  int64 time_unix_ms = 3;
+  int32 trading_day = 4;
+  Decimal open = 5;         // x * 100 / P0, 2 знака HALF_UP
+  Decimal high = 6;
+  Decimal low = 7;
+  Decimal close = 8;
+  Decimal volume_rel = 9;   // 100 * V / V_ref, 2 знака HALF_UP
+  bool after_halt = 10;
+}
+
+message BlindPosition {
+  string instrument_key = 1;
+  int64 lots = 2;
+  Decimal avg_price = 3;         // x * 100 / P0, 2 знака HALF_UP
+  Decimal market_value_pct = 4;  // % от начального капитала, 2 знака HALF_UP
+}
+
+message BlindPortfolio {
+  Decimal cash_pct = 1;
+  Decimal equity_pct = 2;
+  Decimal pnl_pct = 3;
+  repeated BlindPosition positions = 4;
+}
+
+message BlindOrder {
+  int64 id = 1;
+  string instrument_key = 2;
+  optional Decimal limit_price = 3;
+  optional Decimal stop_price = 4;
+  optional Decimal trailing_stop_level = 5;
+}
+
+message BlindFill {
+  int64 order_id = 1;
+  int64 step = 2;
+  string instrument_key = 3;
+  Side side = 4;
+  int64 lots = 5;
+  Decimal price = 6;
+  Decimal base_price = 7;
+  Decimal value_pct = 8;
+  Decimal commission_pct = 9;
+  Decimal exchange_fee_pct = 10;
+  Decimal spread_cost_pct = 11;
+  Decimal slippage_cost_pct = 12;
+  bool stop_and_take_same_bar = 13;
+}
+
+message BlindStepEvents {
+  int64 step = 1;
+  repeated BlindBar bars = 2;
+  repeated BlindFill fills = 3;
+  repeated BlindOrder changed_orders = 4;
+  BlindPortfolio portfolio = 5;
+}
+
+message BlindCostTotals {
+  Decimal commission_pct = 1;
+  Decimal exchange_fee_pct = 2;
+  Decimal spread_pct = 3;
+  Decimal slippage_pct = 4;
+}
+
+message BlindEquityPoint {
+  int64 step = 1;
+  Decimal equity_pct = 2;
+}
+
+message BlindRoundTrip {
+  string instrument_key = 1;
+  int64 entry_step = 2;
+  int64 exit_step = 3;
+  int64 lots = 4;
+  Decimal entry_price = 5;
+  Decimal exit_price = 6;
+  Decimal gross_pnl_pct = 7;
+  Decimal costs_pct = 8;
+  Decimal net_pnl_pct = 9;
+}
+
+message BlindReport {
+  BlindCostTotals costs = 1;
+  repeated BlindEquityPoint equity = 2;
+  Decimal final_equity_pct = 3;
+  Decimal pnl_pct = 4;
+  repeated BlindEquityPoint benchmark_equity = 5;
+  repeated BlindRoundTrip round_trips = 6;
+}
+
+message BlindSessionView {
+  repeated BlindInstrument instruments = 1;
+  repeated BlindStepEvents events = 2;
+  repeated BlindBar history = 3;
+  BlindPortfolio portfolio = 4;
+  repeated BlindOrder orders = 5;
+  repeated BlindFill fills = 6;
+  BlindReport report = 7;
+}
+
+// ---------------------------------------------------------------------------
 // Сессия
 // ---------------------------------------------------------------------------
 
@@ -344,6 +457,7 @@ message ReplaySessionRequest {
   bool include_report = 6;
   reserved 7;
   reserved "stress";
+  bool blind = 8;                // добавить слепой вид сессии (рублёвые поля остаются)
 }
 
 message ReplaySessionResponse {
@@ -358,6 +472,7 @@ message ReplaySessionResponse {
   repeated CommandResult command_results = 9;
   Report report = 10;
   int64 warmup_steps = 11;       // шагов прогрева; при include_history бары прогрева идут в history первыми
+  BlindSessionView blind_view = 12;
 }
 
 message GetBarsRequest {
