@@ -196,7 +196,7 @@ TEST(EstimateOrder, NoFutureBarsAffectEstimate) {
   EXPECT_EQ(E1.RequiredCash, E2.RequiredCash);
 }
 
-TEST(EstimateOrder, ThrowsOnDecimalOverflow) {
+TEST(EstimateOrder, ReturnsInsufficientCashOnDecimalOverflow) {
   auto Tl = makeTimeline("1000000000000000"); // 10^15
   const core::SessionSpec Spec = makeSpec(core::Decimal::fromUnits(100000));
   core::OrderSpec Order;
@@ -206,8 +206,10 @@ TEST(EstimateOrder, ThrowsOnDecimalOverflow) {
   Order.Lots =
       9223372036854775807LL; // 10^15 * 9.22*10^18 * 10 > 1.7*10^29 -> overflow
   Order.Tif = core::TimeInForce::Day;
-  EXPECT_THROW(core::estimateOrder(Spec, Tl, {}, 2, Order),
-               std::invalid_argument);
+  const core::OrderEstimate Est = core::estimateOrder(Spec, Tl, {}, 2, Order);
+  EXPECT_FALSE(Est.Check.Ok);
+  EXPECT_EQ(Est.Check.ReasonCode, core::Reason::InsufficientCash);
+  EXPECT_EQ(Est.Check.Field, "");
 }
 
 TEST(EstimateOrder, ConvertsBlindPricesAndRejectsWithoutP0) {
@@ -238,7 +240,8 @@ TEST(EstimateOrder, ConvertsBlindPricesAndRejectsWithoutP0) {
   Spec.InitialCash = core::Decimal::fromUnits(100000);
 
   // Стоп на покупку по A: close на шаге 1 = 210, P0 = 200 -> 105.00 в слепой
-  // шкале. 104.00 -> 208.00 <= 210 -> отказ по stopPrice.
+  // шкале. 104.00 -> 208.00 <= 210 -> отказ по stopPrice, но resolved_order
+  // всё равно содержит переведённую рублёвую заявку.
   core::OrderSpec BuyStop;
   BuyStop.Instrument = 0;
   BuyStop.OrderSide = core::Side::Buy;
@@ -251,14 +254,21 @@ TEST(EstimateOrder, ConvertsBlindPricesAndRejectsWithoutP0) {
   EXPECT_FALSE(BadSide.Check.Ok);
   EXPECT_EQ(BadSide.Check.ReasonCode, core::Reason::InvalidParams);
   EXPECT_EQ(BadSide.Check.Field, "stopPrice");
+  ASSERT_TRUE(BadSide.ResolvedOrder.has_value());
+  EXPECT_FALSE(BadSide.ResolvedOrder->BlindPrices);
+  EXPECT_EQ(*BadSide.ResolvedOrder->StopPrice, core::Decimal::parse("208.00"));
 
   // 106.00 -> 212.00 > 210 -> допустимо.
   BuyStop.StopPrice = core::Decimal::parse("106.00");
   const core::OrderEstimate Good =
       core::estimateOrder(Spec, Tl, {}, 1, BuyStop);
   EXPECT_TRUE(Good.Check.Ok);
+  ASSERT_TRUE(Good.ResolvedOrder.has_value());
+  EXPECT_FALSE(Good.ResolvedOrder->BlindPrices);
+  EXPECT_EQ(*Good.ResolvedOrder->StopPrice, core::Decimal::parse("212.00"));
 
-  // По бумаге B на шаге 0 нет P0 -> std::invalid_argument.
+  // По бумаге B на шаге 0 нет P0 -> can_place = false,
+  // InvalidParams/instrument.
   core::OrderSpec BlindOnB;
   BlindOnB.Instrument = 1;
   BlindOnB.OrderSide = core::Side::Buy;
@@ -266,7 +276,90 @@ TEST(EstimateOrder, ConvertsBlindPricesAndRejectsWithoutP0) {
   BlindOnB.Lots = 1;
   BlindOnB.LimitPrice = core::Decimal::parse("100.00");
   BlindOnB.BlindPrices = true;
-  EXPECT_THROW(core::estimateOrder(Spec, Tl, {}, 0, BlindOnB),
-               std::invalid_argument);
-  EXPECT_TRUE(core::estimateOrder(Spec, Tl, {}, 1, BlindOnB).Check.Ok);
+  const core::OrderEstimate NoP0 =
+      core::estimateOrder(Spec, Tl, {}, 0, BlindOnB);
+  EXPECT_FALSE(NoP0.Check.Ok);
+  EXPECT_EQ(NoP0.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(NoP0.Check.Field, "instrument");
+  EXPECT_FALSE(NoP0.ResolvedOrder.has_value());
+
+  const core::OrderEstimate AtStep1 =
+      core::estimateOrder(Spec, Tl, {}, 1, BlindOnB);
+  EXPECT_TRUE(AtStep1.Check.Ok);
+  ASSERT_TRUE(AtStep1.ResolvedOrder.has_value());
+  EXPECT_EQ(*AtStep1.ResolvedOrder->LimitPrice, core::Decimal::parse("500.00"));
+}
+
+TEST(EstimateOrder, MatchesSubmissionRejectionReasons) {
+  std::vector<core::Instrument> Instruments = {
+      {"A", "FIXA", 10, core::Decimal::parse("0.01")},
+      {"B", "FIXB", 10, core::Decimal::parse("0.01")},
+  };
+  const std::int64_t DayStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {
+          {
+              makeBar(DayStart, "100", "105", "95", "100", 1000),
+              makeBar(DayStart + 60000, "100", "105", "95", "100", 1000),
+              makeBar(DayStart + 120000, "100", "105", "95", "100", 1000),
+          },
+          {
+              // У B нет бара на шаге 0.
+              makeBar(DayStart + 60000, "200", "205", "195", "200", 1000),
+              makeBar(DayStart + 120000, "200", "205", "195", "200", 1000),
+          },
+      },
+      {{20250113, true}}));
+
+  core::SessionSpec Spec = makeSpec(core::Decimal::fromUnits(10000));
+  Spec.Instruments = Instruments;
+
+  auto CheckSame = [&](std::int64_t Step, const core::OrderSpec &Order) {
+    const core::OrderEstimate Est =
+        core::estimateOrder(Spec, Tl, {}, Step, Order);
+    core::SessionEngine Engine(Spec, Tl);
+    for (std::int64_t S = 0; S < Step; ++S)
+      Engine.advance();
+    const core::CommandResult Res =
+        Engine.apply(core::JournalEntry{0, Step, core::PlaceCmd{Order, {}}});
+    EXPECT_EQ(Est.Check.Ok, Res.Accepted);
+    EXPECT_EQ(Est.Check.ReasonCode, Res.ReasonCode);
+    EXPECT_EQ(Est.Check.Field, Res.Field);
+  };
+
+  core::OrderSpec BadInst;
+  BadInst.Instrument = 5;
+  BadInst.OrderSide = core::Side::Buy;
+  BadInst.Type = core::OrderType::Market;
+  BadInst.Lots = 1;
+  CheckSame(0, BadInst);
+
+  core::OrderSpec ZeroLots = BadInst;
+  ZeroLots.Instrument = 0;
+  ZeroLots.Lots = 0;
+  CheckSame(0, ZeroLots);
+
+  core::OrderSpec OffGrid = ZeroLots;
+  OffGrid.Lots = 1;
+  OffGrid.Type = core::OrderType::Limit;
+  OffGrid.LimitPrice = core::Decimal::parse("99.005");
+  CheckSame(0, OffGrid);
+
+  core::OrderSpec NoBar = ZeroLots;
+  NoBar.Instrument = 1;
+  NoBar.Lots = 1;
+  CheckSame(0, NoBar);
+
+  core::OrderSpec HugeLots = ZeroLots;
+  HugeLots.Lots = 9223372036854775807LL;
+  CheckSame(0, HugeLots);
+
+  core::OrderSpec ShortSell = ZeroLots;
+  ShortSell.OrderSide = core::Side::Sell;
+  ShortSell.Lots = 1;
+  CheckSame(0, ShortSell);
+
+  // Остановленная сессия на последнем шаге (шаг 2).
+  CheckSame(2, ZeroLots);
 }

@@ -178,8 +178,11 @@ message OrderSpec {
   Decimal stop_price = 6;
   Decimal trailing_percent = 7;
   TimeInForce time_in_force = 8;
-  // Если true — limit_price и stop_price заданы в слепой шкале (от 100);
-  // core переводит их в рубли и округляет к шагу цены до записи в журнал.
+  // Если true — limit_price и stop_price заданы в слепой шкале (от 100).
+  // Допустимо только в EstimateOrderRequest.order: EstimateOrder переводит
+  // цены в рубли и возвращает рублёвую заявку в EstimateOrderResponse.resolved_order.
+  // Журнал (ReplaySession) хранит только рублёвые цены; команда с blind_prices = true
+  // в журнале отклоняется (Rejected, INVALID_PARAMS, поле "blindPrices").
   bool blind_prices = 9;
 }
 
@@ -524,6 +527,10 @@ message EstimateOrderResponse {
   Decimal commission_pct = 10;      // % от начального капитала (2 знака HALF_UP)
   Decimal exchange_fee_pct = 11;    // % от начального капитала (2 знака HALF_UP)
   Decimal required_cash_pct = 12;   // % от начального капитала (2 знака HALF_UP)
+  // Та же заявка в рублях (blind_prices = false), заполняется когда входная
+  // заявка имела blind_prices = true и перевод выполнен успешно; backend
+  // записывает в журнал именно resolved_order.
+  OrderSpec resolved_order = 13;
 }
 
 enum PeriodCategory {

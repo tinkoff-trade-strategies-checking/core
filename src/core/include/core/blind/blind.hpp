@@ -131,12 +131,23 @@ struct BlindReport {
 std::optional<Decimal> blindP0(const Timeline &Timeline, int Instrument,
                                std::int64_t LastStep);
 
+// Результат перевода слепых цен заявки в рубли. При ошибке содержимого
+// заявки (нет P0 до шага, неверный индекс бумаги, шаг цены <= 0, переполнение
+// при переводе цены) Check.Ok == false с соответствующими ReasonCode и Field,
+// Order == nullopt.
+struct ResolvedOrderResult {
+  std::optional<OrderSpec> Order;
+  Validation Check;
+};
+
 // Переводит слепые цены заявки (от 100) в рубли P_rub = P_blind * P0 / 100
 // с округлением к шагу цены не в пользу трейдера (покупка CEILING, продажа
 // FLOOR; `decisions.md`, «Деньги и округление», п. 2) и сбрасывает BlindPrices.
-// При отсутствии P0 до Step включительно - std::invalid_argument.
-OrderSpec resolveBlindOrderPrices(const OrderSpec &Spec,
-                                  const Timeline &Timeline, std::int64_t Step);
+// При проблемах содержимого заявки исключение не бросает — возвращает отказ в
+// Check.
+ResolvedOrderResult resolveBlindOrderPrices(const OrderSpec &Spec,
+                                            const Timeline &Timeline,
+                                            std::int64_t Step);
 
 // Вычисляет масштабы слепого режима для каждой бумаги по шкале времени и
 // шагам не позже LastStep (INV-1: будущее после LastStep не используется).

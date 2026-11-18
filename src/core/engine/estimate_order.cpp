@@ -20,17 +20,25 @@ OrderEstimate estimateOrder(const SessionSpec &Spec,
       replaySession(Spec, TimelineRef, Journal, UpToStep,
                     std::numeric_limits<std::int64_t>::max());
 
-  const OrderSpec ResolvedOrder =
-      resolveBlindOrderPrices(Order, *TimelineRef, Result.LastStep);
-
   OrderEstimate Out;
-  const ExecutionEngine Exec(Spec.Instruments, Spec.Costs);
   if (Result.Status != SessionStatus::Running) {
     Out.Check = Validation{false, Reason::SessionNotActive, ""};
-  } else {
-    Out.Check = Exec.validate(ResolvedOrder, Result.Engine.portfolio(),
-                              *TimelineRef, Result.LastStep);
+    return Out;
   }
+
+  const ResolvedOrderResult Resolved =
+      resolveBlindOrderPrices(Order, *TimelineRef, Result.LastStep);
+  if (!Resolved.Check.Ok) {
+    Out.Check = Resolved.Check;
+    return Out;
+  }
+  const OrderSpec &ResolvedOrder = *Resolved.Order;
+  if (Order.BlindPrices)
+    Out.ResolvedOrder = ResolvedOrder;
+
+  const ExecutionEngine Exec(Spec.Instruments, Spec.Costs);
+  Out.Check = Exec.validate(ResolvedOrder, Result.Engine.portfolio(),
+                            *TimelineRef, Result.LastStep);
 
   if (ResolvedOrder.Instrument >= 0 &&
       static_cast<std::size_t>(ResolvedOrder.Instrument) <
@@ -46,21 +54,28 @@ OrderEstimate estimateOrder(const SessionSpec &Spec,
       try {
         const Amounts A =
             amounts(Last->Close, ResolvedOrder.Lots, LotSize, Spec.Costs);
+        const Decimal ReqCash =
+            requiredCashForOrder(Last->Close, ResolvedOrder.Lots, LotSize,
+                                 Spec.Costs)
+                .round(2, RoundingMode::CEILING);
+        const Decimal ValPct = toPercentOfCapital(A.Value, Spec.InitialCash);
+        const Decimal CommPct =
+            toPercentOfCapital(A.Commission, Spec.InitialCash);
+        const Decimal FeePct = toPercentOfCapital(A.Fee, Spec.InitialCash);
+        const Decimal ReqCashPct =
+            toPercentOfCapital(ReqCash, Spec.InitialCash);
+
         Out.Value = A.Value;
         Out.Commission = A.Commission;
         Out.Fee = A.Fee;
-        Out.RequiredCash = requiredCashForOrder(Last->Close, ResolvedOrder.Lots,
-                                                LotSize, Spec.Costs)
-                               .round(2, RoundingMode::CEILING);
-        Out.ValuePct = toPercentOfCapital(Out.Value, Spec.InitialCash);
-        Out.CommissionPct =
-            toPercentOfCapital(Out.Commission, Spec.InitialCash);
-        Out.FeePct = toPercentOfCapital(Out.Fee, Spec.InitialCash);
-        Out.RequiredCashPct =
-            toPercentOfCapital(Out.RequiredCash, Spec.InitialCash);
+        Out.RequiredCash = ReqCash;
+        Out.ValuePct = ValPct;
+        Out.CommissionPct = CommPct;
+        Out.FeePct = FeePct;
+        Out.RequiredCashPct = ReqCashPct;
       } catch (const DecimalOverflow &) {
-        throw std::invalid_argument(
-            "order.lots: переполнение при расчёте суммы заявки");
+        if (Out.Check.Ok)
+          Out.Check = Validation{false, Reason::InsufficientCash, ""};
       }
     }
   }

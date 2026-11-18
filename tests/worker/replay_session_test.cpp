@@ -584,82 +584,199 @@ TEST_F(ReplaySession, PreviousTradingDayPrefersCalendarOverWarmup) {
   EXPECT_EQ(worker::previousTradingDay(Custom, Market, *Timeline), 20240111);
 }
 
-TEST_F(ReplaySession, BlindOrderPricesConvertedToRublesBeforeJournal) {
-  const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::D1);
-  std::vector<core::Bar> BarsA = Fixture.Bars.load(
-      core::BarRequest{"fixture-1", "FIXA", IntervalSec, 0, 2000000000000LL});
-  // P0 = BarsA[0].Open = 100.00; price_step = 0.01.
-  // Покупка лимит 95.005 в слепой шкале -> 95.005 * 100 / 100 = 95.005 ->
-  // CEILING к 0.01 = 95.01.
-  pb::JournalEntry E;
-  E.set_seq(0);
-  E.set_step(0);
-  pb::OrderSpec *Spec = E.mutable_place()->mutable_order();
+TEST_F(ReplaySession, RejectsBlindPricesInJournal) {
+  pb::JournalEntry BlindPlace;
+  BlindPlace.set_seq(0);
+  BlindPlace.set_step(0);
+  pb::OrderSpec *Spec = BlindPlace.mutable_place()->mutable_order();
   Spec->set_instrument_key("A");
   Spec->set_side(pb::BUY);
   Spec->set_type(pb::LIMIT);
   Spec->set_lots(1);
   Spec->set_time_in_force(pb::GTC);
   Spec->set_blind_prices(true);
-  *Spec->mutable_limit_price() = dec("95.005");
-  (void)BarsA;
+  *Spec->mutable_limit_price() = dec("95.00");
 
-  Journal = {E};
+  // Активная рублёвая покупка на шаге 0 -> на шаге 1 есть позиция для
+  // OCO-продажи.
+  pb::JournalEntry RublePlace;
+  RublePlace.set_seq(1);
+  RublePlace.set_step(0);
+  pb::OrderSpec *RubleSpec = RublePlace.mutable_place()->mutable_order();
+  RubleSpec->set_instrument_key("A");
+  RubleSpec->set_side(pb::BUY);
+  RubleSpec->set_type(pb::MARKET);
+  RubleSpec->set_lots(1);
+  RubleSpec->set_time_in_force(pb::GTC);
+
+  // Замена с blind_prices = true -> отклонена целиком, старая заявка активна.
+  pb::JournalEntry RubleLimit;
+  RubleLimit.set_seq(2);
+  RubleLimit.set_step(0);
+  pb::OrderSpec *LimitSpec = RubleLimit.mutable_place()->mutable_order();
+  LimitSpec->set_instrument_key("A");
+  LimitSpec->set_side(pb::BUY);
+  LimitSpec->set_type(pb::LIMIT);
+  LimitSpec->set_lots(1);
+  LimitSpec->set_time_in_force(pb::GTC);
+  *LimitSpec->mutable_limit_price() = dec("90.00");
+
+  pb::JournalEntry BlindReplace;
+  BlindReplace.set_seq(3);
+  BlindReplace.set_step(0);
+  BlindReplace.mutable_replace()->set_order_id(4);
+  *BlindReplace.mutable_replace()->mutable_replacement()->mutable_order() =
+      *Spec;
+
+  // OCO на шаге 1 с blind_prices = true во второй ноге -> также отклонён.
+  pb::JournalEntry BlindOco;
+  BlindOco.set_seq(4);
+  BlindOco.set_step(1);
+  pb::OrderSpec *MainLeg = BlindOco.mutable_place()->mutable_order();
+  MainLeg->set_instrument_key("A");
+  MainLeg->set_side(pb::SELL);
+  MainLeg->set_type(pb::STOP);
+  MainLeg->set_lots(1);
+  MainLeg->set_time_in_force(pb::GTC);
+  *MainLeg->mutable_stop_price() = dec("95.00");
+  pb::OrderSpec *TakeLeg = BlindOco.mutable_place()->mutable_oco_with();
+  TakeLeg->set_instrument_key("A");
+  TakeLeg->set_side(pb::SELL);
+  TakeLeg->set_type(pb::TAKE_PROFIT);
+  TakeLeg->set_lots(1);
+  TakeLeg->set_time_in_force(pb::GTC);
+  TakeLeg->set_blind_prices(true);
+  *TakeLeg->mutable_limit_price() = dec("105.00");
+
+  Journal = {BlindPlace, RublePlace, RubleLimit, BlindReplace, BlindOco};
   pb::ReplaySessionResponse Response;
-  ASSERT_TRUE(replay(1, -1, &Response, false, false).ok());
-  ASSERT_EQ(Response.orders_size(), 1);
-  EXPECT_FALSE(Response.orders(0).spec().blind_prices());
-  EXPECT_EQ(core::fromProto(Response.orders(0).spec().limit_price()),
-            core::Decimal::parse("95.01"));
+  ASSERT_TRUE(replay(2, -1, &Response, false, false).ok());
+  ASSERT_EQ(Response.command_results_size(), 5);
+
+  EXPECT_FALSE(Response.command_results(0).accepted());
+  EXPECT_EQ(Response.command_results(0).reason(), pb::INVALID_PARAMS);
+  EXPECT_EQ(Response.command_results(0).invalid_field(), "blindPrices");
+  EXPECT_EQ(Response.orders(0).status(), pb::REJECTED);
+
+  EXPECT_TRUE(Response.command_results(1).accepted());
+  EXPECT_TRUE(Response.command_results(2).accepted());
+  EXPECT_EQ(Response.orders(2).status(), pb::ACTIVE);
+
+  EXPECT_FALSE(Response.command_results(3).accepted());
+  EXPECT_EQ(Response.command_results(3).reason(), pb::INVALID_PARAMS);
+  EXPECT_EQ(Response.command_results(3).invalid_field(), "blindPrices");
+  EXPECT_EQ(Response.orders(2).status(), pb::ACTIVE);
+
+  EXPECT_FALSE(Response.command_results(4).accepted());
+  EXPECT_EQ(Response.command_results(4).reason(), pb::INVALID_PARAMS);
+  EXPECT_EQ(Response.command_results(4).invalid_field(), "blindPrices");
 }
 
-TEST_F(ReplaySession, BlindOrderWithoutP0AndOverflowReturnInvalidArgument) {
-  // У B в fixture-1 есть бар на шаге 0; уберём его с шага 0, оставив бар на
-  // шаге 1 -> на шаге 0 у B нет P0.
+TEST_F(ReplaySession, BlindEstimateThenReplayWithP0Not100BuySellOcoAndReplace) {
   const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::D1);
-  std::vector<core::Bar> BarsB = Fixture.Bars.load(
-      core::BarRequest{"fixture-1", "FIXB", IntervalSec, 0, 2000000000000LL});
-  BarsB.erase(BarsB.begin());
-  Fixture.Bars.addSeries("fixture-1", "FIXB", IntervalSec, BarsB);
-
-  pb::JournalEntry NoP0;
-  NoP0.set_seq(0);
-  NoP0.set_step(0);
-  pb::OrderSpec *SpecB = NoP0.mutable_place()->mutable_order();
-  SpecB->set_instrument_key("B");
-  SpecB->set_side(pb::BUY);
-  SpecB->set_type(pb::LIMIT);
-  SpecB->set_lots(1);
-  SpecB->set_time_in_force(pb::GTC);
-  SpecB->set_blind_prices(true);
-  *SpecB->mutable_limit_price() = dec("100.00");
-
-  Journal = {NoP0};
-  pb::ReplaySessionResponse RespNoP0;
-  EXPECT_EQ(replay(1, -1, &RespNoP0, false, false).error_code(),
-            grpc::StatusCode::INVALID_ARGUMENT);
-
-  // Переполнение при подаче заявки в слепых ценах -> тот же код
-  // INVALID_ARGUMENT, что и в EstimateOrder.
   std::vector<core::Bar> BarsA = Fixture.Bars.load(
       core::BarRequest{"fixture-1", "FIXA", IntervalSec, 0, 2000000000000LL});
-  BarsA[0].Open = core::Decimal::parse("1000000000000000000");
+  // P0 = 200.00 != 100; сдвигаем цены, чтобы заявка на покупку исполнилась.
+  BarsA[0].Open = core::Decimal::parse("200.00");
+  BarsA[0].Close = core::Decimal::parse("200.00");
+  BarsA[1].Open = core::Decimal::parse("195.00");
+  BarsA[1].Low = core::Decimal::parse("190.00");
+  BarsA[1].Close = core::Decimal::parse("200.00");
   Fixture.Bars.addSeries("fixture-1", "FIXA", IntervalSec, BarsA);
 
-  pb::JournalEntry OverflowEntry;
-  OverflowEntry.set_seq(0);
-  OverflowEntry.set_step(0);
-  pb::OrderSpec *SpecA = OverflowEntry.mutable_place()->mutable_order();
-  SpecA->set_instrument_key("A");
-  SpecA->set_side(pb::BUY);
-  SpecA->set_type(pb::LIMIT);
-  SpecA->set_lots(1);
-  SpecA->set_time_in_force(pb::GTC);
-  SpecA->set_blind_prices(true);
-  *SpecA->mutable_limit_price() = dec("1000000000000000000");
+  worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  auto Resolve = [&](std::int64_t UpToStep, const pb::OrderSpec &BlindSpec) {
+    pb::EstimateOrderRequest Req;
+    *Req.mutable_market() = Market;
+    for (const pb::JournalEntry &J : Journal)
+      *Req.add_journal() = J;
+    Req.set_up_to_step(UpToStep);
+    *Req.mutable_order() = BlindSpec;
+    pb::EstimateOrderResponse Resp;
+    EXPECT_TRUE(worker::handleEstimateOrder(Ctx, Req, &Resp).ok());
+    EXPECT_TRUE(Resp.has_resolved_order());
+    EXPECT_FALSE(Resp.resolved_order().blind_prices());
+    return Resp.resolved_order();
+  };
 
-  Journal = {OverflowEntry};
-  pb::ReplaySessionResponse RespOverflow;
-  EXPECT_EQ(replay(1, -1, &RespOverflow, false, false).error_code(),
-            grpc::StatusCode::INVALID_ARGUMENT);
+  // 1. Покупка (лимит 98.003 -> 196.006 -> CEILING 196.01), исполнится на
+  // шаге 1.
+  pb::OrderSpec BlindBuy;
+  BlindBuy.set_instrument_key("A");
+  BlindBuy.set_side(pb::BUY);
+  BlindBuy.set_type(pb::LIMIT);
+  BlindBuy.set_lots(2);
+  BlindBuy.set_time_in_force(pb::GTC);
+  BlindBuy.set_blind_prices(true);
+  *BlindBuy.mutable_limit_price() = dec("98.003");
+  const pb::OrderSpec ResolvedBuy = Resolve(0, BlindBuy);
+  EXPECT_EQ(core::fromProto(ResolvedBuy.limit_price()),
+            core::Decimal::parse("196.01"));
+
+  pb::JournalEntry E0;
+  E0.set_seq(0);
+  E0.set_step(0);
+  *E0.mutable_place()->mutable_order() = ResolvedBuy;
+  Journal.push_back(E0);
+
+  // 2. На шаге 1 позиция открыта -> OCO (Стоп 95.003 -> 190.00 FLOOR + Тейк
+  // 105.003 -> 210.00 FLOOR).
+  pb::OrderSpec BlindStop;
+  BlindStop.set_instrument_key("A");
+  BlindStop.set_side(pb::SELL);
+  BlindStop.set_type(pb::STOP);
+  BlindStop.set_lots(1);
+  BlindStop.set_time_in_force(pb::GTC);
+  BlindStop.set_blind_prices(true);
+  *BlindStop.mutable_stop_price() = dec("95.003");
+  const pb::OrderSpec ResolvedStop = Resolve(1, BlindStop);
+  EXPECT_EQ(core::fromProto(ResolvedStop.stop_price()),
+            core::Decimal::parse("190.00"));
+
+  pb::OrderSpec BlindTake;
+  BlindTake.set_instrument_key("A");
+  BlindTake.set_side(pb::SELL);
+  BlindTake.set_type(pb::TAKE_PROFIT);
+  BlindTake.set_lots(1);
+  BlindTake.set_time_in_force(pb::GTC);
+  BlindTake.set_blind_prices(true);
+  *BlindTake.mutable_limit_price() = dec("105.003");
+  const pb::OrderSpec ResolvedTake = Resolve(1, BlindTake);
+  EXPECT_EQ(core::fromProto(ResolvedTake.limit_price()),
+            core::Decimal::parse("210.00"));
+
+  pb::JournalEntry E1;
+  E1.set_seq(1);
+  E1.set_step(1);
+  *E1.mutable_place()->mutable_order() = ResolvedStop;
+  *E1.mutable_place()->mutable_oco_with() = ResolvedTake;
+  Journal.push_back(E1);
+
+  // 3. На шаге 1 же заменяем OCO-пару (id = 2) новыми слепыми ценами.
+  *BlindStop.mutable_stop_price() = dec("94.003");   // 188.006 -> 188.00
+  *BlindTake.mutable_limit_price() = dec("106.003"); // 212.006 -> 212.00
+  pb::JournalEntry E2;
+  E2.set_seq(2);
+  E2.set_step(1);
+  E2.mutable_replace()->set_order_id(2);
+  *E2.mutable_replace()->mutable_replacement()->mutable_order() =
+      Resolve(1, BlindStop);
+  *E2.mutable_replace()->mutable_replacement()->mutable_oco_with() =
+      Resolve(1, BlindTake);
+  Journal.push_back(E2);
+
+  pb::ReplaySessionResponse R1;
+  pb::ReplaySessionResponse R2;
+  ASSERT_TRUE(replay(2, -1, &R1, false, false).ok());
+  ASSERT_TRUE(replay(2, -1, &R2, false, false).ok());
+  EXPECT_EQ(R1.SerializeAsString(), R2.SerializeAsString());
+  ASSERT_EQ(R1.command_results_size(), 3);
+  EXPECT_TRUE(R1.command_results(0).accepted());
+  EXPECT_TRUE(R1.command_results(1).accepted());
+  EXPECT_TRUE(R1.command_results(2).accepted());
+  ASSERT_EQ(R1.orders_size(), 5);
+  EXPECT_EQ(core::fromProto(R1.orders(3).spec().stop_price()),
+            core::Decimal::parse("188.00"));
+  EXPECT_EQ(core::fromProto(R1.orders(4).spec().limit_price()),
+            core::Decimal::parse("212.00"));
 }

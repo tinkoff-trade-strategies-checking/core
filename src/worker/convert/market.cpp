@@ -279,8 +279,6 @@ grpc::Status statusFromCurrentException() {
     return grpc::Status(grpc::StatusCode::NOT_FOUND, E.what());
   } catch (const std::invalid_argument &E) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, E.what());
-  } catch (const core::DecimalOverflow &E) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, E.what());
   } catch (...) {
     return grpc::Status(grpc::StatusCode::INTERNAL,
                         "внутренняя ошибка воркера");

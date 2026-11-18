@@ -205,11 +205,13 @@ TEST(BlindOrderPrices, ResolvesBuyCeilingAndSellFloorToPriceStep) {
       core::Decimal::parse("100.11"); // 200.22 -> CEILING 200.25
   BuyLimit.BlindPrices = true;
 
-  const core::OrderSpec ResolvedBuy =
+  const core::ResolvedOrderResult ResolvedBuy =
       core::resolveBlindOrderPrices(BuyLimit, *Tl, 0);
-  EXPECT_FALSE(ResolvedBuy.BlindPrices);
-  ASSERT_TRUE(ResolvedBuy.LimitPrice.has_value());
-  EXPECT_EQ(*ResolvedBuy.LimitPrice, core::Decimal::parse("200.25"));
+  ASSERT_TRUE(ResolvedBuy.Check.Ok);
+  ASSERT_TRUE(ResolvedBuy.Order.has_value());
+  EXPECT_FALSE(ResolvedBuy.Order->BlindPrices);
+  ASSERT_TRUE(ResolvedBuy.Order->LimitPrice.has_value());
+  EXPECT_EQ(*ResolvedBuy.Order->LimitPrice, core::Decimal::parse("200.25"));
 
   core::OrderSpec SellStopLimit;
   SellStopLimit.Instrument = 0;
@@ -222,22 +224,26 @@ TEST(BlindOrderPrices, ResolvesBuyCeilingAndSellFloorToPriceStep) {
       core::Decimal::parse("99.88"); // 199.76 -> FLOOR 199.75
   SellStopLimit.BlindPrices = true;
 
-  const core::OrderSpec ResolvedSell =
+  const core::ResolvedOrderResult ResolvedSell =
       core::resolveBlindOrderPrices(SellStopLimit, *Tl, 0);
-  EXPECT_FALSE(ResolvedSell.BlindPrices);
-  ASSERT_TRUE(ResolvedSell.StopPrice.has_value());
-  ASSERT_TRUE(ResolvedSell.LimitPrice.has_value());
-  EXPECT_EQ(*ResolvedSell.StopPrice, core::Decimal::parse("199.75"));
-  EXPECT_EQ(*ResolvedSell.LimitPrice, core::Decimal::parse("199.75"));
+  ASSERT_TRUE(ResolvedSell.Check.Ok);
+  ASSERT_TRUE(ResolvedSell.Order.has_value());
+  EXPECT_FALSE(ResolvedSell.Order->BlindPrices);
+  ASSERT_TRUE(ResolvedSell.Order->StopPrice.has_value());
+  ASSERT_TRUE(ResolvedSell.Order->LimitPrice.has_value());
+  EXPECT_EQ(*ResolvedSell.Order->StopPrice, core::Decimal::parse("199.75"));
+  EXPECT_EQ(*ResolvedSell.Order->LimitPrice, core::Decimal::parse("199.75"));
 
   // Обычная рублёвая заявка не меняется.
   core::OrderSpec RubleOrder = BuyLimit;
   RubleOrder.BlindPrices = false;
   RubleOrder.LimitPrice = core::Decimal::parse("200.22");
-  const core::OrderSpec Unchanged =
+  const core::ResolvedOrderResult Unchanged =
       core::resolveBlindOrderPrices(RubleOrder, *Tl, 0);
-  EXPECT_FALSE(Unchanged.BlindPrices);
-  EXPECT_EQ(*Unchanged.LimitPrice, core::Decimal::parse("200.22"));
+  ASSERT_TRUE(Unchanged.Check.Ok);
+  ASSERT_TRUE(Unchanged.Order.has_value());
+  EXPECT_FALSE(Unchanged.Order->BlindPrices);
+  EXPECT_EQ(*Unchanged.Order->LimitPrice, core::Decimal::parse("200.22"));
 }
 
 TEST(BlindOrderPrices, RejectsWithoutP0AndRespectsInv1) {
@@ -271,32 +277,73 @@ TEST(BlindOrderPrices, RejectsWithoutP0AndRespectsInv1) {
   BlindOnB.LimitPrice = core::Decimal::parse("100.00");
   BlindOnB.BlindPrices = true;
 
-  EXPECT_THROW(core::resolveBlindOrderPrices(BlindOnB, *Tl, 0),
-               std::invalid_argument);
-  const core::OrderSpec AtStep1 =
+  const core::ResolvedOrderResult NoP0 =
+      core::resolveBlindOrderPrices(BlindOnB, *Tl, 0);
+  EXPECT_FALSE(NoP0.Check.Ok);
+  EXPECT_EQ(NoP0.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(NoP0.Check.Field, "instrument");
+  EXPECT_FALSE(NoP0.Order.has_value());
+
+  const core::ResolvedOrderResult AtStep1 =
       core::resolveBlindOrderPrices(BlindOnB, *Tl, 1);
-  EXPECT_EQ(*AtStep1.LimitPrice, core::Decimal::parse("500.00"));
+  ASSERT_TRUE(AtStep1.Check.Ok);
+  ASSERT_TRUE(AtStep1.Order.has_value());
+  EXPECT_EQ(*AtStep1.Order->LimitPrice, core::Decimal::parse("500.00"));
 }
 
-TEST(BlindOrderPrices, ThrowsDecimalOverflowOnHugeBlindPrice) {
+TEST(BlindOrderPrices, RejectsInvalidInstrumentPriceStepAndOverflow) {
   std::vector<core::Instrument> Instruments = {
       {"A", "TKA", 10, core::Decimal::parse("0.01")},
+      {"Z", "TKZ", 10, core::Decimal::zero()},
   };
   const std::int64_t SessStart = 1736751600000LL;
   auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
       Instruments,
-      {{makeBar(SessStart, "1000000000000000000", "1000000000000000000",
-                "1000000000000000000", "1000000000000000000", 10)}},
+      {
+          {makeBar(SessStart, "1000000000000000000", "1000000000000000000",
+                   "1000000000000000000", "1000000000000000000", 10)},
+          {makeBar(SessStart, "100", "105", "95", "102", 10)},
+      },
       makeCalendar()));
 
-  core::OrderSpec Blind;
-  Blind.Instrument = 0;
-  Blind.OrderSide = core::Side::Buy;
-  Blind.Type = core::OrderType::Limit;
-  Blind.Lots = 1;
-  Blind.LimitPrice = core::Decimal::parse("1000000000000000000");
-  Blind.BlindPrices = true;
+  core::OrderSpec BadInst;
+  BadInst.Instrument = 99;
+  BadInst.OrderSide = core::Side::Buy;
+  BadInst.Type = core::OrderType::Limit;
+  BadInst.Lots = 1;
+  BadInst.LimitPrice = core::Decimal::parse("100");
+  BadInst.BlindPrices = true;
+  const core::ResolvedOrderResult InstRes =
+      core::resolveBlindOrderPrices(BadInst, *Tl, 0);
+  EXPECT_FALSE(InstRes.Check.Ok);
+  EXPECT_EQ(InstRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(InstRes.Check.Field, "instrument");
 
-  EXPECT_THROW(core::resolveBlindOrderPrices(Blind, *Tl, 0),
-               core::DecimalOverflow);
+  core::OrderSpec ZeroStep = BadInst;
+  ZeroStep.Instrument = 1;
+  const core::ResolvedOrderResult StepRes =
+      core::resolveBlindOrderPrices(ZeroStep, *Tl, 0);
+  EXPECT_FALSE(StepRes.Check.Ok);
+  EXPECT_EQ(StepRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(StepRes.Check.Field, "instrument");
+
+  core::OrderSpec OverflowLimit = BadInst;
+  OverflowLimit.Instrument = 0;
+  OverflowLimit.LimitPrice = core::Decimal::parse("1000000000000000000");
+  const core::ResolvedOrderResult LimitRes =
+      core::resolveBlindOrderPrices(OverflowLimit, *Tl, 0);
+  EXPECT_FALSE(LimitRes.Check.Ok);
+  EXPECT_EQ(LimitRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(LimitRes.Check.Field, "limitPrice");
+
+  core::OrderSpec OverflowStop = BadInst;
+  OverflowStop.Instrument = 0;
+  OverflowStop.Type = core::OrderType::Stop;
+  OverflowStop.LimitPrice.reset();
+  OverflowStop.StopPrice = core::Decimal::parse("1000000000000000000");
+  const core::ResolvedOrderResult StopRes =
+      core::resolveBlindOrderPrices(OverflowStop, *Tl, 0);
+  EXPECT_FALSE(StopRes.Check.Ok);
+  EXPECT_EQ(StopRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(StopRes.Check.Field, "stopPrice");
 }

@@ -21,7 +21,7 @@ core::JournalEntry fromProto(const pb::JournalEntry &Entry,
 core::OrderSpec orderSpecFromProto(const pb::OrderSpec &Spec,
                                    const core::SessionSpec &Session);
 void toProto(const core::OrderEstimate &Estimate,
-             pb::EstimateOrderResponse *Out);
+             const core::Timeline &Timeline, pb::EstimateOrderResponse *Out);
 // Запись журнала ядра -> proto; fromProto(toProto(e))
 // == e.
 void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,

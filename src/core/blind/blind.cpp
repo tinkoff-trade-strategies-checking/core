@@ -61,38 +61,52 @@ std::optional<Decimal> blindP0(const Timeline &Timeline, int Instrument,
   return FirstBar->Open;
 }
 
-OrderSpec resolveBlindOrderPrices(const OrderSpec &Spec,
-                                  const Timeline &Timeline, std::int64_t Step) {
+ResolvedOrderResult resolveBlindOrderPrices(const OrderSpec &Spec,
+                                            const Timeline &Timeline,
+                                            std::int64_t Step) {
   if (!Spec.BlindPrices)
-    return Spec;
+    return {Spec, Validation{}};
   if (Spec.Instrument < 0 || static_cast<std::size_t>(Spec.Instrument) >=
                                  Timeline.instruments().size()) {
-    throw std::invalid_argument(
-        "индекс бумаги вне диапазона для перевода слепых цен");
+    return {std::nullopt,
+            Validation{false, Reason::InvalidParams, "instrument"}};
   }
-  const std::optional<Decimal> P0 = blindP0(Timeline, Spec.Instrument, Step);
-  if (!P0) {
-    throw std::invalid_argument(
-        "нет P0 для перевода слепых цен: у бумаги нет бара до текущего шага");
-  }
-  const RoundingMode Mode =
-      Spec.OrderSide == Side::Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
   const Decimal &PriceStep =
       Timeline.instruments()[static_cast<std::size_t>(Spec.Instrument)]
           .PriceStep;
+  if (PriceStep.sign() <= 0)
+    return {std::nullopt,
+            Validation{false, Reason::InvalidParams, "instrument"}};
+  const std::optional<Decimal> P0 = blindP0(Timeline, Spec.Instrument, Step);
+  if (!P0)
+    return {std::nullopt,
+            Validation{false, Reason::InvalidParams, "instrument"}};
+
+  const RoundingMode Mode =
+      Spec.OrderSide == Side::Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
   auto Convert = [&](const Decimal &BlindPrice) {
-    Decimal Rub = BlindPrice.mulDiv(*P0, kHundred, Decimal::kScale, Mode);
-    if (PriceStep.sign() > 0)
-      Rub = Rub.roundToStep(PriceStep, Mode);
-    return Rub;
+    return BlindPrice.mulDiv(*P0, kHundred, Decimal::kScale, Mode)
+        .roundToStep(PriceStep, Mode);
   };
   OrderSpec Out = Spec;
-  if (Out.LimitPrice)
-    Out.LimitPrice = Convert(*Out.LimitPrice);
-  if (Out.StopPrice)
-    Out.StopPrice = Convert(*Out.StopPrice);
+  if (Out.LimitPrice) {
+    try {
+      Out.LimitPrice = Convert(*Out.LimitPrice);
+    } catch (const DecimalOverflow &) {
+      return {std::nullopt,
+              Validation{false, Reason::InvalidParams, "limitPrice"}};
+    }
+  }
+  if (Out.StopPrice) {
+    try {
+      Out.StopPrice = Convert(*Out.StopPrice);
+    } catch (const DecimalOverflow &) {
+      return {std::nullopt,
+              Validation{false, Reason::InvalidParams, "stopPrice"}};
+    }
+  }
   Out.BlindPrices = false;
-  return Out;
+  return {std::move(Out), Validation{}};
 }
 
 std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,
