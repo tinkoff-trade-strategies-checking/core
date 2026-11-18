@@ -16,7 +16,7 @@ template <> struct Arbitrary<core::Decimal> {
   static Gen<core::Decimal> arbitrary() {
     return gen::exec([] {
       const auto Units = *gen::inRange<std::int64_t>(-100'000'000, 100'000'000);
-      auto Nano = *gen::inRange<std::int32_t>(0, 999'999'999);
+      auto Nano = *gen::inRange<std::int32_t>(0, 1'000'000'000);
       if (Units < 0) {
         Nano = -Nano;
       } else if (Units == 0 && *gen::arbitrary<bool>()) {
@@ -35,7 +35,7 @@ namespace {
 rc::Gen<Decimal> genPositiveStep() {
   return rc::gen::exec([] {
     const auto Units = *rc::gen::inRange<std::int64_t>(0, 10);
-    auto Nano = *rc::gen::inRange<std::int32_t>(100'000, 999'999'999);
+    auto Nano = *rc::gen::inRange<std::int32_t>(100'000, 1'000'000'000);
     if (Units == 0 && Nano == 0) {
       Nano = 10'000'000;
     }

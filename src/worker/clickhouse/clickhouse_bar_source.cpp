@@ -94,11 +94,13 @@ const char *const kCandlesSql =
     "AND available_at <= fromUnixTimestamp64Milli({to_ms:Int64}, 'UTC') "
     "ORDER BY ts_open ASC FORMAT TabSeparated";
 
+// Агрегированный бар [T, T+Δ) доступен в T+Δ (INV-1, решение владельца
+// продукта 18.11.2026), а не по последней минутке; для 1 д — конец суток МСК
+// (в МСК нет перехода на летнее время, сутки = 86400 с).
 const char *const kAggregateMinutesSql =
     "SELECT intDiv(toUnixTimestamp64Milli(ts_open), {interval_ms:Int64}) * "
     "{interval_ms:Int64} AS bar_ts_open, "
-    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS "
-    "bar_available_at, "
+    "bar_ts_open + {interval_ms:Int64} AS bar_available_at, "
     "argMin(open, ts_open) AS bar_open, "
     "max(high) AS bar_high, "
     "min(low) AS bar_low, "
@@ -120,8 +122,7 @@ const char *const kAggregateMinutesSql =
 const char *const kAggregateDailySql =
     "SELECT toUnixTimestamp64Milli(toDateTime64(toStartOfDay(ts_open, "
     "'Europe/Moscow'), 3, 'Europe/Moscow')) AS bar_ts_open, "
-    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS "
-    "bar_available_at, "
+    "bar_ts_open + {interval_ms:Int64} AS bar_available_at, "
     "argMin(open, ts_open) AS bar_open, "
     "max(high) AS bar_high, "
     "min(low) AS bar_low, "

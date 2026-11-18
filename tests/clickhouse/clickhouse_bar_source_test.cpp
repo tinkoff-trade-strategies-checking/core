@@ -173,8 +173,8 @@ TEST(ClickHouseBarSource, NoSqlInjectionThroughSecid) {
   }
   bool PassedAsParam = false;
   for (const auto &Call : *F.Calls) {
-    for (const auto &[name, value] : Call.Params) {
-      if (name == "secid" && value == Evil)
+    for (const auto &[Name, Value] : Call.Params) {
+      if (Name == "secid" && Value == Evil)
         PassedAsParam = true;
     }
   }
@@ -187,12 +187,12 @@ TEST(ClickHouseBarSource, RangeAndIntervalGoAsParameters) {
   Source.load({kSnap, "SBER", 60, 123, 456});
   const Call &Last = F.Calls->back();
   bool From = false, To = false, Interval = false;
-  for (const auto &[name, value] : Last.Params) {
-    if (name == "from_ms" && value == "123")
+  for (const auto &[Name, Value] : Last.Params) {
+    if (Name == "from_ms" && Value == "123")
       From = true;
-    if (name == "to_ms" && value == "456")
+    if (Name == "to_ms" && Value == "456")
       To = true;
-    if (name == "interval_sec" && value == "60")
+    if (Name == "interval_sec" && Value == "60")
       Interval = true;
   }
   EXPECT_TRUE(From && To && Interval);
@@ -321,7 +321,7 @@ TEST(ClickHouseBarSource, ParsesSecurity) {
   EXPECT_EQ(Sec.PriceStep, Decimal::parse("0.5"));
 }
 
-TEST(ClickHouseBarSource, AggregationParsesOhlcvAndLastAvailableAt) {
+TEST(ClickHouseBarSource, AggregationParsesOhlcv) {
   Fixture F;
   F.CandleCount = "0\n";
   F.Rows = "1792000000000\t1792000300000\t100.000000\t105.500000\t99."
@@ -350,16 +350,21 @@ TEST(ClickHouseBarSource, AggregationParametersPassedCorrectly) {
   bool HasIntervalMs = false;
   bool HasFromMs = false;
   bool HasToMs = false;
-  for (const auto &[name, value] : Last.Params) {
-    if (name == "interval_ms" && value == "900000")
+  for (const auto &[Name, Value] : Last.Params) {
+    if (Name == "interval_ms" && Value == "900000")
       HasIntervalMs = true;
-    if (name == "from_ms" && value == "1000000")
+    if (Name == "from_ms" && Value == "1000000")
       HasFromMs = true;
-    if (name == "to_ms" && value == "2000000")
+    if (Name == "to_ms" && Value == "2000000")
       HasToMs = true;
   }
   EXPECT_TRUE(HasIntervalMs && HasFromMs && HasToMs);
   EXPECT_NE(Last.Sql.find("ORDER BY bar_ts_open ASC"), std::string::npos);
+  // Бар [T, T+Δ) доступен в T+Δ, а не по последней минутке (INV-1).
+  EXPECT_NE(Last.Sql.find("bar_ts_open + {interval_ms:Int64} AS "
+                          "bar_available_at"),
+            std::string::npos);
+  EXPECT_EQ(Last.Sql.find("argMax(available_at"), std::string::npos);
   // Верхняя граница в WHERE (core#27), чтобы не сканировать весь снапшот
   EXPECT_NE(Last.Sql.find("ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
                           "{interval_ms:Int64}, 'UTC')"),
@@ -375,16 +380,21 @@ TEST(ClickHouseBarSource, DailyAggregationParametersAndSql) {
   bool HasIntervalMs = false;
   bool HasFromMs = false;
   bool HasToMs = false;
-  for (const auto &[name, value] : Last.Params) {
-    if (name == "interval_ms" && value == "86400000")
+  for (const auto &[Name, Value] : Last.Params) {
+    if (Name == "interval_ms" && Value == "86400000")
       HasIntervalMs = true;
-    if (name == "from_ms" && value == "1000000")
+    if (Name == "from_ms" && Value == "1000000")
       HasFromMs = true;
-    if (name == "to_ms" && value == "2000000")
+    if (Name == "to_ms" && Value == "2000000")
       HasToMs = true;
   }
   EXPECT_TRUE(HasIntervalMs && HasFromMs && HasToMs);
   EXPECT_NE(Last.Sql.find("toStartOfDay"), std::string::npos);
+  // Дневной бар доступен в конце суток МСК (T + 86400 с).
+  EXPECT_NE(Last.Sql.find("bar_ts_open + {interval_ms:Int64} AS "
+                          "bar_available_at"),
+            std::string::npos);
+  EXPECT_EQ(Last.Sql.find("argMax(available_at"), std::string::npos);
   // Верхняя граница в WHERE (core#27)
   EXPECT_NE(Last.Sql.find("ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
                           "{interval_ms:Int64}, 'UTC')"),

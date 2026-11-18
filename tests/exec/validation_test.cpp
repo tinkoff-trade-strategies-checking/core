@@ -311,6 +311,16 @@ TEST(OcoValidation, RejectsDifferentSides) {
   expectInvalid(core::validateOcoPair(Stop, Take), "side");
 }
 
+TEST(OcoValidation, RejectsBuyPair) {
+  // Тейк-профит - только продажа, поэтому пара на покупку невозможна.
+  OrderSpec Stop = spec(Side::Buy, OrderType::Stop, 5, 0);
+  Stop.StopPrice = d("110");
+  OrderSpec Take = spec(Side::Buy, OrderType::TakeProfit, 5, 0);
+  Take.LimitPrice = d("90");
+  expectInvalid(core::validateOcoPair(Stop, Take), "side");
+  expectInvalid(core::validateOcoPair(Take, Stop), "side");
+}
+
 TEST(OcoValidation, RejectsInvalidTypes) {
   OrderSpec Stop = spec(Side::Sell, OrderType::Stop, 5, 0);
   Stop.StopPrice = d("90");
