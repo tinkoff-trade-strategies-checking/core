@@ -1,7 +1,8 @@
-// Интеграционный тест ClickHouseBarSource на настоящем ClickHouse с
-// фикстурой-снапшотом. Пропускается, если не задана переменная окружения
-// CLICKHOUSE_URL (формат http://user:password@host:8123/ttsc). Как запустить -
-// в core/AGENTS.md.
+// Интеграционные тесты ClickHouseBarSource, ClickHouseCalendarSource и
+// ClickHouseRuoniaSource на настоящем ClickHouse с фикстурой-снапшотом.
+// Пропускаются, если не задана переменная окружения CLICKHOUSE_URL (формат
+// http://user:password@host:8123/ttsc); при CLICKHOUSE_REQUIRED=1 (CI)
+// отсутствие URL - падение. Как запустить - в core/AGENTS.md.
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -10,6 +11,8 @@
 #include <string>
 
 #include "clickhouse/clickhouse_bar_source.hpp"
+#include "clickhouse/clickhouse_calendar_source.hpp"
+#include "clickhouse/clickhouse_ruonia_source.hpp"
 
 namespace {
 
@@ -40,15 +43,24 @@ std::int64_t utcMs(int Y, int Mo, int D, int H = 0, int Mi = 0, int S = 0) {
 
 class ClickHouseIntegration : public ::testing::Test {
 protected:
+  // Без CLICKHOUSE_URL тест пропускается; в CI (CLICKHOUSE_REQUIRED=1) это
+  // ошибка, чтобы тесты не пропускались молча.
   void SetUp() override {
     const char *Url = std::getenv("CLICKHOUSE_URL");
-    if (Url == nullptr || std::string(Url).empty()) {
+    if (Url == nullptr || *Url == '\0') {
+      const char *Required = std::getenv("CLICKHOUSE_REQUIRED");
+      if (Required != nullptr && std::string(Required) == "1")
+        FAIL() << "CLICKHOUSE_REQUIRED=1, но CLICKHOUSE_URL не задан";
       GTEST_SKIP() << "CLICKHOUSE_URL не задан: интеграционный тест пропущен";
     }
-    Source = std::make_unique<worker::ClickHouseBarSource>(
-        worker::ClickHouseConfig::fromUrl(Url));
+    const auto Config = worker::ClickHouseConfig::fromUrl(Url);
+    Source = std::make_unique<worker::ClickHouseBarSource>(Config);
+    Calendar = std::make_unique<worker::ClickHouseCalendarSource>(Config);
+    Ruonia = std::make_unique<worker::ClickHouseRuoniaSource>(Config);
   }
   std::unique_ptr<worker::ClickHouseBarSource> Source;
+  std::unique_ptr<worker::ClickHouseCalendarSource> Calendar;
+  std::unique_ptr<worker::ClickHouseRuoniaSource> Ruonia;
 };
 
 TEST_F(ClickHouseIntegration, DailyCandlesFromStoredCandles) {
@@ -118,17 +130,158 @@ TEST_F(ClickHouseIntegration, BarNotYetAvailableByToMsIsExcluded) {
 
 TEST_F(ClickHouseIntegration, CandlesAggregatedFromMinutes) {
   // SBER: 5-минутных свечей в таблице candles нет, они агрегируются из
-  // минутных.
+  // минутных. Выравнивание по 5 мин UTC: бар 04:00 - свечи 04:00…04:04, бар
+  // 04:05 - свечи 04:05…04:08 (04:09 в данных нет). Бар 03:55 (одна свеча
+  // 03:59) начинается раньше fromMs и не отдаётся.
   const std::int64_t T0 = utcMs(2026, 10, 28, 3, 59);
-  const auto FiveMin = Source->load({kFixture, "SBER", 300, T0, T0 + 600000});
-  ASSERT_FALSE(FiveMin.empty());
-  for (std::size_t I = 0; I < FiveMin.size(); ++I) {
-    EXPECT_EQ(FiveMin[I].Index, static_cast<std::int64_t>(I));
-    EXPECT_GE(FiveMin[I].AvailableAtMs, FiveMin[I].TsOpenMs);
-    if (I > 0) {
-      EXPECT_LT(FiveMin[I - 1].TsOpenMs, FiveMin[I].TsOpenMs);
-    }
-  }
+  const std::int64_t T4 = utcMs(2026, 10, 28, 4, 0);
+  const std::int64_t T5 = utcMs(2026, 10, 28, 4, 5);
+  const auto FiveMin = Source->load({kFixture, "SBER", 300, T0, T0 + 660000});
+  ASSERT_EQ(FiveMin.size(), 2u);
+
+  EXPECT_EQ(FiveMin[0].Index, 0);
+  EXPECT_EQ(FiveMin[0].TsOpenMs, T4);
+  EXPECT_EQ(FiveMin[0].Open, Decimal::parse("298.21"));
+  EXPECT_EQ(FiveMin[0].High, Decimal::parse("298.9"));
+  EXPECT_EQ(FiveMin[0].Low, Decimal::parse("298.21"));
+  EXPECT_EQ(FiveMin[0].Close, Decimal::parse("298.85"));
+  EXPECT_EQ(FiveMin[0].Volume, 20500);
+  EXPECT_EQ(FiveMin[0].Value, Decimal::parse("6119000"));
+  EXPECT_EQ(FiveMin[0].AvailableAtMs, T4 + 300000); // T + Δ
+
+  EXPECT_EQ(FiveMin[1].Index, 1);
+  EXPECT_EQ(FiveMin[1].TsOpenMs, T5);
+  EXPECT_EQ(FiveMin[1].Open, Decimal::parse("298.85"));
+  EXPECT_EQ(FiveMin[1].High, Decimal::parse("299.3"));
+  EXPECT_EQ(FiveMin[1].Low, Decimal::parse("298.8"));
+  EXPECT_EQ(FiveMin[1].Close, Decimal::parse("299.25"));
+  EXPECT_EQ(FiveMin[1].Volume, 16800);
+  EXPECT_EQ(FiveMin[1].Value, Decimal::parse("5023000"));
+  EXPECT_EQ(FiveMin[1].AvailableAtMs, T5 + 300000);
+}
+
+TEST_F(ClickHouseIntegration, AggregatedBarIsAvailableAtIntervalEnd) {
+  // Бар 04:00-04:05 доступен ровно в T + Δ = 04:05, не раньше.
+  const std::int64_t T0 = utcMs(2026, 10, 28, 4, 0);
+  EXPECT_TRUE(
+      Source->load({kFixture, "SBER", 300, T0, utcMs(2026, 10, 28, 4, 4, 59)})
+          .empty());
+  EXPECT_EQ(Source->load({kFixture, "SBER", 300, T0, utcMs(2026, 10, 28, 4, 5)})
+                .size(),
+            1u);
+  // Неполный интервал: последняя свеча SBER - 04:08 (известна в 04:09), бар
+  // 04:05-04:10 по минуткам был бы доступен в 04:09, но доступен только в
+  // T + Δ = 04:10 (INV-1, решение владельца продукта 18.11.2026).
+  EXPECT_EQ(
+      Source->load({kFixture, "SBER", 300, T0, utcMs(2026, 10, 28, 4, 9, 59)})
+          .size(),
+      1u);
+  EXPECT_EQ(
+      Source->load({kFixture, "SBER", 300, T0, utcMs(2026, 10, 28, 4, 10)})
+          .size(),
+      2u);
+
+  // GAZP: свечи 07:00 и 07:01, в последние минуты интервала 07:00-07:05
+  // сделок нет - бар всё равно доступен только в 07:05.
+  const std::int64_t G0 = utcMs(2026, 10, 28, 7, 0);
+  EXPECT_TRUE(Source->load({kFixture, "GAZP", 300, G0, G0 + 299000}).empty());
+  const auto Gazp = Source->load({kFixture, "GAZP", 300, G0, G0 + 300000});
+  ASSERT_EQ(Gazp.size(), 1u);
+  EXPECT_EQ(Gazp[0].AvailableAtMs, G0 + 300000);
+}
+
+TEST_F(ClickHouseIntegration, DailyAggregationFromMinutes) {
+  // DAYT: дневных свечей нет, дни МСК собираются из минутных
+  // (kAggregateDailySql на настоящем ClickHouse). День 28.10 МСК
+  // открывается 27.10 21:00 UTC.
+  const std::int64_t D28 = utcMs(2026, 10, 27, 21);
+  const std::int64_t D29 = utcMs(2026, 10, 28, 21);
+  const std::int64_t D30 = utcMs(2026, 10, 29, 21);
+  const auto Days =
+      Source->load({kFixture, "DAYT", 86400, D28, utcMs(2026, 10, 30, 21)});
+  ASSERT_EQ(Days.size(), 3u);
+
+  // 28.10: свечи 09:59, 18:30 (разрыв между ними) и вечерняя 23:59 МСК.
+  EXPECT_EQ(Days[0].Index, 0);
+  EXPECT_EQ(Days[0].TsOpenMs, D28);
+  EXPECT_EQ(Days[0].Open, Decimal::parse("100"));
+  EXPECT_EQ(Days[0].High, Decimal::parse("103"));
+  EXPECT_EQ(Days[0].Low, Decimal::parse("99"));
+  EXPECT_EQ(Days[0].Close, Decimal::parse("102"));
+  EXPECT_EQ(Days[0].Volume, 60);
+  EXPECT_EQ(Days[0].Value, Decimal::parse("6000"));
+  EXPECT_EQ(Days[0].AvailableAtMs, D29); // конец суток МСК
+
+  // 29.10: свеча 00:00 МСК (полночь) относится к новым суткам, не к 28.10.
+  EXPECT_EQ(Days[1].TsOpenMs, D29);
+  EXPECT_EQ(Days[1].Open, Decimal::parse("102"));
+  EXPECT_EQ(Days[1].High, Decimal::parse("105"));
+  EXPECT_EQ(Days[1].Low, Decimal::parse("101.9"));
+  EXPECT_EQ(Days[1].Close, Decimal::parse("104"));
+  EXPECT_EQ(Days[1].Volume, 90);
+  EXPECT_EQ(Days[1].Value, Decimal::parse("9000"));
+  EXPECT_EQ(Days[1].AvailableAtMs, D30);
+
+  // 30.10: единственная свеча в 00:00 МСК.
+  EXPECT_EQ(Days[2].TsOpenMs, D30);
+  EXPECT_EQ(Days[2].Open, Decimal::parse("110"));
+  EXPECT_EQ(Days[2].Volume, 1);
+  EXPECT_EQ(Days[2].AvailableAtMs, utcMs(2026, 10, 30, 21));
+}
+
+TEST_F(ClickHouseIntegration, DailyAggregatedBarNotAvailableBeforeDayEnd) {
+  // Последняя свеча 29.10 - 10:00 МСК, но бар дня доступен только в 00:00 МСК
+  // 30.10, а не по последней минутке (INV-1).
+  const std::int64_t D28 = utcMs(2026, 10, 27, 21);
+  const auto Before =
+      Source->load({kFixture, "DAYT", 86400, D28, utcMs(2026, 10, 29, 20, 59)});
+  ASSERT_EQ(Before.size(), 1u); // только 28.10
+  EXPECT_EQ(Before[0].TsOpenMs, D28);
+  // Диапазон, начинающийся в середине истории: нумерация с нуля.
+  const auto Later =
+      Source->load({kFixture, "DAYT", 86400, utcMs(2026, 10, 28, 21),
+                    utcMs(2026, 10, 30, 21)});
+  ASSERT_EQ(Later.size(), 2u);
+  EXPECT_EQ(Later[0].Index, 0);
+}
+
+TEST_F(ClickHouseIntegration, CalendarFromRealDatabase) {
+  const auto Days = Calendar->tradingDays(kFixture, 20261019, 20261030);
+  ASSERT_EQ(Days.size(), 12u);
+  EXPECT_EQ(Days.front(), (core::TradingDay{20261019, true}));
+  EXPECT_EQ(Days[5], (core::TradingDay{20261024, false})); // суббота
+  EXPECT_EQ(Days[6], (core::TradingDay{20261025, false}));
+  EXPECT_EQ(Days.back(), (core::TradingDay{20261030, true}));
+
+  const auto Part = Calendar->tradingDays(kFixture, 20261023, 20261026);
+  ASSERT_EQ(Part.size(), 4u); // границы включаются
+  EXPECT_EQ(Part.front().Yyyymmdd, 20261023);
+  EXPECT_EQ(Part.back().Yyyymmdd, 20261026);
+
+  EXPECT_TRUE(Calendar->tradingDays(kFixture, 20261030, 20261019).empty());
+  EXPECT_THROW(Calendar->tradingDays("00000000-0000-4000-8000-000000000000",
+                                     20261019, 20261030),
+               core::SnapshotNotFound);
+}
+
+TEST_F(ClickHouseIntegration, RuoniaFromRealDatabase) {
+  const auto All = Ruonia->ruoniaRates(kFixture, 20261030);
+  ASSERT_EQ(All.size(), 12u);
+  EXPECT_EQ(All.front().Yyyymmdd, 20261019);
+  EXPECT_EQ(All.front().Rate, Decimal::parse("15"));
+  EXPECT_EQ(All.back().Yyyymmdd, 20261030);
+  for (std::size_t I = 1; I < All.size(); ++I)
+    EXPECT_LT(All[I - 1].Yyyymmdd, All[I].Yyyymmdd);
+
+  // Ставки позже UpToYmd не отдаются (INV-1).
+  const auto Part = Ruonia->ruoniaRates(kFixture, 20261026);
+  ASSERT_EQ(Part.size(), 8u);
+  EXPECT_EQ(Part.back().Yyyymmdd, 20261026);
+  EXPECT_TRUE(Ruonia->ruoniaRates(kFixture, 20200101).empty());
+
+  EXPECT_THROW(
+      Ruonia->ruoniaRates("00000000-0000-4000-8000-000000000000", 20261030),
+      core::SnapshotNotFound);
 }
 
 TEST_F(ClickHouseIntegration, LoadIsDeterministic) {

@@ -121,6 +121,11 @@ Validation validateOcoPair(const OrderSpec &First, const OrderSpec &Second) {
   if (!ValidTypes) {
     return invalid("type");
   }
+  // Тейк-профит - только продажа (как в validate), поэтому пара «стоп + тейк»
+  // бывает только на продажу.
+  if (First.OrderSide != Side::Sell) {
+    return invalid("side");
+  }
   return Validation{};
 }
 

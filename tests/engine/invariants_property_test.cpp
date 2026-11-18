@@ -3,6 +3,7 @@
 // INV-2 (Тайминг исполнения заявок)
 // INV-4 (Детерминизм сессии)
 // INV-8 (Воспроизводимость состояния из журнала)
+// INV-6 (Сохранение денег через движок исполнения)
 #include <gtest/gtest.h>
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
@@ -43,23 +44,34 @@ std::shared_ptr<const Timeline> mutatedTimeline(std::int64_t MutateAfterStep,
   auto BarsA = F.Bars.load(ReqA);
   auto BarsB = F.Bars.load(ReqB);
 
-  for (std::size_t I = 0; I < BarsA.size(); ++I) {
-    if (static_cast<std::int64_t>(I) > MutateAfterStep) {
-      BarsA[I].Open = BarsA[I].Open.mul(Multiplier, 2, RoundingMode::HalfUp);
-      BarsA[I].High = BarsA[I].High.mul(Multiplier, 2, RoundingMode::HalfUp);
-      BarsA[I].Low = BarsA[I].Low.mul(Multiplier, 2, RoundingMode::HalfUp);
-      BarsA[I].Close = BarsA[I].Close.mul(Multiplier, 2, RoundingMode::HalfUp);
+  // Номер шага бара: у FIXA есть бар на каждом шаге, у FIXB бара шага 3 нет,
+  // поэтому шаг бара FIXB определяется по времени открытия, а не по индексу.
+  const auto StepOf = [&BarsA](const Bar &B) {
+    const auto It =
+        std::find_if(BarsA.begin(), BarsA.end(),
+                     [&B](const Bar &A) { return A.TsOpenMs == B.TsOpenMs; });
+    return static_cast<std::int64_t>(It - BarsA.begin());
+  };
+  std::vector<std::int64_t> StepsB;
+  for (const Bar &B : BarsB)
+    StepsB.push_back(StepOf(B));
+  const auto Mutate = [&](std::vector<Bar> &Bars,
+                          const std::vector<std::int64_t> &Steps, int Scale) {
+    for (std::size_t I = 0; I < Bars.size(); ++I) {
+      if (Steps[I] <= MutateAfterStep)
+        continue;
+      Bar &B = Bars[I];
+      B.Open = B.Open.mul(Multiplier, Scale, RoundingMode::HalfUp);
+      B.High = B.High.mul(Multiplier, Scale, RoundingMode::HalfUp);
+      B.Low = B.Low.mul(Multiplier, Scale, RoundingMode::HalfUp);
+      B.Close = B.Close.mul(Multiplier, Scale, RoundingMode::HalfUp);
     }
-  }
-
-  for (std::size_t I = 0; I < BarsB.size(); ++I) {
-    if (static_cast<std::int64_t>(I) > MutateAfterStep) {
-      BarsB[I].Open = BarsB[I].Open.mul(Multiplier, 6, RoundingMode::HalfUp);
-      BarsB[I].High = BarsB[I].High.mul(Multiplier, 6, RoundingMode::HalfUp);
-      BarsB[I].Low = BarsB[I].Low.mul(Multiplier, 6, RoundingMode::HalfUp);
-      BarsB[I].Close = BarsB[I].Close.mul(Multiplier, 6, RoundingMode::HalfUp);
-    }
-  }
+  };
+  std::vector<std::int64_t> StepsA;
+  for (std::size_t I = 0; I < BarsA.size(); ++I)
+    StepsA.push_back(static_cast<std::int64_t>(I));
+  Mutate(BarsA, StepsA, 2);
+  Mutate(BarsB, StepsB, 6);
 
   F.Bars.addSeries(F.SnapshotId, "FIXA", 86400, std::move(BarsA));
   F.Bars.addSeries(F.SnapshotId, "FIXB", 86400, std::move(BarsB));
@@ -77,43 +89,96 @@ SessionSpec fixtureSpec() {
   return Spec;
 }
 
-JournalEntry genJournalEntry(std::int64_t Seq, std::int64_t Step,
-                             const std::vector<std::int64_t> &ActiveOrderIds) {
-  const bool CanCancel = !ActiveOrderIds.empty() && *rc::gen::arbitrary<bool>();
-  if (CanCancel) {
-    const auto Idx = *rc::gen::inRange<std::size_t>(0, ActiveOrderIds.size());
-    JournalEntry E;
-    E.Seq = Seq;
-    E.Step = Step;
-    E.Command = CancelCmd{ActiveOrderIds[Idx]};
-    return E;
-  }
+// Цена бумаги около цены фикстуры: FIXA - 90…115, FIXB - 0.0190…0.0210 с
+// шагом 0.0005 (кратно шагу цены). Часть цен окажется не с той стороны от
+// close - такая заявка отклоняется валидацией, это тоже проверяемый путь.
+Decimal genPrice(int Inst) {
+  if (Inst == 0)
+    return Decimal::fromUnits(*rc::gen::inRange<std::int64_t>(90, 116));
+  const auto Ticks = *rc::gen::inRange<std::int64_t>(38, 43);
+  return Decimal::parse("0.0005").times(Ticks);
+}
 
-  const int Inst = *rc::gen::inRange(0, 2);
-  const Side OrderSide = *rc::gen::element(Side::Buy, Side::Sell);
-  const bool IsLimit = *rc::gen::arbitrary<bool>();
-
+// Заявка любого вида: рыночная, лимитная, стоп, стоп-лимит, тейк-профит,
+// трейлинг; срок «день» или GTC.
+OrderSpec genOrderSpec(int Inst, Side OrderSide) {
   OrderSpec S;
   S.Instrument = Inst;
   S.OrderSide = OrderSide;
   S.Lots = *rc::gen::inRange<std::int64_t>(1, 10);
-  if (IsLimit) {
-    S.Type = OrderType::Limit;
-    S.Tif = TimeInForce::Gtc;
-    if (Inst == 0) {
-      const auto P = *rc::gen::inRange<std::int64_t>(95, 110);
-      S.LimitPrice = Decimal::fromUnits(P);
-    } else {
-      S.LimitPrice = Decimal::parse("0.0200");
-    }
-  } else {
+  S.Tif = *rc::gen::element(TimeInForce::Gtc, TimeInForce::Day);
+  switch (*rc::gen::inRange(0, 6)) {
+  case 0:
     S.Type = OrderType::Market;
+    break;
+  case 1:
+    S.Type = OrderType::Limit;
+    S.LimitPrice = genPrice(Inst);
+    break;
+  case 2:
+    S.Type = OrderType::Stop;
+    S.StopPrice = genPrice(Inst);
+    break;
+  case 3:
+    S.Type = OrderType::StopLimit;
+    S.StopPrice = genPrice(Inst);
+    S.LimitPrice = genPrice(Inst);
+    break;
+  case 4:
+    S.Type = OrderType::TakeProfit;
+    S.OrderSide = Side::Sell;
+    S.LimitPrice = genPrice(Inst);
+    break;
+  default:
+    S.Type = OrderType::TrailingStop;
+    S.OrderSide = Side::Sell;
+    S.TrailingPercent =
+        Decimal::fromUnits(*rc::gen::inRange<std::int64_t>(1, 20));
+    break;
   }
+  return S;
+}
 
+// Пара OCO «стоп + тейк» (продажа одной бумаги).
+PlaceCmd genOcoPlace(int Inst) {
+  OrderSpec StopLeg;
+  StopLeg.Instrument = Inst;
+  StopLeg.OrderSide = Side::Sell;
+  StopLeg.Lots = *rc::gen::inRange<std::int64_t>(1, 10);
+  StopLeg.Type = *rc::gen::element(OrderType::Stop, OrderType::StopLimit);
+  StopLeg.StopPrice = genPrice(Inst);
+  if (StopLeg.Type == OrderType::StopLimit)
+    StopLeg.LimitPrice = genPrice(Inst);
+  OrderSpec Take = StopLeg;
+  Take.Type = OrderType::TakeProfit;
+  Take.StopPrice.reset();
+  Take.LimitPrice = genPrice(Inst);
+  return PlaceCmd{std::move(StopLeg), std::move(Take)};
+}
+
+PlaceCmd genPlace() {
+  const int Inst = *rc::gen::inRange(0, 2);
+  if (*rc::gen::inRange(0, 6) == 0)
+    return genOcoPlace(Inst);
+  const Side OrderSide = *rc::gen::element(Side::Buy, Side::Sell);
+  return PlaceCmd{genOrderSpec(Inst, OrderSide), std::nullopt};
+}
+
+JournalEntry genJournalEntry(std::int64_t Seq, std::int64_t Step,
+                             const std::vector<std::int64_t> &ActiveOrderIds) {
   JournalEntry E;
   E.Seq = Seq;
   E.Step = Step;
-  E.Command = PlaceCmd{std::move(S), std::nullopt};
+  const auto Kind = *rc::gen::inRange(0, 4); // 0 - отмена, 1 - замена
+  if (!ActiveOrderIds.empty() && Kind == 0) {
+    const auto Idx = *rc::gen::inRange<std::size_t>(0, ActiveOrderIds.size());
+    E.Command = CancelCmd{ActiveOrderIds[Idx]};
+  } else if (!ActiveOrderIds.empty() && Kind == 1) {
+    const auto Idx = *rc::gen::inRange<std::size_t>(0, ActiveOrderIds.size());
+    E.Command = ReplaceCmd{ActiveOrderIds[Idx], genPlace()};
+  } else {
+    E.Command = genPlace();
+  }
   return E;
 }
 
@@ -128,8 +193,15 @@ std::vector<JournalEntry> genRandomJournal(std::int64_t MaxStep = 7) {
   for (int I = 0; I < Count; ++I) {
     CurrentStep = *rc::gen::inRange(CurrentStep, MaxStep + 1);
     JournalEntry E = genJournalEntry(I, CurrentStep, PlacedOrderIds);
-    if (std::holds_alternative<PlaceCmd>(E.Command)) {
+    // id заявки = seq * 2 + нога (journal.hpp)
+    const auto *Place = std::get_if<PlaceCmd>(&E.Command);
+    const auto *Replace = std::get_if<ReplaceCmd>(&E.Command);
+    if (Replace != nullptr)
+      Place = &Replace->Replacement;
+    if (Place != nullptr) {
       PlacedOrderIds.push_back(I * 2);
+      if (Place->OcoWith)
+        PlacedOrderIds.push_back(I * 2 + 1);
     }
     Journal.push_back(std::move(E));
   }
@@ -184,6 +256,28 @@ RC_GTEST_PROP(InvariantsProperty, DeterministicReplay, ()) {
 
   RC_ASSERT(digestOf(R1.Engine) != 0);
   rcAssertSameState(R1.Engine, R2.Engine);
+}
+
+// INV-6: деньги сходятся до копейки: cash = начальный - покупки + продажи -
+// комиссии и сборы по всем сделкам, которые породил движок при проигрывании
+// случайного журнала (а не по прямым вызовам Portfolio::applyFill).
+RC_GTEST_PROP(InvariantsProperty, CashConservationThroughEngine, ()) {
+  const auto UpTo = *rc::gen::inRange<std::int64_t>(3, 10);
+  const auto Journal = genRandomJournal(UpTo);
+  const SessionSpec Spec = fixtureSpec();
+
+  const ReplayResult R =
+      replaySession(Spec, fixtureTimeline(), Journal, UpTo, 0);
+
+  Decimal Expected = Spec.InitialCash;
+  for (const Fill &F : R.Engine.fills()) {
+    if (F.OrderSide == Side::Buy)
+      Expected = Expected - F.Value;
+    else
+      Expected = Expected + F.Value;
+    Expected = Expected - F.Commission - F.Fee;
+  }
+  RC_ASSERT(R.Engine.portfolio().cash() == Expected);
 }
 
 // INV-2: Тайминг заявок (исполнение не раньше open бара K+1)

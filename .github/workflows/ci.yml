@@ -60,10 +60,12 @@ jobs:
             CID=$(docker ps -q --filter ancestor=clickhouse/clickhouse-server:24.8)
             if [ -n "$CID" ] && docker exec "$CID" clickhouse-client --user ttsc --password secret --query "SELECT 1" 2>/dev/null | grep -q "1"; then
               echo "ClickHouse готов"
-              break
+              exit 0
             fi
             sleep 1
           done
+          echo "ClickHouse не поднялся за 30 попыток" >&2
+          exit 1
 
       - name: Загрузка SQL-фикстуры
         run: |
@@ -83,6 +85,8 @@ jobs:
         run: ./build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration.*'
         env:
           CLICKHOUSE_URL: http://ttsc:secret@localhost:8123/ttsc
+          # без CLICKHOUSE_URL тесты не пропускаются, а падают
+          CLICKHOUSE_REQUIRED: "1"
 
   style:
     runs-on: ubuntu-24.04
