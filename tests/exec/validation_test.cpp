@@ -141,6 +141,42 @@ TEST(Validation, PricesMustBePositiveAndPresent) {
   expectInvalid(F.check(StopLimit), "limitPrice");
 }
 
+TEST(Validation, PricesMustBeMultipleOfPriceStep) {
+  Fixture F;
+  OrderSpec Limit = spec(Side::Buy, OrderType::Limit, 1);
+  Limit.LimitPrice = d("99.99");
+  EXPECT_TRUE(F.check(Limit).Ok);
+  Limit.LimitPrice = d("99.995");
+  expectInvalid(F.check(Limit), "limitPrice");
+
+  OrderSpec Stop = spec(Side::Buy, OrderType::Stop, 1);
+  Stop.StopPrice = d("101.01");
+  EXPECT_TRUE(F.check(Stop).Ok);
+  Stop.StopPrice = d("101.005");
+  expectInvalid(F.check(Stop), "stopPrice");
+
+  OrderSpec StopLimit = spec(Side::Buy, OrderType::StopLimit, 1);
+  StopLimit.StopPrice = d("101");
+  StopLimit.LimitPrice = d("102.001");
+  expectInvalid(F.check(StopLimit), "limitPrice");
+
+  OrderSpec Take = spec(Side::Sell, OrderType::TakeProfit, 1);
+  F.hold(1);
+  Take.LimitPrice = d("101.5");
+  EXPECT_TRUE(F.check(Take).Ok);
+  Take.LimitPrice = d("101.505");
+  expectInvalid(F.check(Take), "limitPrice");
+}
+
+TEST(Validation, PriceStepOfSecurityBIsRespected) {
+  Fixture F;
+  OrderSpec Limit = spec(Side::Buy, OrderType::Limit, 1, 1);
+  Limit.LimitPrice = d("0.019995");
+  EXPECT_TRUE(F.check(Limit).Ok);
+  Limit.LimitPrice = d("0.0199951");
+  expectInvalid(F.check(Limit), "limitPrice");
+}
+
 TEST(Validation, TrailingPercentRange) {
   Fixture F;
   F.hold(5);

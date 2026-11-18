@@ -14,6 +14,12 @@ bool positive(const std::optional<Decimal> &V) {
   return V.has_value() && V->sign() > 0;
 }
 
+// Цена кратна шагу цены инструмента (`decisions.md`, «Деньги и округление»).
+bool onGrid(const Decimal &Price, const Decimal &PriceStep) {
+  return PriceStep.sign() <= 0 ||
+         Price.roundToStep(PriceStep, RoundingMode::FLOOR) == Price;
+}
+
 } // namespace
 
 Validation ExecutionEngine::validate(const OrderSpec &Spec,
@@ -47,6 +53,13 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
     if (!Ok)
       return invalid("trailingPercent");
   }
+
+  const Decimal &PriceStep =
+      Instruments[static_cast<std::size_t>(Spec.Instrument)].PriceStep;
+  if (NeedsLimit && !onGrid(*Spec.LimitPrice, PriceStep))
+    return invalid("limitPrice");
+  if (NeedsStop && !onGrid(*Spec.StopPrice, PriceStep))
+    return invalid("stopPrice");
 
   // Цена для проверок - close последнего бара бумаги не позже шага подачи
   // (`decisions.md`, «Заявки»).
