@@ -68,11 +68,17 @@ std::int32_t parseDate(const std::string &Text) {
 }
 
 core::Decimal parseRate(const std::string &Text) {
+  core::Decimal Rate;
   try {
-    return core::Decimal::parse(Text);
+    Rate = core::Decimal::parse(Text);
   } catch (const std::exception &) {
     throw core::MarketDataError("ClickHouse: неверная ставка RUONIA: " + Text);
   }
+  if (Rate <= core::Decimal::zero()) {
+    throw core::MarketDataError(
+        "ClickHouse: ставка RUONIA должна быть положительной: " + Text);
+  }
+  return Rate;
 }
 
 } // namespace

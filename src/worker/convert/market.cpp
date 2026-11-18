@@ -206,15 +206,35 @@ std::optional<core::BenchmarkSeries> loadBenchmark(Context &Context,
 std::int32_t previousTradingDay(Context &Context, const pb::MarketSpec &Market,
                                 const core::Timeline &Timeline) {
   const std::int32_t First = Timeline.yyyymmddOf(0);
+  if (Context.Cache != nullptr) {
+    if (const auto Cached =
+            Context.Cache->getPreviousTradingDay(Market.snapshot_id(), First)) {
+      if (*Cached > 0)
+        return *Cached;
+      const std::int32_t Warmup = Timeline.previousDayYmd();
+      return Warmup < First ? Warmup : 0;
+    }
+  }
+
   const std::int32_t To = core::addCalendarDays(First, -1);
-  for (std::int32_t Lookback = 31; Lookback <= 400; Lookback *= 2) {
+  std::int32_t Found = 0;
+  for (const std::int32_t Lookback : {31, 62, 124, 248, 366}) {
     const std::vector<core::TradingDay> Days = Context.Calendar.tradingDays(
         Market.snapshot_id(), core::addCalendarDays(First, -Lookback), To);
     for (auto It = Days.rbegin(); It != Days.rend(); ++It) {
-      if (It->IsTrading)
-        return It->Yyyymmdd;
+      if (It->IsTrading) {
+        Found = It->Yyyymmdd;
+        break;
+      }
     }
+    if (Found > 0)
+      break;
   }
+  if (Context.Cache != nullptr) {
+    Context.Cache->putPreviousTradingDay(Market.snapshot_id(), First, Found);
+  }
+  if (Found > 0)
+    return Found;
   const std::int32_t Warmup = Timeline.previousDayYmd();
   return Warmup < First ? Warmup : 0;
 }

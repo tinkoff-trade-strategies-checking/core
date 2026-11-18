@@ -11,15 +11,17 @@ namespace core {
 namespace {
 
 constexpr std::int64_t kDayMs = 86'400'000;
-constexpr std::int64_t kMoscowOffsetMs =
-    3 * 3'600'000; // МСК = UTC+3 без перехода на летнее время
+constexpr std::int64_t kHourMs = 3'600'000;
+constexpr std::int64_t kMoscowUtc3Ms = 3 * kHourMs;
+constexpr std::int64_t kMoscowUtc4Ms = 4 * kHourMs;
 constexpr std::int64_t kMinGapMs =
     15 * 60'000; // разрыв внутри дня, начиная с которого - перерыв
 constexpr std::int64_t kMinGapIntervals = 2;
 
 // Дней от 1970-01-01 до даты (григорианский календарь, алгоритм Говарда
 // Хиннанта).
-std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M, std::int32_t D) {
+constexpr std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M,
+                                     std::int32_t D) {
   Y -= M <= 2 ? 1 : 0;
   const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
   const std::int64_t Yoe = Y - Era * 400;
@@ -49,15 +51,52 @@ std::int64_t floorDiv(std::int64_t A, std::int64_t B) {
   return Q;
 }
 
+// Номер дня последнего воскресенья месяца (для марта и октября - 31 день).
+std::int64_t lastSundayDays(std::int32_t Year, std::int32_t Month) {
+  const std::int64_t Last = daysFromCivil(Year, Month, 31);
+  const std::int64_t Wday = ((Last + 4) % 7 + 7) % 7; // 0 = воскресенье
+  return Last - Wday;
+}
+
+// Смещение МСК относительно UTC в момент TsMs (мс) без системной базы tz
+// (INV-4). С 2014-10-26 01:00 UTC+3 (2014-10-25 22:00 UTC) - UTC+3;
+// с 2011-03-27 03:00 UTC+4 (2011-03-26 23:00 UTC) до перехода 2014-10-26 -
+// UTC+4; ранее - сезонный перевод РФ (последнее воскресенье марта/октября).
+// Правило точно для 1996-2010: до 1996 осенний перевод был в сентябре, поэтому
+// для дат раньше 1996 смещение в сентябре определяется неверно (берётся UTC+4
+// до последнего воскресенья октября). Поддерживаемый диапазон - с 1996 года.
+std::int64_t moscowOffsetMs(std::int64_t TsMs) {
+  constexpr std::int64_t kOct2014SwitchMs =
+      daysFromCivil(2014, 10, 25) * kDayMs + 22 * kHourMs;
+  if (TsMs >= kOct2014SwitchMs)
+    return kMoscowUtc3Ms;
+
+  constexpr std::int64_t kMar2011SwitchMs =
+      daysFromCivil(2011, 3, 26) * kDayMs + 23 * kHourMs;
+  if (TsMs >= kMar2011SwitchMs)
+    return kMoscowUtc4Ms;
+
+  const std::int32_t ApproxYmd = civilFromDays(floorDiv(TsMs, kDayMs));
+  const std::int32_t Year = ApproxYmd / 10000;
+  const std::int64_t SpringSwitchMs =
+      (lastSundayDays(Year, 3) - 1) * kDayMs + 23 * kHourMs;
+  const std::int64_t AutumnSwitchMs =
+      (lastSundayDays(Year, 10) - 1) * kDayMs + 23 * kHourMs;
+  if (TsMs >= SpringSwitchMs && TsMs < AutumnSwitchMs)
+    return kMoscowUtc4Ms;
+  return kMoscowUtc3Ms;
+}
+
 // Московская дата момента tsMs (UTC) в виде yyyymmdd.
 std::int32_t moscowYmd(std::int64_t TsMs) {
-  return civilFromDays(floorDiv(TsMs + kMoscowOffsetMs, kDayMs));
+  return civilFromDays(floorDiv(TsMs + moscowOffsetMs(TsMs), kDayMs));
 }
 
 // Начало московских суток даты в UTC, мс.
 std::int64_t moscowDayStartMs(std::int32_t Ymd) {
-  return daysFromCivil(Ymd / 10000, Ymd / 100 % 100, Ymd % 100) * kDayMs -
-         kMoscowOffsetMs;
+  const std::int64_t Days =
+      daysFromCivil(Ymd / 10000, Ymd / 100 % 100, Ymd % 100);
+  return Days * kDayMs - moscowOffsetMs(Days * kDayMs - kMoscowUtc3Ms);
 }
 
 bool validYmd(std::int32_t Ymd) {
@@ -189,7 +228,9 @@ Timeline Timeline::load(BarSource &BarSource, CalendarSource &CalendarSource,
   Request.SnapshotId = SnapshotId;
   Request.IntervalSec = Interval;
   Request.FromMs = moscowDayStartMs(FromYmd);
-  Request.ToMs = moscowDayStartMs(ToYmd) + kDayMs; // начало суток после toYmd
+  const std::int32_t NextYmd = civilFromDays(
+      daysFromCivil(ToYmd / 10000, ToYmd / 100 % 100, ToYmd % 100) + 1);
+  Request.ToMs = moscowDayStartMs(NextYmd); // начало суток после toYmd
   std::vector<std::vector<Bar>> Bars;
   Bars.reserve(Instruments.size());
   for (const Instrument &Instrument : Instruments) {

@@ -209,6 +209,61 @@ TEST(Timeline, MoscowDateAndTradingDays) {
   EXPECT_TRUE(T.isLastStepOfDay(3));
 }
 
+TEST(Timeline, MoscowDateAround2014OffsetTransition) {
+  // До 2014-10-26 02:00 MSK действовало UTC+4 (с 2011-03-27 02:00 MSK),
+  // после 2014-10-26 01:00 MSK - UTC+3; до 2011-03-27 - сезонный перевод.
+  // 2014-10-24 (UTC+4): полночь МСК = 2014-10-23 20:00 UTC.
+  const std::int64_t Oct24MidnightUtc4 = 16366 * kDayMs + 20 * 3600'000LL;
+  // Wait: вычисляем от 2014-10-23 = 16366? Проверим через календарные дни.
+  // 2014-10-23: 1970..2014 = 44 года, 11 високосных
+  // (72,76,80,84,88,92,96,00,04,08,12)
+  // -> 44*365 + 11 = 16071 (2014-01-01). + 31+28+31+30+31+30+31+31+30 + 22 =
+  // 16071 + 295 = 16366!
+  const std::int64_t Oct23BeforeMidnight =
+      Oct24MidnightUtc4 - kMinuteMs; // 23:59 23.10 UTC+4
+  const std::int64_t Oct26MidnightUtc4 =
+      (16366 + 2) * kDayMs + 20 * 3600'000LL; // 2014-10-25 20:00 UTC
+  const std::int64_t Oct26AfterSwitchUtc3 =
+      (16366 + 2) * kDayMs +
+      22 * 3600'000LL; // 2014-10-25 22:00 UTC = 01:00 26.10 UTC+3
+  const std::int64_t Oct26LateUtc3 =
+      (16366 + 3) * kDayMs + 20 * 3600'000LL +
+      30 * kMinuteMs; // 2014-10-26 20:30 UTC = 23:30 26.10 UTC+3
+  const std::int64_t Oct27MidnightUtc3 =
+      (16366 + 3) * kDayMs +
+      21 * 3600'000LL; // 2014-10-26 21:00 UTC = 00:00 27.10 UTC+3
+
+  const Timeline T = Timeline::build(
+      {instrument("A")},
+      {{bar(Oct23BeforeMidnight, kMinuteMs), bar(Oct24MidnightUtc4, kMinuteMs),
+        bar(Oct26MidnightUtc4, kMinuteMs), bar(Oct26AfterSwitchUtc3, kMinuteMs),
+        bar(Oct26LateUtc3, kMinuteMs), bar(Oct27MidnightUtc3, kMinuteMs)}},
+      {});
+  ASSERT_EQ(T.totalSteps(), 6);
+  EXPECT_EQ(T.yyyymmddOf(0), 20141023);
+  EXPECT_EQ(T.yyyymmddOf(1), 20141024);
+  EXPECT_EQ(T.yyyymmddOf(2), 20141026);
+  EXPECT_EQ(T.yyyymmddOf(3), 20141026);
+  EXPECT_EQ(T.yyyymmddOf(4), 20141026);
+  EXPECT_EQ(T.yyyymmddOf(5), 20141027);
+
+  // Проверка Timeline::load по границам суток вблизи перехода.
+  core::InMemoryBarSource Bars;
+  Bars.addSeries(
+      "s", "A", 60,
+      {bar(Oct23BeforeMidnight, kMinuteMs), bar(Oct24MidnightUtc4, kMinuteMs),
+       bar(Oct26MidnightUtc4, kMinuteMs), bar(Oct26LateUtc3, kMinuteMs),
+       bar(Oct27MidnightUtc3, kMinuteMs)});
+  core::InMemoryCalendarSource Cal;
+  Cal.add("s", {{20141024, true}, {20141025, false}, {20141026, false}});
+  const Timeline Loaded = Timeline::load(Bars, Cal, "s", {instrument("A")},
+                                         Timeframe::M1, 20141024, 20141026);
+  ASSERT_EQ(Loaded.totalSteps(), 3);
+  EXPECT_EQ(Loaded.yyyymmddOf(0), 20141024);
+  EXPECT_EQ(Loaded.yyyymmddOf(1), 20141026);
+  EXPECT_EQ(Loaded.yyyymmddOf(2), 20141026);
+}
+
 TEST(Timeline, LastBarOf) {
   const Timeline T = fixtureTimeline();
   ASSERT_NE(T.lastBarOf(1, 3), nullptr);

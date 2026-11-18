@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
@@ -16,8 +17,11 @@ struct CliOutput {
 };
 
 CliOutput runCli(const std::string &Args) {
+  const auto *Info = ::testing::UnitTest::GetInstance()->current_test_info();
   const std::filesystem::path ErrPath =
-      std::filesystem::temp_directory_path() / "sim_cli_test_stderr.txt";
+      std::filesystem::temp_directory_path() /
+      (std::string("sim_cli_test_stderr_") + Info->test_suite_name() + "_" +
+       Info->name() + "_" + std::to_string(::getpid()) + ".txt");
   const std::string Cmd = std::string(SIM_CLI_PATH) + " " + Args + " 2>\"" +
                           ErrPath.string() + "\"";
   std::FILE *Pipe = ::popen(Cmd.c_str(), "r");

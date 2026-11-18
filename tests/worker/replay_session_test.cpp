@@ -583,3 +583,18 @@ TEST_F(ReplaySession, PreviousTradingDayPrefersCalendarOverWarmup) {
   worker::Context Custom{Fixture.Bars, Calendar, Fixture.Ruonia};
   EXPECT_EQ(worker::previousTradingDay(Custom, Market, *Timeline), 20240111);
 }
+
+TEST_F(ReplaySession, PreviousTradingDayFindsDayUpToOneYearBack) {
+  // Торговый день за 300 календарных дней до 2024-01-09 (2023-03-15):
+  // больше прежнего предела 248, но в пределах года (366 дней).
+  core::InMemoryCalendarSource Calendar;
+  std::vector<core::TradingDay> Days =
+      Fixture.Calendar.tradingDays(Fixture.SnapshotId, 20240101, 20240131);
+  Days.push_back({20230315, true});
+  Calendar.add(Fixture.SnapshotId, Days);
+
+  worker::Context BaseContext{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  const auto Timeline = worker::loadTimeline(BaseContext, Market);
+  worker::Context Custom{Fixture.Bars, Calendar, Fixture.Ruonia};
+  EXPECT_EQ(worker::previousTradingDay(Custom, Market, *Timeline), 20230315);
+}

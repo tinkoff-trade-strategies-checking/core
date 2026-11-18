@@ -358,6 +358,56 @@ TEST(TimelineCache, BenchmarkUsesSingleCacheEntry) {
 
 namespace {
 
+class CountingCalendarSource final : public core::CalendarSource {
+public:
+  explicit CountingCalendarSource(core::CalendarSource &Inner)
+      : InnerRef(Inner) {}
+
+  std::vector<core::TradingDay> tradingDays(const std::string &SnapshotId,
+                                            std::int32_t FromYmd,
+                                            std::int32_t ToYmd) override {
+    ++Calls;
+    return InnerRef.tradingDays(SnapshotId, FromYmd, ToYmd);
+  }
+
+  int Calls = 0;
+
+private:
+  core::CalendarSource &InnerRef;
+};
+
+} // namespace
+
+// Повторный вызов ReplaySession с include_report=true не повторяет запрос
+// календаря для previousTradingDay: результат берётся из TimelineCache.
+TEST(TimelineCache, PreviousTradingDayUsesCache) {
+  core::testing::Fixture F = core::testing::fixture1();
+  CountingCalendarSource Calendar(F.Calendar);
+  worker::TimelineCache Cache(8);
+  worker::Context Context{F.Bars, Calendar, F.Ruonia, &Cache};
+
+  pb::MarketSpec Market = fixtureMarket();
+  Market.set_from_date("2024-01-15");
+
+  pb::ReplaySessionRequest R1;
+  *R1.mutable_market() = Market;
+  R1.set_up_to_step(2);
+  R1.set_events_from_step(-1);
+  R1.set_include_report(true);
+  pb::ReplaySessionResponse Resp1;
+  ASSERT_TRUE(worker::handleReplaySession(Context, R1, &Resp1).ok());
+  const int CallsAfterFirst = Calendar.Calls;
+  EXPECT_GT(CallsAfterFirst, 0);
+
+  pb::ReplaySessionRequest R2 = R1;
+  R2.set_up_to_step(3);
+  pb::ReplaySessionResponse Resp2;
+  ASSERT_TRUE(worker::handleReplaySession(Context, R2, &Resp2).ok());
+  EXPECT_EQ(Calendar.Calls, CallsAfterFirst);
+}
+
+namespace {
+
 constexpr std::int64_t kDayMs = 86'400'000;
 constexpr std::int64_t kMoscowOffsetMs = 3 * 3'600'000;
 

@@ -145,6 +145,7 @@ PlaceCmd genOcoPlace(int Inst) {
   StopLeg.Instrument = Inst;
   StopLeg.OrderSide = Side::Sell;
   StopLeg.Lots = *rc::gen::inRange<std::int64_t>(1, 10);
+  StopLeg.Tif = *rc::gen::element(TimeInForce::Gtc, TimeInForce::Day);
   StopLeg.Type = *rc::gen::element(OrderType::Stop, OrderType::StopLimit);
   StopLeg.StopPrice = genPrice(Inst);
   if (StopLeg.Type == OrderType::StopLimit)
@@ -187,12 +188,16 @@ std::vector<JournalEntry> genRandomJournal(std::int64_t MaxStep = 7) {
   std::vector<JournalEntry> Journal;
   Journal.reserve(Count);
 
-  std::vector<std::int64_t> PlacedOrderIds;
-  std::int64_t CurrentStep = 0;
+  std::vector<std::int64_t> Steps;
+  Steps.reserve(static_cast<std::size_t>(Count));
+  for (int I = 0; I < Count; ++I)
+    Steps.push_back(*rc::gen::inRange<std::int64_t>(0, MaxStep + 1));
+  std::sort(Steps.begin(), Steps.end());
 
+  std::vector<std::int64_t> PlacedOrderIds;
   for (int I = 0; I < Count; ++I) {
-    CurrentStep = *rc::gen::inRange(CurrentStep, MaxStep + 1);
-    JournalEntry E = genJournalEntry(I, CurrentStep, PlacedOrderIds);
+    JournalEntry E =
+        genJournalEntry(I, Steps[static_cast<std::size_t>(I)], PlacedOrderIds);
     // id заявки = seq * 2 + нога (journal.hpp)
     const auto *Place = std::get_if<PlaceCmd>(&E.Command);
     const auto *Replace = std::get_if<ReplaceCmd>(&E.Command);
