@@ -42,8 +42,8 @@ message PingResponse {
 
 enum Timeframe {
   TIMEFRAME_UNSPECIFIED = 0;
-  S1 = 1;
-  S10 = 2;
+  reserved 1, 2;
+  reserved "S1", "S10";
   M1 = 3;
   M5 = 4;
   M10 = 5;

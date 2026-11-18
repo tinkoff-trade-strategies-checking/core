@@ -43,8 +43,6 @@ Timeline fixtureTimeline() {
 }
 
 TEST(Timeframe, IntervalSeconds) {
-  EXPECT_EQ(core::intervalSeconds(Timeframe::S1), 1);
-  EXPECT_EQ(core::intervalSeconds(Timeframe::S10), 10);
   EXPECT_EQ(core::intervalSeconds(Timeframe::M1), 60);
   EXPECT_EQ(core::intervalSeconds(Timeframe::M5), 300);
   EXPECT_EQ(core::intervalSeconds(Timeframe::M10), 600);
