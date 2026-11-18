@@ -209,3 +209,24 @@ TEST(EstimateOrder, ThrowsOnDecimalOverflow) {
   EXPECT_THROW(core::estimateOrder(Spec, Tl, {}, 2, Order),
                std::invalid_argument);
 }
+
+TEST(EstimateOrder, AcceptsBlindPriceAndConvertsToRubles) {
+  auto Tl = makeTimeline("200"); // P0 = 200
+  const core::SessionSpec Spec = makeSpec(core::Decimal::fromUnits(100000));
+
+  core::OrderSpec Order;
+  Order.Instrument = 0;
+  Order.OrderSide = core::Side::Buy;
+  Order.Type = core::OrderType::Limit;
+  Order.Lots = 5;
+  Order.LimitPrice = core::Decimal::parse("100.23"); // В слепом режиме
+  Order.IsBlindPrice = true;
+  Order.Tif = core::TimeInForce::Day;
+
+  const core::OrderEstimate Est = core::estimateOrder(Spec, Tl, {}, 2, Order);
+  EXPECT_TRUE(Est.Check.Ok);
+  EXPECT_EQ(Est.ReferencePrice, core::Decimal::parse("200"));
+  EXPECT_GT(Est.Value, core::Decimal::zero());
+  EXPECT_GT(Est.RequiredCash, core::Decimal::zero());
+  EXPECT_GT(Est.ValuePct, core::Decimal::zero());
+}

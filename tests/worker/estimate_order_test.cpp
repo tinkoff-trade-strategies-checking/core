@@ -141,3 +141,29 @@ TEST(WorkerEstimateOrder, ReturnsInvalidArgumentOnDecimalOverflow) {
   EXPECT_EQ(Status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   EXPECT_NE(Status.error_message().find("lots"), std::string::npos);
 }
+
+TEST(WorkerEstimateOrder, BlindPriceViaRpc) {
+  core::testing::Fixture Fixture = core::testing::fixture1();
+  worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+
+  pb::EstimateOrderRequest Req;
+  *Req.mutable_market() = fixtureMarket();
+  Req.set_up_to_step(2);
+  pb::OrderSpec *Order = Req.mutable_order();
+  Order->set_instrument_key("A");
+  Order->set_side(pb::BUY);
+  Order->set_type(pb::LIMIT);
+  Order->set_lots(5);
+  // В fixture-1 у FIXA Open шага 0 = 100.00.
+  // Слепая цена 105.00 соответствует рублёвой 105.00
+  *Order->mutable_limit_price() = dec("105.00");
+  Order->set_is_blind_price(true);
+  Order->set_time_in_force(pb::DAY);
+
+  pb::EstimateOrderResponse Resp;
+  const grpc::Status Status = worker::handleEstimateOrder(Ctx, Req, &Resp);
+  ASSERT_TRUE(Status.ok());
+  EXPECT_TRUE(Resp.can_place());
+  EXPECT_GT(d(Resp.amount()), core::Decimal::zero());
+  EXPECT_GT(d(Resp.amount_pct()), core::Decimal::zero());
+}

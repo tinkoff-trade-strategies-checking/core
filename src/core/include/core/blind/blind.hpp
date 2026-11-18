@@ -159,4 +159,14 @@ BlindStepEvents toBlindStepEvents(const StepEvents &Events,
 BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
                           const std::vector<BlindScale> &Scales);
 
+// Переводит цену заявки из слепой шкалы (от 100) обратно в рубли и округляет
+// к шагу цены не в пользу трейдера (CEILING для покупки, FLOOR для продажи)
+// согласно decisions.md («Деньги и округление», п. 2).
+// P0 берётся по шагу 0 бумаги (или первому бару <= UpToStep, если на шаге 0
+// бара нет, INV-1). Если Spec.IsBlindPrice == false, возвращает копию Spec без
+// изменений.
+OrderSpec convertBlindOrder(const OrderSpec &Spec, const Timeline &Timeline,
+                            const std::vector<Instrument> &Instruments,
+                            std::int64_t UpToStep);
+
 } // namespace core

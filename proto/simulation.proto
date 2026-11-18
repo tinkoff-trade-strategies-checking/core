@@ -178,6 +178,7 @@ message OrderSpec {
   Decimal stop_price = 6;
   Decimal trailing_percent = 7;
   TimeInForce time_in_force = 8;
+  bool is_blind_price = 9;  // признак: цены limit_price / stop_price переданы в слепой шкале (от 100)
 }
 
 message PlaceOrder {

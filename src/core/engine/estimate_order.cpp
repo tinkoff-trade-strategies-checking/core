@@ -20,31 +20,38 @@ OrderEstimate estimateOrder(const SessionSpec &Spec,
       replaySession(Spec, TimelineRef, Journal, UpToStep,
                     std::numeric_limits<std::int64_t>::max());
 
+  const OrderSpec EffectiveOrder =
+      convertBlindOrder(Order, *TimelineRef, Spec.Instruments, Result.LastStep);
+
   OrderEstimate Out;
   const ExecutionEngine Exec(Spec.Instruments, Spec.Costs);
   if (Result.Status != SessionStatus::Running) {
     Out.Check = Validation{false, Reason::SessionNotActive, ""};
   } else {
-    Out.Check = Exec.validate(Order, Result.Engine.portfolio(), *TimelineRef,
-                              Result.LastStep);
+    Out.Check = Exec.validate(EffectiveOrder, Result.Engine.portfolio(),
+                              *TimelineRef, Result.LastStep);
   }
 
-  if (Order.Instrument >= 0 &&
-      static_cast<std::size_t>(Order.Instrument) < Spec.Instruments.size() &&
-      Order.Lots >= 1) {
+  if (EffectiveOrder.Instrument >= 0 &&
+      static_cast<std::size_t>(EffectiveOrder.Instrument) <
+          Spec.Instruments.size() &&
+      EffectiveOrder.Lots >= 1) {
     const StepBar *Last =
-        TimelineRef->lastBarOf(Order.Instrument, Result.LastStep);
+        TimelineRef->lastBarOf(EffectiveOrder.Instrument, Result.LastStep);
     if (Last != nullptr) {
       const std::int64_t LotSize =
-          Spec.Instruments[static_cast<std::size_t>(Order.Instrument)].LotSize;
+          Spec.Instruments[static_cast<std::size_t>(EffectiveOrder.Instrument)]
+              .LotSize;
       Out.ReferencePrice = Last->Close;
       try {
-        const Amounts A = amounts(Last->Close, Order.Lots, LotSize, Spec.Costs);
+        const Amounts A =
+            amounts(Last->Close, EffectiveOrder.Lots, LotSize, Spec.Costs);
         Out.Value = A.Value;
         Out.Commission = A.Commission;
         Out.Fee = A.Fee;
         Out.RequiredCash =
-            requiredCashForOrder(Last->Close, Order.Lots, LotSize, Spec.Costs)
+            requiredCashForOrder(Last->Close, EffectiveOrder.Lots, LotSize,
+                                 Spec.Costs)
                 .round(2, RoundingMode::CEILING);
         Out.ValuePct = toPercentOfCapital(Out.Value, Spec.InitialCash);
         Out.CommissionPct =

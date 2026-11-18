@@ -277,3 +277,49 @@ TEST(BlindReplaySession, NoFutureDataAffectsBlindView) {
 
   EXPECT_EQ(R1.SerializeAsString(), R2.SerializeAsString());
 }
+
+TEST(BlindReplaySession, OrderWithBlindPriceRecordedInRublesAndReplayed) {
+  core::testing::Fixture Fixture = core::testing::fixture1();
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+
+  pb::ReplaySessionRequest Request;
+  *Request.mutable_market() = fixtureMarket();
+
+  // Добавляем лимитную заявку со слепой ценой
+  pb::JournalEntry Entry;
+  Entry.set_seq(0);
+  Entry.set_step(0);
+  pb::OrderSpec *Spec = Entry.mutable_place()->mutable_order();
+  Spec->set_instrument_key("A");
+  Spec->set_side(pb::BUY);
+  Spec->set_type(pb::LIMIT);
+  Spec->set_lots(5);
+  // В fixture-1 Open шага 0 у FIXA = 100.00
+  // Слепая цена 105.00 переводится в 105.00 ₽
+  *Spec->mutable_limit_price() = dec("105.00");
+  Spec->set_is_blind_price(true);
+  Spec->set_time_in_force(pb::GTC);
+  *Request.add_journal() = Entry;
+
+  Request.set_up_to_step(3);
+  Request.set_events_from_step(0);
+  Request.set_include_history(true);
+  Request.set_blind(true);
+
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(worker::handleReplaySession(Context, Request, &Response).ok());
+
+  // В рублёвых заказах сохранена рублёвая цена
+  ASSERT_EQ(Response.orders_size(), 1);
+  const pb::Order &RecordedOrder = Response.orders(0);
+  EXPECT_FALSE(RecordedOrder.spec().is_blind_price());
+  EXPECT_EQ(d(RecordedOrder.spec().limit_price()),
+            core::Decimal::parse("105.00"));
+
+  // В blind_view отдан слепой вид
+  ASSERT_TRUE(Response.has_blind_view());
+  ASSERT_EQ(Response.blind_view().orders_size(), 1);
+  const pb::BlindOrder &BlindOrd = Response.blind_view().orders(0);
+  EXPECT_TRUE(BlindOrd.has_limit_price());
+  EXPECT_EQ(d(BlindOrd.limit_price()), core::Decimal::parse("105.00"));
+}
