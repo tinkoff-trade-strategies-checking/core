@@ -3,6 +3,7 @@
 // INV-2 (Тайминг исполнения заявок)
 // INV-4 (Детерминизм сессии)
 // INV-8 (Воспроизводимость состояния из журнала)
+// INV-6 (Сохранение денег через движок исполнения)
 #include <gtest/gtest.h>
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
@@ -255,6 +256,28 @@ RC_GTEST_PROP(InvariantsProperty, DeterministicReplay, ()) {
 
   RC_ASSERT(digestOf(R1.Engine) != 0);
   rcAssertSameState(R1.Engine, R2.Engine);
+}
+
+// INV-6: деньги сходятся до копейки: cash = начальный - покупки + продажи -
+// комиссии и сборы по всем сделкам, которые породил движок при проигрывании
+// случайного журнала (а не по прямым вызовам Portfolio::applyFill).
+RC_GTEST_PROP(InvariantsProperty, CashConservationThroughEngine, ()) {
+  const auto UpTo = *rc::gen::inRange<std::int64_t>(3, 10);
+  const auto Journal = genRandomJournal(UpTo);
+  const SessionSpec Spec = fixtureSpec();
+
+  const ReplayResult R =
+      replaySession(Spec, fixtureTimeline(), Journal, UpTo, 0);
+
+  Decimal Expected = Spec.InitialCash;
+  for (const Fill &F : R.Engine.fills()) {
+    if (F.OrderSide == Side::Buy)
+      Expected = Expected - F.Value;
+    else
+      Expected = Expected + F.Value;
+    Expected = Expected - F.Commission - F.Fee;
+  }
+  RC_ASSERT(R.Engine.portfolio().cash() == Expected);
 }
 
 // INV-2: Тайминг заявок (исполнение не раньше open бара K+1)
