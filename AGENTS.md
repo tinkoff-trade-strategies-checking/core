@@ -63,7 +63,7 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
   - `trading_calendar(snapshot_id, date, is_trading)`
   - `ruonia(snapshot_id, date, rate)`
   - `snapshots_ready(snapshot_id)`
-- `src/cli/` — `sim_cli`: `version`; `replay` пока не реализован (прогоны идут через воркер).
+- `src/cli/` — `sim_cli`: `version`, `replay` (`--fixture` для встроенной фикстуры `fixture-1` или `<файл.json>` для JSON-сценария, вывод отчёта и метрик в JSON).
 - `tests/` — GoogleTest и RapidCheck: `core_tests` (области, `tests/build/flags_test.cpp` — проверка `-ffp-contract=off`) и `worker_tests` (`tests/worker/*_test.cpp` — RPC через сервер в процессе, `worker_test_support.hpp`; `tests/clickhouse/` — тесты `ClickHouseBarSource`, интеграционные пропускаются без `CLICKHOUSE_URL`; `tests/money/*_generated_test.cpp` — в `worker_tests`, потому что ему нужен protobuf). Тесты на свойства инвариантов (RapidCheck): INV-6 (`tests/money/decimal_property_test.cpp`), INV-1, INV-2, INV-4, INV-8 (`tests/engine/invariants_property_test.cpp`). Тест детерминизма (INV-4) — `tests/engine/determinism_test.cpp` (`Determinism.SameDigestTwice`: два проигрывания журнала — один `digestOf`). `tests/support/*.cpp` — общие фикстуры, входят в оба набора: `fixture1()` — снапшот `fixture-1` с бумагами `FIXA` и `FIXB` (у `FIXB` нет бара на шаге 3).
 - `testdata/` — входные файлы тестов, путь — макрос `CORE_TESTDATA_DIR`: `reference-portfolio.md` — эталонная таблица 19 сделок (INV-6), её читает `tests/exec/reference_portfolio_test.cpp`.
 - `Dockerfile.dev` — образ для сборки, тестов и проверки стиля (зависимости из apt, `clang-format-18`, `clang-tidy-18`); `Dockerfile` — runtime-образ воркера (multi-stage).
@@ -111,7 +111,7 @@ docker stop clickhouse-test
 
 ```bash
 src/worker/simulation_worker --listen 0.0.0.0:50051   # воркер (или WORKER_ADDRESS=...), останавливается по SIGTERM/SIGINT
-src/cli/sim_cli replay                                 # пока не реализован (прогоны идут через воркер)
+src/cli/sim_cli replay --fixture                         # прогон встроенной фикстуры fixture-1 (или <файл.json>)
 src/cli/sim_cli version
 ```
 

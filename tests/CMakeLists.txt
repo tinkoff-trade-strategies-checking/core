@@ -10,7 +10,10 @@ add_executable(core_tests
 target_include_directories(core_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(core_tests PRIVATE core::simulation_core GTest::gtest_main rapidcheck_gtest core_warnings)
 # Файлы с тестовыми данными (эталонный портфель): testdata/ в корне репозитория.
-target_compile_definitions(core_tests PRIVATE CORE_TESTDATA_DIR="${PROJECT_SOURCE_DIR}/testdata")
+target_compile_definitions(core_tests PRIVATE
+  CORE_TESTDATA_DIR="${PROJECT_SOURCE_DIR}/testdata"
+  SIM_CLI_PATH="$<TARGET_FILE:sim_cli>")
+add_dependencies(core_tests sim_cli)
 
 if(CORE_BUILD_WORKER)
   add_executable(worker_tests worker_ping_test.cpp ${support_sources})
@@ -22,7 +25,7 @@ if(CORE_BUILD_WORKER)
 endif()
 
 # Подкаталоги областей добавляют *_test.cpp к core_tests (и worker_tests). Сначала executables, потом области.
-foreach(area money market portfolio exec engine report blind analysis)
+foreach(area money market portfolio exec engine report blind analysis cli)
   add_subdirectory(${area})
 endforeach()
 

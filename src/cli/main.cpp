@@ -1,18 +1,18 @@
-// sim_cli — CLI для replay и ручных прогонов Simulation Core. Пока заглушка:
-// воспроизведение сессии выполняет воркер (`replaySession`), CLI для него
-// появится позже.
+// sim_cli — CLI для replay и ручных прогонов Simulation Core.
 #include <exception>
 #include <iostream>
 #include <string_view>
 
 #include "core/version.hpp"
+#include "replay.hpp"
 
 namespace {
 
 void printUsage(std::ostream &Out) {
   Out << "Использование:\n"
-         "  sim_cli version\n"
-         "  sim_cli replay   пока не реализован (прогоны идут через воркер)\n";
+         "  sim_cli version              версия Simulation Core\n"
+         "  sim_cli replay --fixture     прогон встроенной фикстуры fixture-1\n"
+         "  sim_cli replay <файл.json>   прогон сценария из JSON-файла\n";
 }
 
 } // namespace
@@ -29,8 +29,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (Command == "replay") {
-      std::cerr << "replay пока не реализован\n";
-      return 1;
+      return cli::runReplay(argc - 2, argv + 2, std::cout, std::cerr);
     }
     printUsage(std::cerr);
     return 2;
