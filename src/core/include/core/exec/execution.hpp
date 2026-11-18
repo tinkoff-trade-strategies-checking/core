@@ -89,8 +89,9 @@ bool cancelOrder(std::vector<Order> &Orders, std::int64_t OrderId,
                  Reason ReasonCode, std::int64_t Step,
                  std::vector<std::int64_t> &Changed);
 
-// Проверяет допустимость пары OCO: одна бумага, одна сторона, пара «стоп + тейк-профит».
-// Иные пары отклоняются с причиной InvalidParams и проблемным полем ("instrument", "side", "type").
+// Проверяет допустимость пары OCO: одна бумага, одна сторона, пара «стоп +
+// тейк-профит». Иные пары отклоняются с причиной InvalidParams и проблемным
+// полем ("instrument", "side", "type").
 Validation validateOcoPair(const OrderSpec &First, const OrderSpec &Second);
 
 } // namespace core
