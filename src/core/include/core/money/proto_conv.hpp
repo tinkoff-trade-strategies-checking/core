@@ -6,7 +6,7 @@
 // nano}` (proto/common.proto). Шаблоны над сгенерированным типом: ядро не
 // зависит от protobuf, а заголовок включают только worker и тесты, которые уже
 // линкуются с simulation_proto. Знаки и диапазон проверяет
-// Decimal::fromUnitsNano (ADR-0008).
+// Decimal::fromUnitsNano (`decisions.md`, «Деньги в C++»).
 
 namespace core {
 

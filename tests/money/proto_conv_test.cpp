@@ -8,8 +8,8 @@
 #include "core/money/proto_conv.hpp"
 
 // Заглушка с теми же методами, что у сгенерированного
-// pac.simulation.v1.Decimal: проверяем правила знаков ADR-0008 без protobuf.
-// Настоящий тип - в worker_tests.
+// pac.simulation.v1.Decimal: проверяем правила знаков из `decisions.md`
+// («Деньги в C++») без protobuf. Настоящий тип - в worker_tests.
 namespace {
 
 struct FakeProtoDecimal {

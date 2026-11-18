@@ -7,7 +7,7 @@
 
 // Конвертация с настоящим сообщением pac.simulation.v1.Decimal
 // (proto/common.proto), включая проход через бинарную сериализацию protobuf
-// (ADR-0008, раздел «Проверка»).
+// (`decisions.md`, «Архитектура», «Деньги в C++»).
 
 using core::Decimal;
 using ProtoDecimal = pac::simulation::v1::Decimal;
