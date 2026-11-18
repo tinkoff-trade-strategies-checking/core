@@ -54,6 +54,7 @@ struct OrderSpec {
   std::int64_t Lots = 0;
   std::optional<Decimal> LimitPrice, StopPrice, TrailingPercent;
   TimeInForce Tif = TimeInForce::Gtc;
+  bool BlindPrices = false;
 };
 
 // Заявка в журнале сессии. -1 в ocoSiblingId и closedStep - «нет».

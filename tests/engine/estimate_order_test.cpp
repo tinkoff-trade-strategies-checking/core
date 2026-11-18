@@ -209,3 +209,64 @@ TEST(EstimateOrder, ThrowsOnDecimalOverflow) {
   EXPECT_THROW(core::estimateOrder(Spec, Tl, {}, 2, Order),
                std::invalid_argument);
 }
+
+TEST(EstimateOrder, ConvertsBlindPricesAndRejectsWithoutP0) {
+  std::vector<core::Instrument> Instruments = {
+      {"A", "FIXA", 10, core::Decimal::parse("0.05")},
+      {"B", "FIXB", 10, core::Decimal::parse("0.05")},
+  };
+  const std::int64_t DayStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {
+          {
+              makeBar(DayStart, "200", "210", "195", "205", 1000),
+              makeBar(DayStart + 60000, "205", "215", "200", "210", 1000),
+              makeBar(DayStart + 120000, "210", "220", "205", "215", 1000),
+          },
+          {
+              // У B нет бара на шаге 0; первый бар на шаге 1.
+              makeBar(DayStart + 60000, "500", "510", "490", "505", 1000),
+              makeBar(DayStart + 120000, "505", "515", "495", "510", 1000),
+          },
+      },
+      {{20250113, true}}));
+
+  core::SessionSpec Spec;
+  Spec.Instruments = Instruments;
+  Spec.Costs = core::CostConfig::defaults();
+  Spec.InitialCash = core::Decimal::fromUnits(100000);
+
+  // Стоп на покупку по A: close на шаге 1 = 210, P0 = 200 -> 105.00 в слепой
+  // шкале. 104.00 -> 208.00 <= 210 -> отказ по stopPrice.
+  core::OrderSpec BuyStop;
+  BuyStop.Instrument = 0;
+  BuyStop.OrderSide = core::Side::Buy;
+  BuyStop.Type = core::OrderType::Stop;
+  BuyStop.Lots = 1;
+  BuyStop.StopPrice = core::Decimal::parse("104.00");
+  BuyStop.BlindPrices = true;
+  const core::OrderEstimate BadSide =
+      core::estimateOrder(Spec, Tl, {}, 1, BuyStop);
+  EXPECT_FALSE(BadSide.Check.Ok);
+  EXPECT_EQ(BadSide.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(BadSide.Check.Field, "stopPrice");
+
+  // 106.00 -> 212.00 > 210 -> допустимо.
+  BuyStop.StopPrice = core::Decimal::parse("106.00");
+  const core::OrderEstimate Good =
+      core::estimateOrder(Spec, Tl, {}, 1, BuyStop);
+  EXPECT_TRUE(Good.Check.Ok);
+
+  // По бумаге B на шаге 0 нет P0 -> std::invalid_argument.
+  core::OrderSpec BlindOnB;
+  BlindOnB.Instrument = 1;
+  BlindOnB.OrderSide = core::Side::Buy;
+  BlindOnB.Type = core::OrderType::Limit;
+  BlindOnB.Lots = 1;
+  BlindOnB.LimitPrice = core::Decimal::parse("100.00");
+  BlindOnB.BlindPrices = true;
+  EXPECT_THROW(core::estimateOrder(Spec, Tl, {}, 0, BlindOnB),
+               std::invalid_argument);
+  EXPECT_TRUE(core::estimateOrder(Spec, Tl, {}, 1, BlindOnB).Check.Ok);
+}

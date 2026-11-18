@@ -141,3 +141,41 @@ TEST(WorkerEstimateOrder, ReturnsInvalidArgumentOnDecimalOverflow) {
   EXPECT_EQ(Status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   EXPECT_NE(Status.error_message().find("lots"), std::string::npos);
 }
+
+TEST(WorkerEstimateOrder,
+     BlindPricesConvertedAndOverflowReturnsInvalidArgument) {
+  core::testing::Fixture Fixture = core::testing::fixture1();
+  const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::D1);
+  std::vector<core::Bar> BarsA = Fixture.Bars.load(
+      core::BarRequest{"fixture-1", "FIXA", IntervalSec, 0, 2000000000000LL});
+  // P0 = open шага 0 (BarsA[0].Open), close шага 2 (BarsA[2].Close).
+  const core::Decimal P0 = BarsA[0].Open;
+  worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+
+  pb::EstimateOrderRequest Req;
+  *Req.mutable_market() = fixtureMarket();
+  Req.set_up_to_step(2);
+  pb::OrderSpec *Order = Req.mutable_order();
+  Order->set_instrument_key("A");
+  Order->set_side(pb::BUY);
+  Order->set_type(pb::LIMIT);
+  Order->set_lots(1);
+  Order->set_time_in_force(pb::DAY);
+  Order->set_blind_prices(true);
+  *Order->mutable_limit_price() = dec("95.00");
+
+  pb::EstimateOrderResponse Resp;
+  ASSERT_TRUE(worker::handleEstimateOrder(Ctx, Req, &Resp).ok());
+  EXPECT_TRUE(Resp.can_place());
+  EXPECT_EQ(d(Resp.reference_price()), BarsA[2].Close);
+  (void)P0;
+
+  // Переполнение при переводе слепой цены -> тот же код INVALID_ARGUMENT.
+  BarsA[0].Open = core::Decimal::parse("1000000000000000000");
+  Fixture.Bars.addSeries("fixture-1", "FIXA", IntervalSec, BarsA);
+  *Order->mutable_limit_price() = dec("1000000000000000000");
+  pb::EstimateOrderResponse OverflowResp;
+  const grpc::Status OverflowStatus =
+      worker::handleEstimateOrder(Ctx, Req, &OverflowResp);
+  EXPECT_EQ(OverflowStatus.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}

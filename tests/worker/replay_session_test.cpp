@@ -583,3 +583,83 @@ TEST_F(ReplaySession, PreviousTradingDayPrefersCalendarOverWarmup) {
   worker::Context Custom{Fixture.Bars, Calendar, Fixture.Ruonia};
   EXPECT_EQ(worker::previousTradingDay(Custom, Market, *Timeline), 20240111);
 }
+
+TEST_F(ReplaySession, BlindOrderPricesConvertedToRublesBeforeJournal) {
+  const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::D1);
+  std::vector<core::Bar> BarsA = Fixture.Bars.load(
+      core::BarRequest{"fixture-1", "FIXA", IntervalSec, 0, 2000000000000LL});
+  // P0 = BarsA[0].Open = 100.00; price_step = 0.01.
+  // Покупка лимит 95.005 в слепой шкале -> 95.005 * 100 / 100 = 95.005 ->
+  // CEILING к 0.01 = 95.01.
+  pb::JournalEntry E;
+  E.set_seq(0);
+  E.set_step(0);
+  pb::OrderSpec *Spec = E.mutable_place()->mutable_order();
+  Spec->set_instrument_key("A");
+  Spec->set_side(pb::BUY);
+  Spec->set_type(pb::LIMIT);
+  Spec->set_lots(1);
+  Spec->set_time_in_force(pb::GTC);
+  Spec->set_blind_prices(true);
+  *Spec->mutable_limit_price() = dec("95.005");
+  (void)BarsA;
+
+  Journal = {E};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(1, -1, &Response, false, false).ok());
+  ASSERT_EQ(Response.orders_size(), 1);
+  EXPECT_FALSE(Response.orders(0).spec().blind_prices());
+  EXPECT_EQ(core::fromProto(Response.orders(0).spec().limit_price()),
+            core::Decimal::parse("95.01"));
+}
+
+TEST_F(ReplaySession, BlindOrderWithoutP0AndOverflowReturnInvalidArgument) {
+  // У B в fixture-1 есть бар на шаге 0; уберём его с шага 0, оставив бар на
+  // шаге 1 -> на шаге 0 у B нет P0.
+  const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::D1);
+  std::vector<core::Bar> BarsB = Fixture.Bars.load(
+      core::BarRequest{"fixture-1", "FIXB", IntervalSec, 0, 2000000000000LL});
+  BarsB.erase(BarsB.begin());
+  Fixture.Bars.addSeries("fixture-1", "FIXB", IntervalSec, BarsB);
+
+  pb::JournalEntry NoP0;
+  NoP0.set_seq(0);
+  NoP0.set_step(0);
+  pb::OrderSpec *SpecB = NoP0.mutable_place()->mutable_order();
+  SpecB->set_instrument_key("B");
+  SpecB->set_side(pb::BUY);
+  SpecB->set_type(pb::LIMIT);
+  SpecB->set_lots(1);
+  SpecB->set_time_in_force(pb::GTC);
+  SpecB->set_blind_prices(true);
+  *SpecB->mutable_limit_price() = dec("100.00");
+
+  Journal = {NoP0};
+  pb::ReplaySessionResponse RespNoP0;
+  EXPECT_EQ(replay(1, -1, &RespNoP0, false, false).error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+
+  // Переполнение при подаче заявки в слепых ценах -> тот же код
+  // INVALID_ARGUMENT, что и в EstimateOrder.
+  std::vector<core::Bar> BarsA = Fixture.Bars.load(
+      core::BarRequest{"fixture-1", "FIXA", IntervalSec, 0, 2000000000000LL});
+  BarsA[0].Open = core::Decimal::parse("1000000000000000000");
+  Fixture.Bars.addSeries("fixture-1", "FIXA", IntervalSec, BarsA);
+
+  pb::JournalEntry OverflowEntry;
+  OverflowEntry.set_seq(0);
+  OverflowEntry.set_step(0);
+  pb::OrderSpec *SpecA = OverflowEntry.mutable_place()->mutable_order();
+  SpecA->set_instrument_key("A");
+  SpecA->set_side(pb::BUY);
+  SpecA->set_type(pb::LIMIT);
+  SpecA->set_lots(1);
+  SpecA->set_time_in_force(pb::GTC);
+  SpecA->set_blind_prices(true);
+  *SpecA->mutable_limit_price() = dec("1000000000000000000");
+
+  Journal = {OverflowEntry};
+  pb::ReplaySessionResponse RespOverflow;
+  EXPECT_EQ(replay(1, -1, &RespOverflow, false, false).error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+}

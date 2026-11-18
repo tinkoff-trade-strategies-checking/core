@@ -178,6 +178,9 @@ message OrderSpec {
   Decimal stop_price = 6;
   Decimal trailing_percent = 7;
   TimeInForce time_in_force = 8;
+  // Если true — limit_price и stop_price заданы в слепой шкале (от 100);
+  // core переводит их в рубли и округляет к шагу цены до записи в журнал.
+  bool blind_prices = 9;
 }
 
 message PlaceOrder {

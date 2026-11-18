@@ -126,6 +126,18 @@ struct BlindReport {
   std::vector<BlindRoundTrip> RoundTrips;
 };
 
+// Вычисляет P0 (open шага 0 или первого бара в [0; LastStep]) для бумаги,
+// или nullopt, если до LastStep включительно у бумаги нет баров (INV-1).
+std::optional<Decimal> blindP0(const Timeline &Timeline, int Instrument,
+                               std::int64_t LastStep);
+
+// Переводит слепые цены заявки (от 100) в рубли P_rub = P_blind * P0 / 100
+// с округлением к шагу цены не в пользу трейдера (покупка CEILING, продажа
+// FLOOR; `decisions.md`, «Деньги и округление», п. 2) и сбрасывает BlindPrices.
+// При отсутствии P0 до Step включительно - std::invalid_argument.
+OrderSpec resolveBlindOrderPrices(const OrderSpec &Spec,
+                                  const Timeline &Timeline, std::int64_t Step);
+
 // Вычисляет масштабы слепого режима для каждой бумаги по шкале времени и
 // шагам не позже LastStep (INV-1: будущее после LastStep не используется).
 std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,

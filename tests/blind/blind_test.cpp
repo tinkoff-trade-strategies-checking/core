@@ -180,3 +180,123 @@ TEST(BlindScale, LotValueAtStartNullBeforeFirstCandle) {
   ASSERT_TRUE(ScalesAt1[1].P0.has_value());
   EXPECT_EQ(*ScalesAt1[1].P0, core::Decimal::fromUnits(500));
 }
+
+TEST(BlindOrderPrices, ResolvesBuyCeilingAndSellFloorToPriceStep) {
+  std::vector<core::Instrument> Instruments = {
+      {"A", "TKA", 10, core::Decimal::parse("0.05")},
+  };
+  const std::int64_t SessStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {{
+          makeBar(SessStart, "200", "220", "190", "210", 10),
+          makeBar(SessStart + 60000, "210", "230", "200", "220", 10),
+      }},
+      makeCalendar()));
+
+  EXPECT_EQ(core::blindP0(*Tl, 0, 0), core::Decimal::fromUnits(200));
+
+  core::OrderSpec BuyLimit;
+  BuyLimit.Instrument = 0;
+  BuyLimit.OrderSide = core::Side::Buy;
+  BuyLimit.Type = core::OrderType::Limit;
+  BuyLimit.Lots = 1;
+  BuyLimit.LimitPrice =
+      core::Decimal::parse("100.11"); // 200.22 -> CEILING 200.25
+  BuyLimit.BlindPrices = true;
+
+  const core::OrderSpec ResolvedBuy =
+      core::resolveBlindOrderPrices(BuyLimit, *Tl, 0);
+  EXPECT_FALSE(ResolvedBuy.BlindPrices);
+  ASSERT_TRUE(ResolvedBuy.LimitPrice.has_value());
+  EXPECT_EQ(*ResolvedBuy.LimitPrice, core::Decimal::parse("200.25"));
+
+  core::OrderSpec SellStopLimit;
+  SellStopLimit.Instrument = 0;
+  SellStopLimit.OrderSide = core::Side::Sell;
+  SellStopLimit.Type = core::OrderType::StopLimit;
+  SellStopLimit.Lots = 1;
+  SellStopLimit.StopPrice =
+      core::Decimal::parse("99.89"); // 199.78 -> FLOOR 199.75
+  SellStopLimit.LimitPrice =
+      core::Decimal::parse("99.88"); // 199.76 -> FLOOR 199.75
+  SellStopLimit.BlindPrices = true;
+
+  const core::OrderSpec ResolvedSell =
+      core::resolveBlindOrderPrices(SellStopLimit, *Tl, 0);
+  EXPECT_FALSE(ResolvedSell.BlindPrices);
+  ASSERT_TRUE(ResolvedSell.StopPrice.has_value());
+  ASSERT_TRUE(ResolvedSell.LimitPrice.has_value());
+  EXPECT_EQ(*ResolvedSell.StopPrice, core::Decimal::parse("199.75"));
+  EXPECT_EQ(*ResolvedSell.LimitPrice, core::Decimal::parse("199.75"));
+
+  // Обычная рублёвая заявка не меняется.
+  core::OrderSpec RubleOrder = BuyLimit;
+  RubleOrder.BlindPrices = false;
+  RubleOrder.LimitPrice = core::Decimal::parse("200.22");
+  const core::OrderSpec Unchanged =
+      core::resolveBlindOrderPrices(RubleOrder, *Tl, 0);
+  EXPECT_FALSE(Unchanged.BlindPrices);
+  EXPECT_EQ(*Unchanged.LimitPrice, core::Decimal::parse("200.22"));
+}
+
+TEST(BlindOrderPrices, RejectsWithoutP0AndRespectsInv1) {
+  std::vector<core::Instrument> Instruments = {
+      {"A", "TKA", 10, core::Decimal::parse("0.01")},
+      {"B", "TKB", 5, core::Decimal::parse("0.01")},
+  };
+  const std::int64_t SessStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {
+          {
+              makeBar(SessStart, "200", "210", "195", "205", 10),
+              makeBar(SessStart + 60000, "205", "215", "200", "210", 12),
+          },
+          {
+              // У B нет бара на шаге 0; первый бар на шаге 1.
+              makeBar(SessStart + 60000, "500", "510", "490", "505", 8),
+          },
+      },
+      makeCalendar()));
+
+  EXPECT_FALSE(core::blindP0(*Tl, 1, 0).has_value());
+  EXPECT_EQ(core::blindP0(*Tl, 1, 1), core::Decimal::fromUnits(500));
+
+  core::OrderSpec BlindOnB;
+  BlindOnB.Instrument = 1;
+  BlindOnB.OrderSide = core::Side::Buy;
+  BlindOnB.Type = core::OrderType::Limit;
+  BlindOnB.Lots = 1;
+  BlindOnB.LimitPrice = core::Decimal::parse("100.00");
+  BlindOnB.BlindPrices = true;
+
+  EXPECT_THROW(core::resolveBlindOrderPrices(BlindOnB, *Tl, 0),
+               std::invalid_argument);
+  const core::OrderSpec AtStep1 =
+      core::resolveBlindOrderPrices(BlindOnB, *Tl, 1);
+  EXPECT_EQ(*AtStep1.LimitPrice, core::Decimal::parse("500.00"));
+}
+
+TEST(BlindOrderPrices, ThrowsDecimalOverflowOnHugeBlindPrice) {
+  std::vector<core::Instrument> Instruments = {
+      {"A", "TKA", 10, core::Decimal::parse("0.01")},
+  };
+  const std::int64_t SessStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {{makeBar(SessStart, "1000000000000000000", "1000000000000000000",
+                "1000000000000000000", "1000000000000000000", 10)}},
+      makeCalendar()));
+
+  core::OrderSpec Blind;
+  Blind.Instrument = 0;
+  Blind.OrderSide = core::Side::Buy;
+  Blind.Type = core::OrderType::Limit;
+  Blind.Lots = 1;
+  Blind.LimitPrice = core::Decimal::parse("1000000000000000000");
+  Blind.BlindPrices = true;
+
+  EXPECT_THROW(core::resolveBlindOrderPrices(Blind, *Tl, 0),
+               core::DecimalOverflow);
+}

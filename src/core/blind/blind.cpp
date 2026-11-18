@@ -43,6 +43,58 @@ Decimal toPercentOfCapital(const Decimal &Amount, const Decimal &InitialCash) {
   return Amount.mulDiv(kHundred, InitialCash, 2, RoundingMode::HalfUp);
 }
 
+std::optional<Decimal> blindP0(const Timeline &Timeline, int Instrument,
+                               std::int64_t LastStep) {
+  if (LastStep < 0 || LastStep >= Timeline.totalSteps())
+    throw std::out_of_range("LastStep вне шкалы времени");
+  if (Instrument < 0 ||
+      static_cast<std::size_t>(Instrument) >= Timeline.instruments().size()) {
+    return std::nullopt;
+  }
+  const StepBar *FirstBar = firstSessionBar(Timeline, Instrument, LastStep);
+  if (FirstBar == nullptr)
+    return std::nullopt;
+  if (FirstBar->Open <= Decimal::zero()) {
+    throw std::invalid_argument(
+        "open первой свечи для слепого режима должен быть > 0");
+  }
+  return FirstBar->Open;
+}
+
+OrderSpec resolveBlindOrderPrices(const OrderSpec &Spec,
+                                  const Timeline &Timeline, std::int64_t Step) {
+  if (!Spec.BlindPrices)
+    return Spec;
+  if (Spec.Instrument < 0 || static_cast<std::size_t>(Spec.Instrument) >=
+                                 Timeline.instruments().size()) {
+    throw std::invalid_argument(
+        "индекс бумаги вне диапазона для перевода слепых цен");
+  }
+  const std::optional<Decimal> P0 = blindP0(Timeline, Spec.Instrument, Step);
+  if (!P0) {
+    throw std::invalid_argument(
+        "нет P0 для перевода слепых цен: у бумаги нет бара до текущего шага");
+  }
+  const RoundingMode Mode =
+      Spec.OrderSide == Side::Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
+  const Decimal &PriceStep =
+      Timeline.instruments()[static_cast<std::size_t>(Spec.Instrument)]
+          .PriceStep;
+  auto Convert = [&](const Decimal &BlindPrice) {
+    Decimal Rub = BlindPrice.mulDiv(*P0, kHundred, Decimal::kScale, Mode);
+    if (PriceStep.sign() > 0)
+      Rub = Rub.roundToStep(PriceStep, Mode);
+    return Rub;
+  };
+  OrderSpec Out = Spec;
+  if (Out.LimitPrice)
+    Out.LimitPrice = Convert(*Out.LimitPrice);
+  if (Out.StopPrice)
+    Out.StopPrice = Convert(*Out.StopPrice);
+  Out.BlindPrices = false;
+  return Out;
+}
+
 std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,
                                            const Decimal &InitialCash,
                                            std::int64_t LastStep) {
@@ -64,19 +116,15 @@ std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,
 
   for (std::size_t Idx = 0; Idx < NumInstruments; ++Idx) {
     BlindScale &Scale = Scales[Idx];
-    const StepBar *FirstBar =
-        firstSessionBar(Timeline, static_cast<int>(Idx), LastStep);
-    if (FirstBar != nullptr) {
-      if (FirstBar->Open <= Decimal::zero()) {
-        throw std::invalid_argument(
-            "open первой свечи для слепого режима должен быть > 0");
-      }
-      Scale.P0 = FirstBar->Open;
+    const int InstIdx = static_cast<int>(Idx);
+    Scale.P0 = blindP0(Timeline, InstIdx, LastStep);
+    if (Scale.P0) {
       const Decimal OneLotCost =
-          FirstBar->Open.times(Timeline.instruments()[Idx].LotSize);
+          Scale.P0->times(Timeline.instruments()[Idx].LotSize);
       Scale.LotValueAtStart = toPercentOfCapital(OneLotCost, InitialCash);
     }
 
+    const StepBar *FirstBar = firstSessionBar(Timeline, InstIdx, LastStep);
     if (WarmupVolCount[Idx] > 0) {
       if (WarmupVolSum[Idx] > 0) {
         Scale.VolSum = WarmupVolSum[Idx];
