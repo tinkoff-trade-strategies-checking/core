@@ -16,6 +16,7 @@ struct Instrument {
   Decimal PriceStep;
 
   friend bool operator==(const Instrument &, const Instrument &) = default;
+  friend auto operator<=>(const Instrument &, const Instrument &) = default;
 };
 
 } // namespace core

@@ -11,13 +11,17 @@ namespace worker {
 
 namespace pb = pac::simulation::v1;
 
+class TimelineCache;
+
 // Зависимости обработчиков: источники данных живут дольше сервиса (создаёт main
 // или тест). Обработчики не владеют ими и не меняют; чтение баров, календаря и
-// ставок RUONIA - только через эти интерфейсы.
+// ставок RUONIA - только через эти интерфейсы. Кэш шкалы опционален (в тестах
+// может быть nullptr).
 struct Context {
   core::BarSource &Bars;
   core::CalendarSource &Calendar;
   core::RuoniaSource &Ruonia;
+  TimelineCache *Cache = nullptr;
 };
 
 // Обработчики RPC. Каждый живёт в своём handlers/<имя>.cpp; WorkerService

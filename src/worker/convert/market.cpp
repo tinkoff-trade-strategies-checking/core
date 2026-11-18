@@ -12,6 +12,7 @@
 
 #include "clickhouse/clickhouse_client.hpp"
 #include "core/money/proto_conv.hpp"
+#include "timeline_cache.hpp"
 
 namespace worker {
 
@@ -113,14 +114,33 @@ loadTimeline(Context &Context, const pb::MarketSpec &Market) {
                                 std::to_string(kMaxWarmupBars) + ": " +
                                 std::to_string(Market.warmup_bars()));
   }
+
+  const TimelineKey Key{
+      .SnapshotId = Market.snapshot_id(),
+      .Instruments = Instruments,
+      .Timeframe = timeframeFromProto(Market.timeframe()),
+      .FromYmd = parseIsoDate(Market.from_date()),
+      .ToYmd = parseIsoDate(Market.to_date()),
+      .WarmupBars = Market.warmup_bars(),
+  };
+
+  if (Context.Cache != nullptr) {
+    if (auto Cached = Context.Cache->get(Key)) {
+      return Cached;
+    }
+  }
+
   core::Timeline Timeline = core::Timeline::loadWithWarmup(
-      Context.Bars, Context.Calendar, Market.snapshot_id(),
-      std::move(Instruments), timeframeFromProto(Market.timeframe()),
-      parseIsoDate(Market.from_date()), parseIsoDate(Market.to_date()),
-      Market.warmup_bars());
+      Context.Bars, Context.Calendar, Key.SnapshotId, std::move(Instruments),
+      Key.Timeframe, Key.FromYmd, Key.ToYmd, Key.WarmupBars);
   if (Timeline.totalSteps() == 0)
     throw core::SnapshotNotFound("в снапшоте нет баров за период");
-  return std::make_shared<const core::Timeline>(std::move(Timeline));
+  auto Ptr = std::make_shared<const core::Timeline>(std::move(Timeline));
+
+  if (Context.Cache != nullptr) {
+    Context.Cache->put(Key, Ptr);
+  }
+  return Ptr;
 }
 
 std::optional<core::BenchmarkSeries>
@@ -131,18 +151,36 @@ loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
   // close каждого дня. Лот и шаг цены для чтения баров не нужны.
   core::Instrument Index{Market.benchmark_ticker(), Market.benchmark_ticker(),
                          1, core::Decimal::parse("0.01")};
+  const TimelineKey Key{
+      .SnapshotId = Market.snapshot_id(),
+      .Instruments = {Index},
+      .Timeframe = core::Timeframe::D1,
+      .FromYmd = parseIsoDate(Market.from_date()),
+      .ToYmd = parseIsoDate(Market.to_date()),
+      .WarmupBars = 0,
+  };
   try {
-    const core::Timeline Timeline = core::Timeline::load(
-        Context.Bars, Context.Calendar, Market.snapshot_id(), {Index},
-        core::Timeframe::D1, parseIsoDate(Market.from_date()),
-        parseIsoDate(Market.to_date()));
-    if (Timeline.totalSteps() == 0)
-      return std::nullopt;
+    std::shared_ptr<const core::Timeline> Ptr;
+    if (Context.Cache != nullptr) {
+      Ptr = Context.Cache->get(Key);
+    }
+    if (!Ptr) {
+      core::Timeline Timeline = core::Timeline::load(
+          Context.Bars, Context.Calendar, Market.snapshot_id(), {Index},
+          core::Timeframe::D1, parseIsoDate(Market.from_date()),
+          parseIsoDate(Market.to_date()));
+      if (Timeline.totalSteps() == 0)
+        return std::nullopt;
+      Ptr = std::make_shared<const core::Timeline>(std::move(Timeline));
+      if (Context.Cache != nullptr) {
+        Context.Cache->put(Key, Ptr);
+      }
+    }
     core::BenchmarkSeries Series;
-    Series.FirstOpen = Timeline.barsAt(0).front().Open;
-    for (std::int64_t Step = 0; Step < Timeline.totalSteps(); ++Step) {
+    Series.FirstOpen = Ptr->barsAt(0).front().Open;
+    for (std::int64_t Step = 0; Step < Ptr->totalSteps(); ++Step) {
       Series.Closes.push_back(core::DailyClose{
-          Timeline.yyyymmddOf(Step), Timeline.barsAt(Step).front().Close});
+          Ptr->yyyymmddOf(Step), Ptr->barsAt(Step).front().Close});
     }
     return Series;
   } catch (const core::SecurityNotFound &) {
