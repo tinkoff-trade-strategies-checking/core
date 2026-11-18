@@ -1,7 +1,7 @@
 // Контракт gRPC между Java (simulation) и C++ (Simulation Worker).
 // Источник правды для обеих сторон. Меняя файл, обнови architecture.md и уведоми backend.
 //
-// Деньги и цены — Decimal из common.proto (ADR-0008); double только в метриках (INV-6).
+// Деньги и цены — Decimal из common.proto (`decisions.md`, «Деньги в C++»); double только в метриках (INV-6).
 // Количество — целые лоты. Объём бара — в лотах.
 //
 // Ошибки RPC:

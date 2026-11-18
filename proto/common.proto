@@ -6,7 +6,7 @@ package pac.simulation.v1;
 option java_package = "pac.simulation.v1";
 option java_multiple_files = true;
 
-// Деньги, цены и ставки (ADR-0008): значение = units + nano * 10^-9, как google.type.Money
+// Деньги, цены и ставки (`decisions.md`, «Деньги в C++»): значение = units + nano * 10^-9, как google.type.Money
 // без валюты (все суммы в рублях).
 // nano лежит в [-999 999 999; 999 999 999]; знак nano совпадает со знаком units
 // (или один из них равен 0). Перевод в C++ и обратно - core::fromProto / core::toProto

@@ -15,10 +15,10 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 ## Как работать над задачей
 Полностью — `home/workflow.md`. Коротко:
 1. Работа идёт по issue с доски https://github.com/orgs/tinkoff-trade-strategies-checking/projects/2. Перед стартом прочитай issue вместе с комментариями: там ход работы и отвергнутые варианты.
-2. Прочитай ФТ, INV и ADR из задачи. Найди похожий код и переиспользуй его. Отход от ADR — только через новый ADR.
+2. Прочитай ФТ, INV и решения раздела «Архитектура» в `decisions.md` из задачи. Найди похожий код и переиспользуй его. Отход от принятого решения — только явно, PR в `decisions.md` с причиной.
 3. Ветка `<номер-issue>-кратко`, изменения вместе с тестами, PR с `Closes #N`.
 4. Не успел закончить — оставь в issue комментарий: что сделано, что осталось, что пробовали и почему отказались.
-5. Изменение сделало документы неверными — обнови их в том же PR (этот файл, `status.md`, `decisions.md`, ADR).
+5. Изменение сделало документы неверными — обнови их в том же PR (этот файл, `status.md`, `decisions.md`).
 
 ## Критично
 Ядро отвечает за большую часть инвариантов (`documentation/invariants.md`):
@@ -32,8 +32,8 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 - новая команда CMake, тестов, запуска воркера, CLI replay → «Команды» ниже;
 - изменение модели исполнения (порядок, издержки, ликвидность) → `decisions.md`, при необходимости `invariants.md`;
 - изменение gRPC-контракта (`.proto`) → `architecture.md` и уведомить `backend`;
-- выбор десятичного типа для денег, библиотеки, формата чтения ClickHouse → ADR;
-- тест детерминизма или чтения будущего добавлен в CI → колонка «Проверка» в `invariants.md`.
+- выбор десятичного типа для денег, библиотеки, формата чтения ClickHouse → `decisions.md`, «Архитектура»;
+- тест детерминизма или чтения будущего добавлен в CI → колонка «Где держится» в `invariants.md` (отдельной колонки «Проверка» пока нет).
 
 ## Стандарты
 Стиль C++ — LLVM, решение владельца продукта: `home/standards.md`, раздел «Стиль C++». Конфиги — `.clang-format` (`BasedOnStyle: LLVM`) и `.clang-tidy` (`readability-identifier-naming`); проверяются в CI, падение — ошибка.
@@ -47,7 +47,7 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
 ## Структура
 - `proto/` — источник правды для gRPC-контрактов (`simulation.proto`); меняя его, обнови `architecture.md` и уведоми `backend`.
 - `src/core/` — библиотека `simulation_core`: чистый C++20, без gRPC и protobuf; публичные заголовки в `src/core/include/core/<область>/`. Область — каталог `src/core/<область>/` с исходниками и `tests/<область>/` с `*_test.cpp`, у обоих свой `CMakeLists.txt` с `file(GLOB CONFIGURE_DEPENDS)`: новый файл подхватывается сам, новая область — каталогом и именем в списке `foreach` в `src/core/CMakeLists.txt` и `tests/CMakeLists.txt`. Области:
-  - `money/` — `Decimal` (9 знаков, `__int128`, ADR-0008), `RoundingMode`, перевод в proto (`proto_conv.hpp`).
+  - `money/` — `Decimal` (9 знаков, `__int128`, `decisions.md`, «Деньги в C++»), `RoundingMode`, перевод в proto (`proto_conv.hpp`).
   - `market/` — `Bar`, `Security`, `BarSource`, `InMemoryBarSource`; `Timeframe`, `Instrument`, `StepBar`, `Timeline` — общая шкала времени сессии (шаги, торговые дни, `afterHalt`, `slice`; прогрев — `loadWithWarmup`/`withWarmup`, бары истории до шага 0 с шагами `-W…-1` в `warmupBars()`, срез берёт W шагов перед собой); `CalendarSource`/`InMemoryCalendarSource`.
   - `portfolio/` — `Portfolio`: деньги, позиции, средняя цена, пары «покупка → продажа» по FIFO (`RoundTrip`), `EquityPoint`.
   - `exec/` — модель исполнения (INV-2, INV-3): `CostConfig`, `fillPrice`, `amounts`, `ExecutionEngine` (`validate`, `processStep`), `LiquidityBudget`; `conditional_orders.cpp` — лимит, стоп, стоп-лимит, тейк-профит, трейлинг, OCO, срок «день», `cancelOrder`; `exec_common.hpp` — внутренний заголовок (выбор количества, запись сделки).
@@ -55,7 +55,7 @@ C++ ядро симуляции рынка проекта «Т-Инвестиц�
   - `digest.cpp` в `engine/` — `digestOf(SessionEngine)`: FNV-1a 64 по сделкам, кривой стоимости и статусу (INV-4).
   - `report/` — `computeReport` (метрики ФТ-17, издержки по видам, бенчмарк, `stopTakeSameBar`), `benchmark.hpp` (`BenchmarkSeries`, `benchmarkRange`, `benchmarkEquity` — кривая «капитал в индексе» по полностью пройденным дням).
 - `src/worker/` — `simulation_worker`: gRPC-сервер; сервис (`worker_service.*`) вынесен в `simulation_worker_lib` для тестов. `Ping` отвечает сам, остальные RPC вызывают обработчики из `handlers.hpp` (`Context{bars, calendar}`), каждый в своём `handlers/<имя>.cpp`. Готовы все RPC контракта: `Ping`, `ReplaySession`, `GetBars`. Ошибки ядра переводятся в gRPC-статус одной функцией `statusFromCurrentException` (`convert/market.*`): нет данных — `FAILED_PRECONDITION`, прочие ошибки данных — `NOT_FOUND`, ошибка параметров — `INVALID_ARGUMENT`, ClickHouse недоступен — `UNAVAILABLE`, испорченные данные — `INTERNAL`. Общие конвертеры — `convert/{market,state,report}.*` (`toSessionSpec`, `loadTimeline`, `metricsInput`; `loadTimeline` читает и прогрев `MarketSpec.warmup_bars`, `appendBars` отдаёт бары с прогревом; `loadBenchmark` — дневной ряд индекса для доходности и кривой `Report.benchmark_equity`). Адрес — `--listen`, иначе `$WORKER_ADDRESS`, иначе `0.0.0.0:50051`; бары и календарь — ClickHouse по `$CLICKHOUSE_URL` (не задан — предупреждение в stderr и `127.0.0.1:8123`). В библиотеку автоматически входят `handlers/*.cpp` и `convert/*.cpp`.
-- `src/worker/clickhouse/` — своя библиотека `simulation_clickhouse` (ADR-0013): `ClickHouseBarSource` читает свечи по HTTP-интерфейсу ClickHouse (libcurl, `readonly=1`, только `snapshots_ready`, свечи из сделок — через `candles_from_trades`), `ClickHouseCalendarSource` — торговый календарь (`trading_calendar`; календарь строит импортёр по акциям, не по индексу IMOEX).
+- `src/worker/clickhouse/` — своя библиотека `simulation_clickhouse`: `ClickHouseBarSource` читает свечи по HTTP-интерфейсу ClickHouse (libcurl, `readonly=1`, только `snapshots_ready`, свечи из сделок — через `candles_from_trades`), `ClickHouseCalendarSource` — торговый календарь (`trading_calendar`; календарь заполняет импортёр архива по акциям, не по индексу IMOEX — импортёра пока нет).
 - `src/cli/` — `sim_cli`: `version`; `replay` пока не реализован (прогоны идут через воркер).
 - `tests/` — GoogleTest: `core_tests` (области, `tests/build/flags_test.cpp` — проверка `-ffp-contract=off`) и `worker_tests` (`tests/worker/*_test.cpp` — RPC через сервер в процессе, `worker_test_support.hpp`; `tests/clickhouse/` — тесты `ClickHouseBarSource`, интеграционные пропускаются без `CLICKHOUSE_URL`; `tests/money/*_generated_test.cpp` — в `worker_tests`, потому что ему нужен protobuf). Тест детерминизма (INV-4) — `tests/engine/determinism_test.cpp` (`Determinism.SameDigestTwice`: два проигрывания журнала — один `digestOf`). `tests/support/*.cpp` — общие фикстуры, входят в оба набора: `fixture1()` — снапшот `fixture-1` с бумагами `FIXA` и `FIXB` (у `FIXB` нет бара на шаге 3).
 - `testdata/` — входные файлы тестов, путь — макрос `CORE_TESTDATA_DIR`: `reference-portfolio.md` — эталонная таблица 19 сделок (INV-6), её читает `tests/exec/reference_portfolio_test.cpp`.
@@ -85,7 +85,7 @@ cmake --preset debug && cmake --build --preset debug -j2 && ctest --preset debug
 
 Через vcpkg (нужен `VCPKG_ROOT`): те же команды с пресетами `vcpkg-debug` / `vcpkg-release`.
 
-Интеграционный тест `ClickHouseBarSource` (`ClickHouseIntegration.*`) идёт на настоящем ClickHouse с фикстурой-снапшотом и пропускается без `CLICKHOUSE_URL` (формат `http://user:password@host:8123/база`). Запуск (из корня рабочего пространства; пароли любые):
+Интеграционный тест `ClickHouseBarSource` (`ClickHouseIntegration.*`) идёт на настоящем ClickHouse с фикстурой-снапшотом и пропускается без `CLICKHOUSE_URL` (формат `http://user:password@host:8123/база`). Запуск (из корня рабочего пространства; пароли любые). **Пока не работает:** в `backend` ещё нет `deploy/` и импортёра `tools/marketdata-import`; команды ниже заработают, когда они появятся.
 
 ```bash
 export POSTGRES_PASSWORD=x CLICKHOUSE_PASSWORD=secret
