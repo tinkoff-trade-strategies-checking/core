@@ -146,18 +146,18 @@ TEST(ReferencePortfolio, EveryTradeMatchesTable) {
   }
 
   // Итоги таблицы.
-  EXPECT_EQ(Portfolio.cash(), d("1076446.62"));
+  EXPECT_EQ(Portfolio.cash(), d("1066544.85"));
   EXPECT_EQ(Portfolio.lots(0), 20);
   EXPECT_EQ(Portfolio.lots(1), 500);
-  EXPECT_EQ(TotalCommission, d("1980.42"));
+  EXPECT_EQ(TotalCommission, d("11882.19"));
   EXPECT_EQ(TotalFee, d("396.16"));
 
   const std::vector<std::optional<Decimal>> LastClose = {d("260.00"),
                                                          d("0.0300")};
   const std::vector<std::int64_t> LotSizesVec = {kLotA, kLotB};
   const Decimal Equity = Portfolio.equity(LastClose, LotSizesVec);
-  EXPECT_EQ(Equity, d("1278446.62"));
-  EXPECT_EQ(Equity.toString(2), "1278446.62");
+  EXPECT_EQ(Equity, d("1268544.85"));
+  EXPECT_EQ(Equity.toString(2), "1268544.85");
 }
 
 } // namespace

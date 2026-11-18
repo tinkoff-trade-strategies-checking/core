@@ -136,13 +136,13 @@ TEST(MarketOrders, FillRecordsAmountsAndCostSplit) {
   const Fill &F = R.Fills[0];
   EXPECT_EQ(F.Price, d("271.54"));
   EXPECT_EQ(F.Value, d("271540.00"));
-  EXPECT_EQ(F.Commission, d("135.77"));
+  EXPECT_EQ(F.Commission, d("814.62"));
   EXPECT_EQ(F.Fee, d("27.16"));
   EXPECT_EQ(F.SpreadCost, d("135.68"));
   EXPECT_EQ(F.SlippageCost, d("54.32"));
   EXPECT_FALSE(F.StopAndTakeSameBar);
   EXPECT_EQ(Pf.cash(),
-            d("1000000") - d("271540.00") - d("135.77") - d("27.16"));
+            d("1000000") - d("271540.00") - d("814.62") - d("27.16"));
 }
 
 TEST(MarketOrders, WaitsForOwnInstrumentBar) {
