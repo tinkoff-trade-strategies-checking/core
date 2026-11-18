@@ -11,6 +11,7 @@
 #include "core/market/timeline.hpp"
 #include "core/money/decimal.hpp"
 #include "core/report/benchmark.hpp"
+#include "core/report/ruonia.hpp"
 #include "handlers.hpp"
 
 // Конвертеры рынка и данных: MarketSpec -> SessionSpec и Timeline, бар ->
@@ -41,6 +42,10 @@ loadTimeline(Context &Context, const pb::MarketSpec &Market);
 // в снапшоте или нет баров за период - nullopt.
 std::optional<core::BenchmarkSeries>
 loadBenchmark(Context &Context, const pb::MarketSpec &Market);
+
+// Дневной ряд ставок RUONIA до даты UpToYmd включительно.
+core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,
+                              std::int32_t UpToYmd);
 
 // "yyyy-mm-dd" -> yyyymmdd; неверная строка - std::invalid_argument.
 std::int32_t parseIsoDate(const std::string &Text);

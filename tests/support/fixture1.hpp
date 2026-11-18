@@ -6,6 +6,7 @@
 #include "core/market/calendar_source.hpp"
 #include "core/market/in_memory_bar_source.hpp"
 #include "core/market/instrument.hpp"
+#include "core/market/ruonia_source.hpp"
 
 // Общие фикстуры тестов (входят и в core_tests, и в worker_tests).
 
@@ -14,6 +15,7 @@ namespace core::testing {
 struct Fixture {
   InMemoryBarSource Bars;
   InMemoryCalendarSource Calendar;
+  InMemoryRuoniaSource Ruonia;
   std::vector<Instrument> Instruments;
   std::string SnapshotId;
 };

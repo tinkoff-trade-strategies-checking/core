@@ -19,7 +19,7 @@ class HandlersScaffold : public ::testing::Test {
 protected:
   void SetUp() override {
     Service = std::make_unique<worker::WorkerService>(
-        worker::Context{Bars, Calendar});
+        worker::Context{Bars, Calendar, Ruonia});
     int Port = 0;
     grpc::ServerBuilder Builder;
     Builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
@@ -40,6 +40,7 @@ protected:
 
   core::InMemoryBarSource Bars;
   core::InMemoryCalendarSource Calendar;
+  core::InMemoryRuoniaSource Ruonia;
   std::unique_ptr<worker::WorkerService> Service;
   std::unique_ptr<grpc::Server> Server;
   std::unique_ptr<pb::SimulationWorker::Stub> Stub;

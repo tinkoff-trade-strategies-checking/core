@@ -18,7 +18,7 @@ protected:
   grpc::Status replay(std::int64_t UpTo, std::int64_t EventsFrom,
                       pb::ReplaySessionResponse *Response, bool History = true,
                       bool Report = false) {
-    worker::Context Context{Fixture.Bars, Fixture.Calendar};
+    worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
     pb::ReplaySessionRequest Request;
     *Request.mutable_market() = Market;
     for (const pb::JournalEntry &E : Journal)
@@ -368,6 +368,9 @@ TEST(ReplaySessionIntraday, BenchmarkStopsAtPreviousFullDay) {
       "intraday", "IMOEX", 86400,
       {Bar(Day1, kDayMs, "1000", "1005"), Bar(Day2, kDayMs, "1010", "1015")});
   Calendar.add("intraday", {{20240109, true}, {20240110, true}});
+  core::InMemoryRuoniaSource Ruonia;
+  Ruonia.add("intraday",
+             {core::DailyRate{20240108, core::Decimal::parse("15.0")}});
 
   pb::MarketSpec Market = fixtureMarket();
   Market.set_snapshot_id("intraday");
@@ -382,7 +385,7 @@ TEST(ReplaySessionIntraday, BenchmarkStopsAtPreviousFullDay) {
   Market.set_benchmark_ticker("IMOEX");
 
   const auto Report = [&](std::int64_t UpTo) {
-    worker::Context Context{Bars, Calendar};
+    worker::Context Context{Bars, Calendar, Ruonia};
     pb::ReplaySessionRequest Request;
     *Request.mutable_market() = Market;
     Request.set_up_to_step(UpTo);
@@ -456,4 +459,32 @@ TEST_F(ReplaySession, BadBenchmarkOpenDoesNotBreakReport) {
   EXPECT_FALSE(Response.report().metrics().has_benchmark_return());
   EXPECT_EQ(Response.report().benchmark_equity_size(), 0);
   EXPECT_EQ(Response.report().equity_size(), 10);
+}
+
+TEST_F(ReplaySession, ReportIncludesSharpeAndSortinoWithRuonia) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 500)};
+  pb::ReplaySessionResponse Response;
+  const grpc::Status Status = replay(9, -1, &Response, false, true);
+  ASSERT_TRUE(Status.ok()) << Status.error_message();
+  const pb::Metrics &M = Response.report().metrics();
+  EXPECT_EQ(M.trading_days(), 10);
+  EXPECT_TRUE(M.has_volatility());
+  EXPECT_TRUE(M.has_sharpe());
+  EXPECT_TRUE(M.has_sortino());
+}
+
+TEST_F(ReplaySession, MissingRuoniaThrowsPrecondition) {
+  // Подменяем источник RUONIA на пустой без fixture-1
+  core::InMemoryRuoniaSource EmptyRuonia;
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, EmptyRuonia};
+  pb::ReplaySessionRequest Request;
+  *Request.mutable_market() = Market;
+  Request.set_up_to_step(9);
+  Request.set_events_from_step(-1);
+  Request.set_include_report(true);
+  pb::ReplaySessionResponse Response;
+  const grpc::Status Status =
+      worker::handleReplaySession(Context, Request, &Response);
+  EXPECT_FALSE(Status.ok());
+  EXPECT_EQ(Status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
 }

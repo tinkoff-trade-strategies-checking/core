@@ -16,6 +16,7 @@
 
 #include "clickhouse/clickhouse_bar_source.hpp"
 #include "clickhouse/clickhouse_calendar_source.hpp"
+#include "clickhouse/clickhouse_ruonia_source.hpp"
 #include "worker_service.hpp"
 
 namespace {
@@ -56,7 +57,8 @@ int main(int argc, char **argv) {
   }
   worker::ClickHouseBarSource Bars(Clickhouse);
   worker::ClickHouseCalendarSource Calendar(Clickhouse);
-  worker::WorkerService Service(worker::Context{Bars, Calendar});
+  worker::ClickHouseRuoniaSource Ruonia(Clickhouse);
+  worker::WorkerService Service(worker::Context{Bars, Calendar, Ruonia});
   grpc::ServerBuilder Builder;
   Builder.AddListeningPort(Address, grpc::InsecureServerCredentials());
   Builder.RegisterService(&Service);

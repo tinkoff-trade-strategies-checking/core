@@ -91,9 +91,12 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
   for (const core::CommandResult &R : Result.CommandResults)
     toProto(R, Out->add_command_results());
   if (Request.include_report()) {
+    const std::int32_t UpToYmd = Timeline->yyyymmddOf(Result.LastStep);
+    const core::RuoniaSeries Ruonia = loadRuonia(Context, Market, UpToYmd);
     toProto(core::computeReport(metricsInput(
                 Engine, Spec.InitialCash, *Timeline,
-                benchmarkUpTo(Context, Market, *Timeline, Result.LastStep))),
+                benchmarkUpTo(Context, Market, *Timeline, Result.LastStep),
+                Ruonia)),
             Out->mutable_report());
   }
 }
