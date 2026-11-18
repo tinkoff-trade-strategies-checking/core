@@ -138,16 +138,28 @@ TEST(ClickHouseBarSource, LoadsStoredCandlesWithExactDecimals) {
   EXPECT_FALSE(F.usedSql("candles_from_trades"));
 }
 
-TEST(ClickHouseBarSource, FallsBackToTradesWhenIntervalNotStored) {
+TEST(ClickHouseBarSource, FallsBackToMinuteAggregationWhenIntervalNotStored) {
   Fixture F;
   F.CandleCount = "0\n";
   F.Rows = "1792000000000\t1792000060000\t100.000000\t101.500000\t99."
            "500000\t99.500000\t42\t4224.000000\n";
   auto Source = F.make();
-  const auto Bars = Source.load({kSnap, "SYNTH", 60, 0, 2000000000000});
+  const auto Bars = Source.load({kSnap, "SYNTH", 300, 0, 2000000000000});
   ASSERT_EQ(Bars.size(), 1u);
   EXPECT_EQ(Bars[0].Volume, 42);
-  EXPECT_TRUE(F.usedSql("candles_from_trades"));
+  EXPECT_TRUE(F.usedSql("interval_sec = 60"));
+  EXPECT_TRUE(F.usedSql("intDiv(toUnixTimestamp64Milli(ts_open)"));
+  EXPECT_FALSE(F.usedSql("candles_from_trades"));
+
+  // 1 д — группировка по дню МСК
+  Fixture FDay;
+  FDay.CandleCount = "0\n";
+  FDay.Rows = "1792000000000\t1792000060000\t100.000000\t101.500000\t99."
+              "500000\t99.500000\t42\t4224.000000\n";
+  auto SourceDay = FDay.make();
+  SourceDay.load({kSnap, "SYNTH", 86400, 0, 2000000000000});
+  EXPECT_TRUE(FDay.usedSql("toStartOfDay(ts_open, 'Europe/Moscow')"));
+  EXPECT_FALSE(FDay.usedSql("candles_from_trades"));
 }
 
 TEST(ClickHouseBarSource, NoSqlInjectionThroughSecid) {
@@ -222,12 +234,16 @@ TEST(ClickHouseBarSource, EmptyRangeIsEmptyNotError) {
   EXPECT_TRUE(Source.load({kSnap, "SBER", 60, 0, 1000}).empty());
 }
 
-TEST(ClickHouseBarSource, IntervalTooLargeForTradeAggregation) {
+TEST(ClickHouseBarSource, InvalidIntervalRejections) {
   Fixture F;
   F.CandleCount = "0\n";
   auto Source = F.make();
   EXPECT_THROW(Source.load({kSnap, "SBER", 604800, 0, 1000}),
-               core::MarketDataError);
+               worker::IntervalUnavailable);
+  EXPECT_THROW(Source.load({kSnap, "SBER", 10, 0, 1000}),
+               worker::IntervalUnavailable);
+  EXPECT_THROW(Source.load({kSnap, "SBER", 75, 0, 1000}),
+               worker::IntervalUnavailable);
   EXPECT_THROW(Source.load({kSnap, "SBER", 0, 0, 1000}), std::invalid_argument);
 }
 

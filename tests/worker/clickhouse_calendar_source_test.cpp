@@ -184,24 +184,22 @@ TEST(ClickHouseCalendarSource, TransportErrorPropagates) {
                std::invalid_argument);
 }
 
-// Пункт 2 задачи: интервала шага нет среди свечей версии - бары читаются из
-// candles_from_trades.
-TEST(ClickHouseBarSourceTradesFallback, MissingIntervalReadsCandlesFromTrades) {
+// Интервала шага нет среди свечей версии — бары агрегируются из минутных свечей.
+TEST(ClickHouseBarSourceTradesFallback, MissingIntervalReadsCandlesFromMinutes) {
   Fixture F;
   F.CandleCount = "0\n";
   F.BarRows = "1792000000000\t1792000060000\t100.000000\t101.500000\t99."
               "500000\t99.500000\t42\t4224.000000\n";
   worker::ClickHouseBarSource Bars(F.client());
-  const auto Loaded = Bars.load({kSnap, "SBER", 60, 0, 2000000000000});
+  const auto Loaded = Bars.load({kSnap, "SBER", 300, 0, 2000000000000});
   ASSERT_EQ(Loaded.size(), 1u);
   EXPECT_EQ(Loaded[0].Volume, 42);
-  EXPECT_TRUE(F.usedSql("candles_from_trades(snapshot_id = {snapshot_id:UUID}, "
-                        "interval_sec = {interval_sec:UInt32})"));
-  // Интервал есть среди свечей - из сделок не читаем.
+  EXPECT_TRUE(F.usedSql("interval_sec = 60"));
+  // Интервал есть среди свечей — агрегацию не вызываем.
   Fixture G;
   worker::ClickHouseBarSource Stored(G.client());
-  Stored.load({kSnap, "SBER", 60, 0, 2000000000000});
-  EXPECT_FALSE(G.usedSql("candles_from_trades"));
+  Stored.load({kSnap, "SBER", 300, 0, 2000000000000});
+  EXPECT_FALSE(G.usedSql("interval_sec = 60"));
 }
 
 } // namespace
