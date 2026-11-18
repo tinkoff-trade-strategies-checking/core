@@ -71,7 +71,7 @@ struct Order {
   std::int64_t FilledLots = 0;
   std::int64_t OcoSiblingId = -1;
   std::optional<Decimal> TrailingPeak, TrailingStopLevel;
-  bool Triggered = false;       // стоп-лимит сработал
+  bool Triggered = false; // стоп-лимит сработал
   std::int64_t ClosedStep = -1; // шаг, на котором заявка стала неактивной
 };
 
