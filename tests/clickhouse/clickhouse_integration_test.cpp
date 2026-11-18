@@ -117,7 +117,8 @@ TEST_F(ClickHouseIntegration, BarNotYetAvailableByToMsIsExcluded) {
 }
 
 TEST_F(ClickHouseIntegration, CandlesAggregatedFromMinutes) {
-  // SBER: 5-минутных свечей в таблице candles нет, они агрегируются из минутных.
+  // SBER: 5-минутных свечей в таблице candles нет, они агрегируются из
+  // минутных.
   const std::int64_t T0 = utcMs(2026, 10, 28, 3, 59);
   const auto FiveMin = Source->load({kFixture, "SBER", 300, T0, T0 + 600000});
   ASSERT_FALSE(FiveMin.empty());

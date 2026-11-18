@@ -97,7 +97,8 @@ const char *const kCandlesSql =
 const char *const kAggregateMinutesSql =
     "SELECT intDiv(toUnixTimestamp64Milli(ts_open), {interval_ms:Int64}) * "
     "{interval_ms:Int64} AS bar_ts_open, "
-    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS bar_available_at, "
+    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS "
+    "bar_available_at, "
     "argMin(open, ts_open) AS bar_open, "
     "max(high) AS bar_high, "
     "min(low) AS bar_low, "
@@ -117,7 +118,8 @@ const char *const kAggregateMinutesSql =
 const char *const kAggregateDailySql =
     "SELECT toUnixTimestamp64Milli(toDateTime64(toStartOfDay(ts_open, "
     "'Europe/Moscow'), 3, 'Europe/Moscow')) AS bar_ts_open, "
-    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS bar_available_at, "
+    "toUnixTimestamp64Milli(argMax(available_at, ts_open)) AS "
+    "bar_available_at, "
     "argMin(open, ts_open) AS bar_open, "
     "max(high) AS bar_high, "
     "min(low) AS bar_low, "
@@ -260,7 +262,8 @@ ClickHouseBarSource::load(const core::BarRequest &Request) {
     QueryParams Params{
         {"snapshot_id", Request.SnapshotId},
         {"secid", escapeParam(Request.Secid)},
-        {"interval_ms", std::to_string(static_cast<std::int64_t>(Request.IntervalSec) * 1000)},
+        {"interval_ms",
+         std::to_string(static_cast<std::int64_t>(Request.IntervalSec) * 1000)},
         {"from_ms", std::to_string(Request.FromMs)},
         {"to_ms", std::to_string(Request.ToMs)}};
     Rows = parseTabSeparated(Client->query(kAggregateMinutesSql, Params));

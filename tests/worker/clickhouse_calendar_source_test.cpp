@@ -184,8 +184,10 @@ TEST(ClickHouseCalendarSource, TransportErrorPropagates) {
                std::invalid_argument);
 }
 
-// Интервала шага нет среди свечей версии — бары агрегируются из минутных свечей.
-TEST(ClickHouseBarSourceTradesFallback, MissingIntervalReadsCandlesFromMinutes) {
+// Интервала шага нет среди свечей версии — бары агрегируются из минутных
+// свечей.
+TEST(ClickHouseBarSourceTradesFallback,
+     MissingIntervalReadsCandlesFromMinutes) {
   Fixture F;
   F.CandleCount = "0\n";
   F.BarRows = "1792000000000\t1792000060000\t100.000000\t101.500000\t99."
