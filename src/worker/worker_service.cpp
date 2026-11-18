@@ -25,4 +25,18 @@ grpc::Status WorkerService::GetBars(grpc::ServerContext *,
   return handleGetBars(HandlerContext, *Request, Response);
 }
 
+grpc::Status
+WorkerService::EstimateOrder(grpc::ServerContext *,
+                             const pb::EstimateOrderRequest *Request,
+                             pb::EstimateOrderResponse *Response) {
+  return handleEstimateOrder(HandlerContext, *Request, Response);
+}
+
+grpc::Status
+WorkerService::ClassifyPeriods(grpc::ServerContext *,
+                               const pb::ClassifyPeriodsRequest *Request,
+                               pb::ClassifyPeriodsResponse *Response) {
+  return handleClassifyPeriods(HandlerContext, *Request, Response);
+}
+
 } // namespace worker

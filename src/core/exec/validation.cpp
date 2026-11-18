@@ -80,15 +80,11 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
   if (Buy) {
     const Instrument &Inst =
         Instruments[static_cast<std::size_t>(Spec.Instrument)];
-    const Decimal Factor =
-        Decimal::one() + Costs.CommissionRate + Costs.ExchangeFeeRate;
     try {
       // Округление вверх: проверка не пропускает заявку, на которую не хватает
       // копейки.
       const Decimal Need =
-          Close.times(Spec.Lots)
-              .times(Inst.LotSize)
-              .mul(Factor, Decimal::kScale, RoundingMode::CEILING);
+          requiredCashForOrder(Close, Spec.Lots, Inst.LotSize, Costs);
       if (Need > Portfolio.cash())
         return Validation{false, Reason::InsufficientCash, ""};
     } catch (const DecimalOverflow &) {
@@ -127,6 +123,14 @@ Validation validateOcoPair(const OrderSpec &First, const OrderSpec &Second) {
     return invalid("side");
   }
   return Validation{};
+}
+
+Decimal requiredCashForOrder(const Decimal &Price, std::int64_t Lots,
+                             std::int64_t LotSize, const CostConfig &Costs) {
+  const Decimal Factor =
+      Decimal::one() + Costs.CommissionRate + Costs.ExchangeFeeRate;
+  return Price.times(Lots).times(LotSize).mul(Factor, Decimal::kScale,
+                                              RoundingMode::CEILING);
 }
 
 } // namespace core

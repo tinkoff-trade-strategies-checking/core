@@ -332,4 +332,25 @@ pb::Reason toProto(core::Reason Reason) {
   return pb::REASON_UNSPECIFIED;
 }
 
+core::OrderSpec orderSpecFromProto(const pb::OrderSpec &Spec,
+                                   const core::SessionSpec &Session) {
+  return specFromProto(Spec, Session);
+}
+
+void toProto(const core::OrderEstimate &Estimate,
+             pb::EstimateOrderResponse *Out) {
+  Out->set_can_place(Estimate.Check.Ok);
+  Out->set_reason(toProto(Estimate.Check.ReasonCode));
+  Out->set_invalid_field(Estimate.Check.Field);
+  core::toProto(Estimate.ReferencePrice, Out->mutable_reference_price());
+  core::toProto(Estimate.Value, Out->mutable_amount());
+  core::toProto(Estimate.Commission, Out->mutable_commission());
+  core::toProto(Estimate.Fee, Out->mutable_exchange_fee());
+  core::toProto(Estimate.RequiredCash, Out->mutable_required_cash());
+  core::toProto(Estimate.ValuePct, Out->mutable_amount_pct());
+  core::toProto(Estimate.CommissionPct, Out->mutable_commission_pct());
+  core::toProto(Estimate.FeePct, Out->mutable_exchange_fee_pct());
+  core::toProto(Estimate.RequiredCashPct, Out->mutable_required_cash_pct());
+}
+
 } // namespace worker

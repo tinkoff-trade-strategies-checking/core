@@ -27,6 +27,10 @@ service SimulationWorker {
   rpc ReplaySession(ReplaySessionRequest) returns (ReplaySessionResponse);
   // Бары по диапазону шагов общей шкалы времени сессии.
   rpc GetBars(GetBarsRequest) returns (GetBarsResponse);
+  // Оценка заявки по close последнего бара до курсора (без изменения журнала, INV-1, INV-8).
+  rpc EstimateOrder(EstimateOrderRequest) returns (EstimateOrderResponse);
+  // Классификация исторических периодов по волатильности и просадке IMOEX (`decisions.md`, «Стресс-сценарии»).
+  rpc ClassifyPeriods(ClassifyPeriodsRequest) returns (ClassifyPeriodsResponse);
 }
 
 message PingRequest {}
@@ -332,6 +336,123 @@ message Report {
 }
 
 // ---------------------------------------------------------------------------
+// Слепой режим (`decisions.md`, «Слепой режим», INV-1, INV-6, INV-7):
+// без реальных меток времени (только шаг и относительный торговый день) и
+// без тикеров/ключей бумаг (только индекс в MarketSpec.instruments).
+// ---------------------------------------------------------------------------
+
+message BlindInstrument {
+  int32 instrument_index = 1; // индекс бумаги в MarketSpec.instruments (0, 1, ...)
+  // Стоимость 1 лота в % от начального капитала по первой показанной свече
+  // (шаг <= курсора), 2 знака HALF_UP; не задано до первой свечи.
+  // До появления P0 бумага отсутствует в history/events слепого вида целиком.
+  optional Decimal lot_value_at_start = 2;
+}
+
+message BlindBar {
+  int64 step = 1;             // номер шага (у прогрева отрицательный: -W..-1, у сессии >= 0)
+  int32 instrument_index = 2; // индекс бумаги в MarketSpec.instruments (0, 1, ...)
+  reserved 3;
+  reserved "time_unix_ms";
+  int32 trading_day = 4;      // относительный номер торгового дня (у прогрева <= 0)
+  Decimal open = 5;           // x * 100 / P0, 2 знака HALF_UP
+  Decimal high = 6;
+  Decimal low = 7;
+  Decimal close = 8;
+  Decimal volume_rel = 9;     // 100 * V / V_ref, 2 знака HALF_UP
+  bool after_halt = 10;
+}
+
+message BlindPosition {
+  int32 instrument_index = 1;
+  int64 lots = 2;
+  Decimal avg_price = 3;         // x * 100 / P0, 2 знака HALF_UP
+  Decimal market_value_pct = 4;  // % от начального капитала, 2 знака HALF_UP
+}
+
+message BlindPortfolio {
+  Decimal cash_pct = 1;
+  Decimal equity_pct = 2;
+  Decimal pnl_pct = 3;
+  repeated BlindPosition positions = 4;
+}
+
+message BlindOrder {
+  int64 id = 1;
+  int32 instrument_index = 2;
+  optional Decimal limit_price = 3;
+  optional Decimal stop_price = 4;
+  optional Decimal trailing_stop_level = 5;
+}
+
+message BlindFill {
+  int64 order_id = 1;
+  int64 step = 2;
+  int32 instrument_index = 3;
+  Side side = 4;
+  int64 lots = 5;
+  Decimal price = 6;
+  Decimal base_price = 7;
+  Decimal value_pct = 8;
+  Decimal commission_pct = 9;
+  Decimal exchange_fee_pct = 10;
+  Decimal spread_cost_pct = 11;
+  Decimal slippage_cost_pct = 12;
+  bool stop_and_take_same_bar = 13;
+}
+
+message BlindStepEvents {
+  int64 step = 1;
+  repeated BlindBar bars = 2;
+  repeated BlindFill fills = 3;
+  repeated BlindOrder changed_orders = 4;
+  BlindPortfolio portfolio = 5;
+}
+
+message BlindCostTotals {
+  Decimal commission_pct = 1;
+  Decimal exchange_fee_pct = 2;
+  Decimal spread_pct = 3;
+  Decimal slippage_pct = 4;
+}
+
+message BlindEquityPoint {
+  int64 step = 1;
+  Decimal equity_pct = 2;
+}
+
+message BlindRoundTrip {
+  int32 instrument_index = 1;
+  int64 entry_step = 2;
+  int64 exit_step = 3;
+  int64 lots = 4;
+  Decimal entry_price = 5;
+  Decimal exit_price = 6;
+  Decimal gross_pnl_pct = 7;
+  Decimal costs_pct = 8;
+  Decimal net_pnl_pct = 9;
+}
+
+message BlindReport {
+  BlindCostTotals costs = 1;
+  repeated BlindEquityPoint equity = 2;
+  Decimal final_equity_pct = 3;
+  Decimal pnl_pct = 4;
+  repeated BlindEquityPoint benchmark_equity = 5;
+  repeated BlindRoundTrip round_trips = 6;
+}
+
+message BlindSessionView {
+  repeated BlindInstrument instruments = 1;
+  repeated BlindStepEvents events = 2;
+  repeated BlindBar history = 3;
+  BlindPortfolio portfolio = 4;
+  repeated BlindOrder orders = 5;
+  repeated BlindFill fills = 6;
+  BlindReport report = 7;
+}
+
+// ---------------------------------------------------------------------------
 // Сессия
 // ---------------------------------------------------------------------------
 
@@ -344,6 +465,7 @@ message ReplaySessionRequest {
   bool include_report = 6;
   reserved 7;
   reserved "stress";
+  bool blind = 8;                // добавить слепой вид сессии (рублёвые поля остаются)
 }
 
 message ReplaySessionResponse {
@@ -358,6 +480,7 @@ message ReplaySessionResponse {
   repeated CommandResult command_results = 9;
   Report report = 10;
   int64 warmup_steps = 11;       // шагов прогрева; при include_history бары прогрева идут в history первыми
+  BlindSessionView blind_view = 12;
 }
 
 message GetBarsRequest {
@@ -372,4 +495,58 @@ message GetBarsResponse {
   int64 total_steps = 1;
   repeated Bar bars = 2;
   int64 warmup_steps = 3;        // шагов прогрева: допустимый from_step начинается с -warmup_steps
+}
+
+message EstimateOrderRequest {
+  MarketSpec market = 1;
+  repeated JournalEntry journal = 2;
+  int64 up_to_step = 3;
+  OrderSpec order = 4;
+}
+
+message EstimateOrderResponse {
+  bool can_place = 1;
+  Reason reason = 2;
+  string invalid_field = 3;
+  Decimal reference_price = 4;      // close последнего бара (шаг <= up_to_step)
+  Decimal amount = 5;               // сумма заявки в ₽ (2 знака HALF_UP)
+  Decimal commission = 6;           // комиссия брокера в ₽ (2 знака CEILING)
+  Decimal exchange_fee = 7;         // биржевой сбор в ₽ (2 знака CEILING)
+  // Верхняя граница резерва: округляется вверх до копейки (CEILING, 2 знака)
+  // и может отличаться от amount + commission + exchange_fee на копейки.
+  Decimal required_cash = 8;
+  Decimal amount_pct = 9;           // % от начального капитала (2 знака HALF_UP)
+  Decimal commission_pct = 10;      // % от начального капитала (2 знака HALF_UP)
+  Decimal exchange_fee_pct = 11;    // % от начального капитала (2 знака HALF_UP)
+  Decimal required_cash_pct = 12;   // % от начального капитала (2 знака HALF_UP)
+}
+
+enum PeriodCategory {
+  PERIOD_CATEGORY_UNSPECIFIED = 0;
+  CALM = 1;
+  MEDIUM = 2;
+  STRESS = 3;
+}
+
+message PeriodWindow {
+  string start_date = 1;     // ISO yyyy-mm-dd
+  string end_date = 2;       // ISO yyyy-mm-dd
+  double sigma = 3;          // годовая реализованная волатильность
+  double mdd = 4;            // максимальная просадка (доля 0..1)
+  PeriodCategory category = 5;
+}
+
+message ClassifyPeriodsRequest {
+  string snapshot_id = 1;
+  int32 window_length = 2;          // длина окна L в торговых днях (>= 3)
+  string from_date = 3;             // ISO yyyy-mm-dd, фильтр окон в ответе (включительно); пороги P33/P80 всегда по всему снапшоту
+  string to_date = 4;               // ISO yyyy-mm-dd, фильтр окон в ответе (включительно); пороги P33/P80 всегда по всему снапшоту
+  optional string start_date = 5;   // «своя дата»: вернуть одно окно с этим началом
+  string benchmark_ticker = 6;      // пусто -> "IMOEX"
+}
+
+message ClassifyPeriodsResponse {
+  repeated PeriodWindow windows = 1;
+  double p33 = 2;
+  double p80 = 3;
 }

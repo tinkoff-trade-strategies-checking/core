@@ -18,6 +18,10 @@ namespace worker {
 // заявка без OCO. Причина снятия не задана - отмена пользователем.
 core::JournalEntry fromProto(const pb::JournalEntry &Entry,
                              const core::SessionSpec &Spec);
+core::OrderSpec orderSpecFromProto(const pb::OrderSpec &Spec,
+                                   const core::SessionSpec &Session);
+void toProto(const core::OrderEstimate &Estimate,
+             pb::EstimateOrderResponse *Out);
 // Запись журнала ядра -> proto; fromProto(toProto(e))
 // == e.
 void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
