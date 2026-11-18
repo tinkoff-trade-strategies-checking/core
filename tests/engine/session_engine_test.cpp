@@ -186,7 +186,7 @@ std::vector<JournalEntry> sixEntries() {
       place(3, 3,
             limit(Side::Buy, 5,
                   "90")), // A: не исполнится (цена ниже рынка), id 6
-      cancel(4, 5, 6),    // снимает лимитную заявку
+      cancel(4, 5, 6), // снимает лимитную заявку
       place(5, 6, market(Side::Sell, 5, 1)), // B: шаг 7
   };
 }
@@ -513,7 +513,7 @@ TEST(Replay, InvalidJournal) {
   EXPECT_THROW(replay({place(1, 1, market(Side::Buy, 1)),
                        place(1, 1, market(Side::Buy, 1))},
                       3),
-               std::invalid_argument);                 // seq повторяется
+               std::invalid_argument); // seq повторяется
   EXPECT_THROW(replay({}, 10), std::invalid_argument); // шага 10 нет
   EXPECT_THROW(replay({}, -1), std::invalid_argument);
   // Равные шаги допустимы.
