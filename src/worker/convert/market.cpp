@@ -12,6 +12,7 @@
 
 #include "clickhouse/clickhouse_client.hpp"
 #include "core/money/proto_conv.hpp"
+#include "core/report/ruonia.hpp"
 #include "timeline_cache.hpp"
 
 namespace worker {
@@ -191,6 +192,22 @@ std::optional<core::BenchmarkSeries> loadBenchmark(Context &Context,
   } catch (const core::SecurityNotFound &) {
     return std::nullopt;
   }
+}
+
+std::int32_t previousTradingDay(Context &Context, const pb::MarketSpec &Market,
+                                const core::Timeline &Timeline) {
+  const std::int32_t First = Timeline.yyyymmddOf(0);
+  const std::int32_t To = core::addCalendarDays(First, -1);
+  for (std::int32_t Lookback = 31; Lookback <= 400; Lookback *= 2) {
+    const std::vector<core::TradingDay> Days = Context.Calendar.tradingDays(
+        Market.snapshot_id(), core::addCalendarDays(First, -Lookback), To);
+    for (auto It = Days.rbegin(); It != Days.rend(); ++It) {
+      if (It->IsTrading)
+        return It->Yyyymmdd;
+    }
+  }
+  const std::int32_t Warmup = Timeline.previousDayYmd();
+  return Warmup < First ? Warmup : 0;
 }
 
 core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,

@@ -80,7 +80,8 @@ core::MetricsInput
 metricsInput(const core::SessionEngine &Engine,
              const core::Decimal &InitialCash, const core::Timeline &Timeline,
              const std::optional<core::BenchmarkSeries> &Benchmark,
-             const std::optional<core::RuoniaSeries> &Ruonia) {
+             const std::optional<core::RuoniaSeries> &Ruonia,
+             std::int32_t RuoniaPreviousDayYmd) {
   core::MetricsInput In;
   In.InitialCash = InitialCash;
   In.Equity = Engine.equity();
@@ -91,8 +92,8 @@ metricsInput(const core::SessionEngine &Engine,
   In.PositionValuesByStep = Engine.positionValues();
   setBenchmark(Benchmark, Timeline, &In);
   if (Ruonia) {
-    core::MatchedRuonia Matched =
-        core::matchRuoniaRates(*Ruonia, Timeline, Engine.currentStep());
+    core::MatchedRuonia Matched = core::matchRuoniaRates(
+        *Ruonia, Timeline, Engine.currentStep(), RuoniaPreviousDayYmd);
     In.RuoniaRates = std::move(Matched.Rates);
     In.CalendarDays = std::move(Matched.CalendarDays);
   }

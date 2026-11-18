@@ -94,6 +94,50 @@ TEST(ClickHouseRuoniaSource, UnorderedDatesThrowsMarketDataError) {
                core::MarketDataError);
 }
 
+TEST(ClickHouseRuoniaSource, BadRateThrowsMarketDataError) {
+  FakeRuoniaClient F;
+  F.RuoniaRows = "2024-01-09\tabc\n";
+  worker::ClickHouseRuoniaSource Source(F.client());
+  EXPECT_THROW((void)Source.ruoniaRates(kSnap, 20240115),
+               core::MarketDataError);
+}
+
+TEST(ClickHouseRuoniaSource, BadDateThrowsMarketDataError) {
+  FakeRuoniaClient F;
+  F.RuoniaRows = "2024-13-40\t15.25\n";
+  worker::ClickHouseRuoniaSource Source(F.client());
+  EXPECT_THROW((void)Source.ruoniaRates(kSnap, 20240115),
+               core::MarketDataError);
+}
+
+TEST(ClickHouseRuoniaSource, DateAfterUpToThrowsMarketDataError) {
+  FakeRuoniaClient F;
+  F.RuoniaRows = "2024-01-09\t15.25\n"
+                 "2024-01-16\t15.30\n";
+  worker::ClickHouseRuoniaSource Source(F.client());
+  EXPECT_THROW((void)Source.ruoniaRates(kSnap, 20240115),
+               core::MarketDataError);
+}
+
+TEST(ClickHouseRuoniaSource, PassesUpToDateParameter) {
+  FakeRuoniaClient F;
+  F.RuoniaRows = "2024-01-09\t15.25\n";
+  worker::ClickHouseRuoniaSource Source(F.client());
+  (void)Source.ruoniaRates(kSnap, 20240115);
+  bool Found = false;
+  for (const Call &C : *F.Calls) {
+    if (C.Sql.find("FROM ruonia") == std::string::npos)
+      continue;
+    for (const auto &[Name, Value] : C.Params) {
+      if (Name == "t") {
+        Found = true;
+        EXPECT_EQ(Value, "2024-01-15");
+      }
+    }
+  }
+  EXPECT_TRUE(Found);
+}
+
 TEST(InMemoryRuoniaSource, SortsAndFiltersUpTo) {
   core::InMemoryRuoniaSource Source;
   Source.add("snap1", {

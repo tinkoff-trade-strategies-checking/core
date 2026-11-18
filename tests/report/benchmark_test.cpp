@@ -94,6 +94,7 @@ TEST(Metrics, CountsStopAndTakeOnSameBar) {
   In.Equity = {{0, d("1000000")}, {1, d("1000000")}};
   In.TradingDayOfStep = {1, 2};
   In.RuoniaRates = {Decimal::zero(), Decimal::zero()};
+  In.CalendarDays = {1, 1};
   Fill Plain;
   Fill Pessimistic;
   Pessimistic.StopAndTakeSameBar = true;

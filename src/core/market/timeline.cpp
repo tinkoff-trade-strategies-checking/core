@@ -307,6 +307,12 @@ std::int32_t Timeline::yyyymmddOf(std::int64_t Step) const {
   return StepYmd[static_cast<std::size_t>(Step)];
 }
 
+std::int32_t Timeline::previousDayYmd() const {
+  if (Warmup.empty())
+    return 0;
+  return moscowYmd(Warmup.back().TimeUnixMs);
+}
+
 bool Timeline::isLastStepOfDay(std::int64_t Step) const {
   checkStep(Step);
   const auto I = static_cast<std::size_t>(Step);

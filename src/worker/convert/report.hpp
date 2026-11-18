@@ -20,12 +20,14 @@ namespace worker {
 // позиций, пары покупка - продажа, отказы и частичные исполнения. initialCash -
 // капитал из SessionSpec (движок его не отдаёт). Бенчмарк - доходность за
 // период и кривая по полностью пройденным дням шагов 0…последний шаг кривой
-// стоимости. RUONIA - ставки дней для Sharpe и Sortino.
+// стоимости. RUONIA - ставки дней для Sharpe и Sortino; RuoniaPreviousDayYmd -
+// торговый день перед первым (0 - нет, Delta первого дня = 1).
 core::MetricsInput
 metricsInput(const core::SessionEngine &Engine,
              const core::Decimal &InitialCash, const core::Timeline &Timeline,
              const std::optional<core::BenchmarkSeries> &Benchmark,
-             const std::optional<core::RuoniaSeries> &Ruonia = std::nullopt);
+             const std::optional<core::RuoniaSeries> &Ruonia = std::nullopt,
+             std::int32_t RuoniaPreviousDayYmd = 0);
 
 // Метрики, издержки, кривая стоимости и итоговая стоимость; необязательные
 // метрики без значения не задаются.

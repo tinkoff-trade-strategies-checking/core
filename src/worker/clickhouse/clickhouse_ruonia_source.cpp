@@ -57,14 +57,22 @@ std::int32_t parseDate(const std::string &Text) {
   const std::size_t Lens[3] = {4, 2, 2};
   for (int I = 0; I < 3; ++I) {
     const char *First = Text.data() + Starts[I];
-    const auto [ptr, ec] = std::from_chars(First, First + Lens[I], Digits[I]);
-    if (ec != std::errc() || ptr != First + Lens[I])
+    const auto [Ptr, Ec] = std::from_chars(First, First + Lens[I], Digits[I]);
+    if (Ec != std::errc() || Ptr != First + Lens[I])
       throw Bad();
   }
   const std::int32_t Ymd = Digits[0] * 10000 + Digits[1] * 100 + Digits[2];
   if (!isValidYmd(Ymd))
     throw Bad();
   return Ymd;
+}
+
+core::Decimal parseRate(const std::string &Text) {
+  try {
+    return core::Decimal::parse(Text);
+  } catch (const std::exception &) {
+    throw core::MarketDataError("ClickHouse: неверная ставка RUONIA: " + Text);
+  }
 }
 
 } // namespace
@@ -115,7 +123,10 @@ ClickHouseRuoniaSource::ruoniaRates(const std::string &SnapshotId,
           "ClickHouse: неожиданное число столбцов ruonia");
     core::DailyRate Rate;
     Rate.Yyyymmdd = parseDate(Row[0]);
-    Rate.Rate = core::Decimal::parse(Row[1]);
+    Rate.Rate = parseRate(Row[1]);
+    if (Rate.Yyyymmdd > UpToYmd)
+      throw core::MarketDataError(
+          "ClickHouse: дата RUONIA позже запрошенной: " + Row[0]);
     if (!Out.empty() && Rate.Yyyymmdd <= Out.back().Yyyymmdd) {
       throw core::MarketDataError(
           "ClickHouse: даты RUONIA не упорядочены (дубликат в данных?)");

@@ -29,6 +29,7 @@ MetricsInput dailyInput(const std::vector<const char *> &Equity,
     In.Equity.push_back({static_cast<std::int64_t>(I), d(Equity[I])});
     In.TradingDayOfStep.push_back(static_cast<std::int32_t>(I));
     In.RuoniaRates.push_back(Decimal::zero());
+    In.CalendarDays.push_back(1);
   }
   return In;
 }
@@ -144,6 +145,7 @@ TEST(Metrics, LastStepOfDayDefinesDailyReturn) {
   In.InitialCash = d("1000000");
   In.TradingDayOfStep = {0, 0, 0, 1, 1, 1};
   In.RuoniaRates = {Decimal::zero(), Decimal::zero()};
+  In.CalendarDays = {1, 1};
   const char *Values[] = {"1000500", "1001000", "1002000",
                           "1003000", "1000000", "1004000"};
   for (int I = 0; I < 6; ++I)
