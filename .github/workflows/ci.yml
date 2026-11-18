@@ -38,6 +38,11 @@ jobs:
         image: clickhouse/clickhouse-server:24.8
         ports:
           - 8123:8123
+        env:
+          CLICKHOUSE_USER: ttsc
+          CLICKHOUSE_PASSWORD: secret
+          CLICKHOUSE_DB: ttsc
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     steps:
       - uses: actions/checkout@v4
 
@@ -61,7 +66,7 @@ jobs:
 
       - name: Загрузка SQL-фикстуры
         run: |
-          curl -sS "http://localhost:8123/?multiquery=1" --data-binary @testdata/clickhouse-fixture.sql
+          curl -sS --fail -u ttsc:secret "http://localhost:8123/?multiquery=1" --data-binary @testdata/clickhouse-fixture.sql
 
       - name: Конфигурация
         run: cmake --preset debug
@@ -75,7 +80,7 @@ jobs:
       - name: Интеграционные тесты ClickHouse
         run: ./build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration.*'
         env:
-          CLICKHOUSE_URL: http://localhost:8123/ttsc
+          CLICKHOUSE_URL: http://ttsc:secret@localhost:8123/ttsc
 
   style:
     runs-on: ubuntu-24.04
