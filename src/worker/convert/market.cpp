@@ -150,6 +150,12 @@ loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
   }
 }
 
+core::RuoniaSeries
+loadRuonia(Context &Context, const pb::MarketSpec &Market, std::int32_t UpToYmd) {
+  return core::RuoniaSeries{
+      Context.Ruonia.ruoniaRates(Market.snapshot_id(), UpToYmd)};
+}
+
 void toProto(const core::StepBar &Bar, const core::Timeline &Timeline,
              pb::Bar *Out) {
   Out->set_step(Bar.Step);

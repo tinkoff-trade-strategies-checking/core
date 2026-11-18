@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <vector>
+
+#include "core/market/bar_source.hpp" // MarketDataError
 
 // Все суммы double считаются обычными циклами в фиксированном порядке (INV-4):
 // без параллелизма, без FMA
@@ -158,19 +161,33 @@ Report computeReport(const MetricsInput &In) {
       M.Turnover = TradedValue.toDouble() / MeanEquity;
   }
   if (M.TradingDays >= 2) {
-    const double Mu = mean(Daily.Returns);
-    const double Sd = sampleStdev(Daily.Returns, Mu);
-    M.Volatility = Sd * annualFactor();
-    if (Sd >= kMinSpread)
-      M.Sharpe = Mu / Sd * annualFactor();
+    if (In.RuoniaRates.size() != static_cast<std::size_t>(M.TradingDays))
+      throw MarketDataError("нет ряда RUONIA для периода");
+    const double MuR = mean(Daily.Returns);
+    const double SdR = sampleStdev(Daily.Returns, MuR);
+    M.Volatility = SdR * annualFactor();
+
+    // Избыточные доходности e_d = r_d - r_{f,d}, конвенция Actual/365:
+    // r_{f,d} = Rate / 100 / 365.
+    std::vector<double> Excess;
+    Excess.reserve(Daily.Returns.size());
+    for (std::size_t I = 0; I < Daily.Returns.size(); ++I) {
+      const double Rf = In.RuoniaRates[I].toDouble() / 100.0 / 365.0;
+      Excess.push_back(Daily.Returns[I] - Rf);
+    }
+
+    const double MuE = mean(Excess);
+    const double SdE = sampleStdev(Excess, MuE);
+    if (SdE >= kMinSpread)
+      M.Sharpe = MuE / SdE * annualFactor();
     double Downside = 0;
-    for (double R : Daily.Returns) {
-      const double Neg = std::min(R, 0.0);
+    for (double E : Excess) {
+      const double Neg = std::min(E, 0.0);
       Downside += Neg * Neg;
     }
     const double DownsideDev = std::sqrt(Downside / Days);
     if (DownsideDev >= kMinSpread)
-      M.Sortino = Mu / DownsideDev * annualFactor();
+      M.Sortino = MuE / DownsideDev * annualFactor();
   }
 
   const Dd Dd = drawdown(In.InitialCash, In.Equity);

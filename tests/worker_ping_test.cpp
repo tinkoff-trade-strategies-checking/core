@@ -7,13 +7,15 @@
 
 #include "core/market/calendar_source.hpp"
 #include "core/market/in_memory_bar_source.hpp"
+#include "core/market/ruonia_source.hpp"
 #include "core/version.hpp"
 #include "worker_service.hpp"
 
 TEST(WorkerPing, ReturnsCoreVersion) {
   core::InMemoryBarSource Bars;
   core::InMemoryCalendarSource Calendar;
-  worker::WorkerService Service(worker::Context{Bars, Calendar});
+  core::InMemoryRuoniaSource Ruonia;
+  worker::WorkerService Service(worker::Context{Bars, Calendar, Ruonia});
   int Port = 0;
   grpc::ServerBuilder Builder;
   Builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),

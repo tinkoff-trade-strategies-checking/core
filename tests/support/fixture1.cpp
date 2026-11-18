@@ -90,6 +90,9 @@ Fixture fixture1() {
     Calendar.push_back(TradingDay{Day, Trading});
   }
   F.Calendar.add(Snapshot, std::move(Calendar));
+
+  // Ряд RUONIA: 15.00 % с 8 января (покрывает все дни с forward fill).
+  F.Ruonia.add(Snapshot, {DailyRate{20240108, Decimal::parse("15.0")}});
   return F;
 }
 

@@ -8,6 +8,7 @@
 #include "core/money/decimal.hpp"
 #include "core/report/benchmark.hpp"
 #include "core/report/metrics.hpp"
+#include "core/report/ruonia.hpp"
 #include "handlers.hpp"
 
 // Отчёт: вход метрик из состояния движка и перевод
@@ -19,11 +20,12 @@ namespace worker {
 // позиций, пары покупка - продажа, отказы и частичные исполнения. initialCash -
 // капитал из SessionSpec (движок его не отдаёт). Бенчмарк - доходность за
 // период и кривая по полностью пройденным дням шагов 0…последний шаг кривой
-// стоимости.
+// стоимости. RUONIA - ставки дней для Sharpe и Sortino.
 core::MetricsInput
 metricsInput(const core::SessionEngine &Engine,
              const core::Decimal &InitialCash, const core::Timeline &Timeline,
-             const std::optional<core::BenchmarkSeries> &Benchmark);
+             const std::optional<core::BenchmarkSeries> &Benchmark,
+             const std::optional<core::RuoniaSeries> &Ruonia = std::nullopt);
 
 // Метрики, издержки, кривая стоимости и итоговая стоимость; необязательные
 // метрики без значения не задаются.

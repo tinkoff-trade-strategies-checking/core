@@ -4,6 +4,7 @@
 
 #include "core/market/bar_source.hpp"
 #include "core/market/calendar_source.hpp"
+#include "core/market/ruonia_source.hpp"
 #include "simulation.grpc.pb.h"
 
 namespace worker {
@@ -11,11 +12,12 @@ namespace worker {
 namespace pb = pac::simulation::v1;
 
 // Зависимости обработчиков: источники данных живут дольше сервиса (создаёт main
-// или тест). Обработчики не владеют ими и не меняют; чтение баров и календаря -
-// только через эти интерфейсы.
+// или тест). Обработчики не владеют ими и не меняют; чтение баров, календаря и
+// ставок RUONIA - только через эти интерфейсы.
 struct Context {
   core::BarSource &Bars;
   core::CalendarSource &Calendar;
+  core::RuoniaSource &Ruonia;
 };
 
 // Обработчики RPC. Каждый живёт в своём handlers/<имя>.cpp; WorkerService

@@ -36,7 +36,7 @@ protected:
   grpc::Status get(std::int64_t From, std::int64_t To,
                    pb::GetBarsResponse *Response,
                    pb::MarketSpec Market = fixtureMarket()) {
-    worker::Context Context{Fixture.Bars, Fixture.Calendar};
+    worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
     pb::GetBarsRequest Request;
     *Request.mutable_market() = std::move(Market);
     Request.set_from_step(From);
@@ -145,9 +145,10 @@ TEST_F(GetBars, NoDataIsFailedPrecondition) {
 // Ни одно исключение не выходит из обработчика.
 TEST(GetBarsExceptions, MappedToStatus) {
   core::InMemoryCalendarSource Calendar;
+  core::InMemoryRuoniaSource Ruonia;
   const auto StatusOf = [&](std::function<void()> Thrower) {
     ThrowingBarSource Bars(std::move(Thrower));
-    worker::Context Context{Bars, Calendar};
+    worker::Context Context{Bars, Calendar, Ruonia};
     pb::GetBarsRequest Request;
     *Request.mutable_market() = fixtureMarket();
     Request.set_to_step(1);

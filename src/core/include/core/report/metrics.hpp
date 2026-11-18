@@ -13,7 +13,8 @@
 // Метрики отчёта (ФТ-17, НФТ-4). Деньги остаются Decimal (INV-6); метрики -
 // double и считаются только здесь: Decimal переводится в double через
 // toDouble(), порядок вычислений фиксирован (INV-4), допуск 1e-6
-// (`decisions.md`, «Деньги и округление», п. 9-11). Безрисковая ставка 0, 252
+// (`decisions.md`, «Деньги и округление», п. 9-11). Безрисковая ставка - дневной
+// ряд RUONIA (% годовых, Actual/365, `decisions.md`, «Метрики отчёта»), 252
 // торговых дня в году, стандартное отклонение выборочное.
 
 namespace core {
@@ -37,6 +38,9 @@ struct MetricsInput {
   std::vector<EquityPoint>
       BenchmarkEquity; // кривая бенчмарка в рублях капитала
                        // (benchmarkEquity()), в отчёт как есть
+  // Дневная ставка RUONIA (% годовых) на каждый торговый день (размер равен
+  // числу торговых дней). При tradingDays >= 2 отсутствие - MarketDataError.
+  std::vector<Decimal> RuoniaRates;
 };
 
 struct Metrics {

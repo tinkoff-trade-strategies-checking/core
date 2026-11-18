@@ -79,7 +79,8 @@ void metricsToProto(const core::Metrics &M, pb::Metrics *Out) {
 core::MetricsInput
 metricsInput(const core::SessionEngine &Engine,
              const core::Decimal &InitialCash, const core::Timeline &Timeline,
-             const std::optional<core::BenchmarkSeries> &Benchmark) {
+             const std::optional<core::BenchmarkSeries> &Benchmark,
+             const std::optional<core::RuoniaSeries> &Ruonia) {
   core::MetricsInput In;
   In.InitialCash = InitialCash;
   In.Equity = Engine.equity();
@@ -89,6 +90,9 @@ metricsInput(const core::SessionEngine &Engine,
   countOrders(Engine.orders(), &In);
   In.PositionValuesByStep = Engine.positionValues();
   setBenchmark(Benchmark, Timeline, &In);
+  if (Ruonia)
+    In.RuoniaRates =
+        core::matchRuoniaRates(*Ruonia, Timeline, Engine.currentStep());
   return In;
 }
 
