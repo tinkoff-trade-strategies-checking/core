@@ -78,6 +78,9 @@ public:
   // (step, instrument). Без прогрева - пусто, W = 0.
   std::int64_t warmupSteps() const { return WarmupSteps; }
   std::span<const StepBar> warmupBars() const { return Warmup; }
+  // Московская дата последнего бара прогрева - торговый день перед шагом 0;
+  // 0, если прогрева нет.
+  std::int32_t previousDayYmd() const;
   // Копия шкалы с прогревом: последние steps шагов history (меньше, если в
   // history меньше шагов). Бумаги history - те же, что у шкалы (ключи по
   // порядку), и все бары history раньше первого бара шкалы - иначе

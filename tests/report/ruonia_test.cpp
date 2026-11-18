@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include "core/market/bar_source.hpp" // MarketDataError
@@ -20,13 +21,14 @@ Decimal d(const char *Text) { return Decimal::parse(Text); }
 TEST(Ruonia, MatchExactAndForwardFill) {
   RuoniaSeries Series;
   Series.Rates = {
+      DailyRate{20240105, d("14.5")},
       DailyRate{20240108, d("14.5")},
       DailyRate{20240110, d("15.0")},
       DailyRate{20240112, d("15.2")},
   };
 
   const std::vector<std::int32_t> Dates = {
-      20240108, // пн: 14.5, Delta = 1
+      20240108, // пн: нет предыдущего дня, ставка <= 07.01 (14.5), Delta = 1
       20240109, // вт: RUONIA_{d-1}=14.5 (от 20240108), Delta = 1
       20240110, // ср: RUONIA_{d-1}=14.5 (от 20240109), Delta = 1
       20240111, // чт: RUONIA_{d-1}=15.0 (от 20240110), Delta = 1
@@ -83,7 +85,7 @@ TEST(Ruonia, MatchWithTimeline) {
 
   RuoniaSeries Series;
   Series.Rates = {
-      DailyRate{20240109, d("15.0")},
+      DailyRate{20240108, d("15.0")},
       DailyRate{20240115, d("16.0")},
   };
 
@@ -121,7 +123,7 @@ TEST(Ruonia, FullYearConstantRateSumsToAnnualRate) {
   // r_{f,d} = Rate / 100 * Delta_d / 365
   // должна суммироваться в полную ставку (0.15 * TotalDays / 365 ~ 0.15).
   RuoniaSeries Series;
-  Series.Rates = {DailyRate{20230109, d("15.0")}};
+  Series.Rates = {DailyRate{20230106, d("15.0")}};
 
   std::vector<std::int32_t> Dates;
   auto Day = std::chrono::year{2023} / std::chrono::January / 9;
@@ -141,7 +143,8 @@ TEST(Ruonia, FullYearConstantRateSumsToAnnualRate) {
   }
 
   ASSERT_EQ(Dates.size(), 260u);
-  const MatchedRuonia M = matchRuoniaRates(Series, Dates);
+  // Предыдущий торговый день перед периодом - пятница 2023-01-06.
+  const MatchedRuonia M = matchRuoniaRates(Series, Dates, 20230106);
   ASSERT_EQ(M.Rates.size(), 260u);
   ASSERT_EQ(M.CalendarDays.size(), 260u);
 
@@ -152,8 +155,10 @@ TEST(Ruonia, FullYearConstantRateSumsToAnnualRate) {
     SumRf += (M.Rates[I].toDouble() / 100.0) * (M.CalendarDays[I] / 365.0);
   }
 
-  EXPECT_GT(TotalDays, 360);
-  EXPECT_LE(TotalDays, 366);
+  // Сумма Delta - календарные дни от предыдущего торгового дня до конца
+  // периода.
+  EXPECT_EQ(TotalDays, calendarDaysBetween(20230106, Dates.back()));
+  EXPECT_EQ(TotalDays, 364);
   // Сумма r_f за год совпадает с годовой ставкой 15% с погрешностью неполного
   // 365-го дня
   EXPECT_NEAR(SumRf, 0.15 * (static_cast<double>(TotalDays) / 365.0), 1e-9);
@@ -169,6 +174,7 @@ TEST(Ruonia, SharpeAndSortinoWithKnownRate) {
     In.Equity.push_back({static_cast<std::int64_t>(I), d(Equities[I])});
     In.TradingDayOfStep.push_back(static_cast<std::int32_t>(I));
     In.RuoniaRates.push_back(d("15.0")); // 15% годовых
+    In.CalendarDays.push_back(1);
   }
 
   const Report R = computeReport(In);
@@ -180,7 +186,7 @@ TEST(Ruonia, SharpeAndSortinoWithKnownRate) {
   EXPECT_NEAR(*M.Volatility, 0.4088278812, kTol);
 
   // Sharpe и Sortino с безрисковой ставкой Actual/365 (по умолчанию Delta_d =
-  // 1):
+  // 1 в CalendarDays):
   ASSERT_TRUE(M.Sharpe);
   EXPECT_NEAR(*M.Sharpe, 3.5642943496, kTol);
   ASSERT_TRUE(M.Sortino);
@@ -210,6 +216,74 @@ TEST(Ruonia, SharpeAndSortinoWithCalendarDays) {
   EXPECT_NEAR(*M.Sharpe, 3.4999013891, kTol);
   ASSERT_TRUE(M.Sortino);
   EXPECT_NEAR(*M.Sortino, 6.5814164267, kTol);
+}
+
+TEST(Ruonia, FirstDayMondayUsesPreviousFridayRateAndDelta3) {
+  RuoniaSeries Series;
+  Series.Rates = {DailyRate{20240112, d("15.0")},
+                  DailyRate{20240115, d("16.0")}};
+  const MatchedRuonia M =
+      matchRuoniaRates(Series, {20240115, 20240116}, 20240112);
+  ASSERT_EQ(M.Rates.size(), 2u);
+  EXPECT_EQ(M.Rates[0], d("15.0")); // не ставка дня d (16.0)
+  EXPECT_EQ(M.CalendarDays[0], 3);
+  EXPECT_EQ(M.Rates[1], d("16.0"));
+  EXPECT_EQ(M.CalendarDays[1], 1);
+}
+
+TEST(Ruonia, FirstDayWithoutPreviousDayUsesRateBeforeDayWithDelta1) {
+  RuoniaSeries Series;
+  Series.Rates = {DailyRate{20240112, d("15.0")},
+                  DailyRate{20240115, d("16.0")}};
+  const MatchedRuonia M = matchRuoniaRates(Series, {20240115});
+  EXPECT_EQ(M.Rates[0], d("15.0"));
+  EXPECT_EQ(M.CalendarDays[0], 1);
+
+  // Ставка есть только на день d - ошибка данных, не подстановка ставки дня d.
+  RuoniaSeries OnlyToday;
+  OnlyToday.Rates = {DailyRate{20240115, d("16.0")}};
+  EXPECT_THROW((void)matchRuoniaRates(OnlyToday, {20240115}), MarketDataError);
+}
+
+TEST(Ruonia, TimelineWithWarmupUsesLastWarmupDay) {
+  auto F = testing::fixture1();
+  // С 15 января (понедельник); прогрев - 12 января (пятница).
+  const Timeline T =
+      Timeline::loadWithWarmup(F.Bars, F.Calendar, F.SnapshotId, F.Instruments,
+                               Timeframe::D1, 20240115, 20240122, 1);
+  ASSERT_EQ(T.previousDayYmd(), 20240112);
+  RuoniaSeries Series;
+  Series.Rates = {DailyRate{20240112, d("15.0")},
+                  DailyRate{20240115, d("16.0")}};
+  const MatchedRuonia M = matchRuoniaRates(Series, T, 0);
+  ASSERT_EQ(M.Rates.size(), 1u);
+  EXPECT_EQ(M.Rates[0], d("15.0"));
+  EXPECT_EQ(M.CalendarDays[0], 3);
+}
+
+TEST(Ruonia, CalendarDaysSizeMismatchThrows) {
+  MetricsInput In;
+  In.InitialCash = d("1000000");
+  In.Equity = {{0, d("1010000")}, {1, d("1020000")}};
+  In.TradingDayOfStep = {0, 1};
+  In.RuoniaRates = {d("15.0"), d("15.0")};
+  In.CalendarDays = {1};
+  EXPECT_THROW((void)computeReport(In), MarketDataError);
+}
+
+TEST(Ruonia, PreviousDayNotBeforeFirstDayThrows) {
+  RuoniaSeries Series;
+  Series.Rates = {DailyRate{20240112, d("15.0")}};
+  EXPECT_THROW((void)matchRuoniaRates(Series, {20240115}, 20240115),
+               std::invalid_argument);
+  EXPECT_THROW((void)matchRuoniaRates(Series, {20240115}, 20240116),
+               std::invalid_argument);
+}
+
+TEST(Ruonia, AddCalendarDaysCrossesMonthAndYear) {
+  EXPECT_EQ(addCalendarDays(20240301, -1), 20240229);
+  EXPECT_EQ(addCalendarDays(20240101, -1), 20231231);
+  EXPECT_EQ(addCalendarDays(20231231, 1), 20240101);
 }
 
 TEST(Ruonia, MissingRuoniaAtTradingDaysGe2Throws) {

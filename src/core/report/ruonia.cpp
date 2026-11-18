@@ -28,10 +28,28 @@ std::int64_t ymdToDays(std::int32_t Ymd) {
   return daysFromCivil(Y, M, D);
 }
 
+std::int32_t civilFromDays(std::int64_t Z) {
+  Z += 719468;
+  const std::int64_t Era = (Z >= 0 ? Z : Z - 146096) / 146097;
+  const std::int64_t Doe = Z - Era * 146097;
+  const std::int64_t Yoe =
+      (Doe - Doe / 1460 + Doe / 36524 - Doe / 146096) / 365;
+  const std::int64_t Doy = Doe - (365 * Yoe + Yoe / 4 - Yoe / 100);
+  const std::int64_t Mp = (5 * Doy + 2) / 153;
+  const std::int64_t D = Doy - (153 * Mp + 2) / 5 + 1;
+  const std::int64_t M = Mp < 10 ? Mp + 3 : Mp - 9;
+  const std::int64_t Y = Yoe + Era * 400 + (M <= 2 ? 1 : 0);
+  return static_cast<std::int32_t>(Y * 10000 + M * 100 + D);
+}
+
 } // namespace
 
 std::int32_t calendarDaysBetween(std::int32_t FromYmd, std::int32_t ToYmd) {
   return static_cast<std::int32_t>(ymdToDays(ToYmd) - ymdToDays(FromYmd));
+}
+
+std::int32_t addCalendarDays(std::int32_t Ymd, std::int32_t Days) {
+  return civilFromDays(ymdToDays(Ymd) + Days);
 }
 
 MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
@@ -41,6 +59,10 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
     return {};
   if (Series.Rates.empty())
     throw MarketDataError("нет ставок RUONIA для периода");
+
+  if (PreviousDayYmd > 0 && PreviousDayYmd >= DayDates.front())
+    throw std::invalid_argument(
+        "предыдущий торговый день не раньше первого дня периода");
 
   MatchedRuonia Out;
   Out.Rates.reserve(DayDates.size());
@@ -56,13 +78,15 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
       DeltaDays = calendarDaysBetween(PrevDate, Date);
       if (DeltaDays <= 0)
         DeltaDays = 1;
-    } else if (PreviousDayYmd > 0 && PreviousDayYmd < Date) {
+    } else if (PreviousDayYmd > 0) {
       PrevDate = PreviousDayYmd;
       DeltaDays = calendarDaysBetween(PrevDate, Date);
       if (DeltaDays <= 0)
         DeltaDays = 1;
     } else {
-      PrevDate = Date;
+      // Предыдущего торгового дня в данных нет: Delta = 1, ставка последнего
+      // известного дня <= d-1 (никогда не ставка дня d, INV-1).
+      PrevDate = civilFromDays(ymdToDays(Date) - 1);
       DeltaDays = 1;
     }
 
@@ -84,6 +108,14 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
 MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
                                const Timeline &Timeline,
                                std::int64_t LastStep) {
+  const std::int32_t Warmup = Timeline.previousDayYmd();
+  return matchRuoniaRates(Series, Timeline, LastStep,
+                          Warmup < Timeline.yyyymmddOf(0) ? Warmup : 0);
+}
+
+MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
+                               const Timeline &Timeline, std::int64_t LastStep,
+                               std::int32_t PreviousDayYmd) {
   if (LastStep < 0 || LastStep >= Timeline.totalSteps())
     throw std::invalid_argument("lastStep вне шкалы");
 
@@ -97,7 +129,7 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
     }
   }
 
-  return matchRuoniaRates(Series, DayDates, 0);
+  return matchRuoniaRates(Series, DayDates, PreviousDayYmd);
 }
 
 } // namespace core

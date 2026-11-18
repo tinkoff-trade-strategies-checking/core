@@ -164,6 +164,9 @@ Report computeReport(const MetricsInput &In) {
   if (M.TradingDays >= 2) {
     if (In.RuoniaRates.size() != static_cast<std::size_t>(M.TradingDays))
       throw MarketDataError("нет ряда RUONIA для периода");
+    if (In.CalendarDays.size() != In.RuoniaRates.size())
+      throw MarketDataError("число календарных дней не совпадает с рядом "
+                            "RUONIA");
     const double MuR = mean(Daily.Returns);
     const double SdR = sampleStdev(Daily.Returns, MuR);
     M.Volatility = SdR * annualFactor();
@@ -174,9 +177,7 @@ Report computeReport(const MetricsInput &In) {
     std::vector<double> Excess;
     Excess.reserve(Daily.Returns.size());
     for (std::size_t I = 0; I < Daily.Returns.size(); ++I) {
-      const double DeltaDays = (In.CalendarDays.size() == Daily.Returns.size())
-                                   ? static_cast<double>(In.CalendarDays[I])
-                                   : 1.0;
+      const double DeltaDays = static_cast<double>(In.CalendarDays[I]);
       const double Rf =
           (In.RuoniaRates[I].toDouble() / 100.0) * (DeltaDays / 365.0);
       Excess.push_back(Daily.Returns[I] - Rf);

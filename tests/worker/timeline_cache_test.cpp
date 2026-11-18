@@ -404,7 +404,7 @@ TEST(TimelineCache, PlayerStepBenchmarkNft7) {
   for (std::int64_t Day = 0; Day < kSteps; ++Day)
     Calendar.push_back(core::TradingDay{ymdFromDays(FirstDay + Day), true});
   F.Calendar.add(Snapshot, Calendar);
-  F.Ruonia.add(Snapshot, {core::DailyRate{Calendar.front().Yyyymmdd,
+  F.Ruonia.add(Snapshot, {core::DailyRate{ymdFromDays(FirstDay - 1),
                                           core::Decimal::parse("15.0")}});
 
   pb::MarketSpec Market;

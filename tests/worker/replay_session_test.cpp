@@ -6,7 +6,10 @@
 #include <string>
 #include <vector>
 
+#include "convert/market.hpp"
 #include "core/market/bar.hpp"
+#include "core/market/bar_source.hpp"
+#include "core/market/ruonia_source.hpp"
 #include "worker_test_support.hpp"
 
 namespace {
@@ -519,4 +522,64 @@ TEST_F(ReplaySession, MissingRuoniaThrowsPrecondition) {
       worker::handleReplaySession(Context, Request, &Response);
   EXPECT_FALSE(Status.ok());
   EXPECT_EQ(Status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+}
+
+namespace {
+
+class ThrowingRuonia final : public core::RuoniaSource {
+public:
+  std::vector<core::DailyRate> ruoniaRates(const std::string &,
+                                           std::int32_t) override {
+    throw core::MarketDataError("ClickHouse: неверная ставка RUONIA: abc");
+  }
+};
+
+} // namespace
+
+TEST_F(ReplaySession, RuoniaSourceDataErrorIsInternal) {
+  ThrowingRuonia Ruonia;
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Ruonia};
+  pb::ReplaySessionRequest Request;
+  *Request.mutable_market() = Market;
+  Request.set_up_to_step(9);
+  Request.set_events_from_step(-1);
+  Request.set_include_report(true);
+  pb::ReplaySessionResponse Response;
+  const grpc::Status Status =
+      worker::handleReplaySession(Context, Request, &Response);
+  EXPECT_EQ(Status.error_code(), grpc::StatusCode::INTERNAL);
+  EXPECT_EQ(Status.error_message().find("ClickHouse"), std::string::npos);
+}
+
+TEST_F(ReplaySession, PreviousTradingDayFromCalendarWithoutWarmup) {
+  Market.set_from_date("2024-01-15"); // понедельник, прогрева нет
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  const auto Timeline = worker::loadTimeline(Context, Market);
+  ASSERT_EQ(Timeline->warmupSteps(), 0);
+  EXPECT_EQ(worker::previousTradingDay(Context, Market, *Timeline), 20240112);
+}
+
+TEST_F(ReplaySession, PreviousTradingDayZeroWithoutEarlierDay) {
+  // Календарь fixture-1 начинается 8 января, торговых дней раньше 9-го нет.
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  const auto Timeline = worker::loadTimeline(Context, Market);
+  EXPECT_EQ(worker::previousTradingDay(Context, Market, *Timeline), 0);
+}
+
+TEST_F(ReplaySession, PreviousTradingDayPrefersCalendarOverWarmup) {
+  // В календаре 12 января не торговый: предыдущий день - 11-е, хотя бар
+  // прогрева есть и за 12-е.
+  core::InMemoryCalendarSource Calendar;
+  std::vector<core::TradingDay> Days;
+  for (const core::TradingDay &D :
+       Fixture.Calendar.tradingDays(Fixture.SnapshotId, 20240101, 20240131))
+    Days.push_back({D.Yyyymmdd, D.Yyyymmdd == 20240112 ? false : D.IsTrading});
+  Calendar.add(Fixture.SnapshotId, Days);
+  Market.set_from_date("2024-01-15");
+  Market.set_warmup_bars(1);
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  const auto Timeline = worker::loadTimeline(Context, Market);
+  ASSERT_EQ(Timeline->previousDayYmd(), 20240112);
+  worker::Context Custom{Fixture.Bars, Calendar, Fixture.Ruonia};
+  EXPECT_EQ(worker::previousTradingDay(Custom, Market, *Timeline), 20240111);
 }
