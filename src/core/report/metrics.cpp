@@ -167,12 +167,17 @@ Report computeReport(const MetricsInput &In) {
     const double SdR = sampleStdev(Daily.Returns, MuR);
     M.Volatility = SdR * annualFactor();
 
-    // Избыточные доходности e_d = r_d - r_{f,d}, конвенция Actual/365:
-    // r_{f,d} = Rate / 100 / 365.
+    // Избыточные доходности e_d = r_d - r_{f,d}, конвенция Actual/365 по
+    // календарным дням (core#26, decisions.md):
+    // r_{f,d} = Rate / 100 * Delta_d / 365.
     std::vector<double> Excess;
     Excess.reserve(Daily.Returns.size());
     for (std::size_t I = 0; I < Daily.Returns.size(); ++I) {
-      const double Rf = In.RuoniaRates[I].toDouble() / 100.0 / 365.0;
+      const double DeltaDays = (In.CalendarDays.size() == Daily.Returns.size())
+                                   ? static_cast<double>(In.CalendarDays[I])
+                                   : 1.0;
+      const double Rf =
+          (In.RuoniaRates[I].toDouble() / 100.0) * (DeltaDays / 365.0);
       Excess.push_back(Daily.Returns[I] - Rf);
     }
 
