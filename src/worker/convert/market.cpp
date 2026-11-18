@@ -143,8 +143,9 @@ loadTimeline(Context &Context, const pb::MarketSpec &Market) {
   return Ptr;
 }
 
-std::optional<core::BenchmarkSeries>
-loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
+std::optional<core::BenchmarkSeries> loadBenchmark(Context &Context,
+                                                   const pb::MarketSpec &Market,
+                                                   std::int32_t UpToYmd) {
   if (Market.benchmark_ticker().empty())
     return std::nullopt;
   // Однобумажная дневная шкала бенчмарка: из неё берём open первого бара и
@@ -166,9 +167,8 @@ loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
     }
     if (!Ptr) {
       core::Timeline Timeline = core::Timeline::load(
-          Context.Bars, Context.Calendar, Market.snapshot_id(), {Index},
-          core::Timeframe::D1, parseIsoDate(Market.from_date()),
-          parseIsoDate(Market.to_date()));
+          Context.Bars, Context.Calendar, Key.SnapshotId, {Index},
+          core::Timeframe::D1, Key.FromYmd, Key.ToYmd);
       if (Timeline.totalSteps() == 0)
         return std::nullopt;
       Ptr = std::make_shared<const core::Timeline>(std::move(Timeline));
@@ -179,9 +179,14 @@ loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
     core::BenchmarkSeries Series;
     Series.FirstOpen = Ptr->barsAt(0).front().Open;
     for (std::int64_t Step = 0; Step < Ptr->totalSteps(); ++Step) {
-      Series.Closes.push_back(core::DailyClose{
-          Ptr->yyyymmddOf(Step), Ptr->barsAt(Step).front().Close});
+      const std::int32_t Day = Ptr->yyyymmddOf(Step);
+      if (Day > UpToYmd)
+        break;
+      Series.Closes.push_back(
+          core::DailyClose{Day, Ptr->barsAt(Step).front().Close});
     }
+    if (Series.Closes.empty())
+      return std::nullopt;
     return Series;
   } catch (const core::SecurityNotFound &) {
     return std::nullopt;

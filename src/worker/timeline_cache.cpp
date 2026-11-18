@@ -31,14 +31,20 @@ void TimelineCache::put(TimelineKey Key,
     return;
   }
 
-  if (Items.size() >= Capacity) {
+  // Сначала вставка (может бросить), потом вытеснение: при исключении кэш
+  // остаётся согласованным (Items и Index одного размера).
+  Items.emplace_front(Key, std::move(Timeline));
+  try {
+    Index.emplace(std::move(Key), Items.begin());
+  } catch (...) {
+    Items.pop_front();
+    throw;
+  }
+  if (Items.size() > Capacity) {
     const auto Last = --Items.end();
     Index.erase(Last->first);
     Items.pop_back();
   }
-
-  Items.emplace_front(Key, std::move(Timeline));
-  Index.emplace(std::move(Key), Items.begin());
 }
 
 std::size_t TimelineCache::size() const {
