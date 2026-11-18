@@ -225,3 +225,55 @@ TEST_F(GetBars, NoWarmupByDefault) {
   EXPECT_EQ(get(-1, 0, &Response).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
 }
+
+TEST_F(GetBars, SecurityParamsCheckedAgainstSnapshot) {
+  // Совпадение lot_size и price_step с таблицей securities проходит.
+  pb::GetBarsResponse OkResponse;
+  EXPECT_TRUE(get(0, 1, &OkResponse).ok());
+
+  auto Load = [&](const pb::MarketSpec &Market) {
+    worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+    (void)worker::loadTimeline(Context, Market);
+  };
+
+  // Расхождение lot_size -> MarketDataError -> INTERNAL.
+  pb::MarketSpec BadLot = fixtureMarket();
+  BadLot.mutable_instruments(0)->set_lot_size(20);
+  pb::GetBarsResponse ErrResponse;
+  EXPECT_EQ(get(0, 1, &ErrResponse, BadLot).error_code(),
+            grpc::StatusCode::INTERNAL);
+  EXPECT_THROW(Load(BadLot), core::MarketDataError);
+
+  // Расхождение price_step -> MarketDataError -> INTERNAL.
+  pb::MarketSpec BadStep = fixtureMarket();
+  *BadStep.mutable_instruments(0)->mutable_price_step() = dec("0.05");
+  EXPECT_EQ(get(0, 1, &ErrResponse, BadStep).error_code(),
+            grpc::StatusCode::INTERNAL);
+  EXPECT_THROW(Load(BadStep), core::MarketDataError);
+
+  // Серия баров есть, но инструмента нет в securities -> SecurityNotFound ->
+  // FAILED_PRECONDITION.
+  core::InMemoryBarSource Bars;
+  core::Bar OnlyBar;
+  OnlyBar.TsOpenMs = 1'704'783'600'000;
+  OnlyBar.AvailableAtMs = OnlyBar.TsOpenMs + 86'400'000;
+  OnlyBar.Open = OnlyBar.High = OnlyBar.Low = OnlyBar.Close =
+      core::Decimal::parse("100");
+  OnlyBar.Volume = 1000;
+  Bars.addSeries("no-sec", "FIXA", 86400, {OnlyBar});
+  core::InMemoryCalendarSource Calendar;
+  Calendar.add("no-sec", {{20240109, true}});
+  core::InMemoryRuoniaSource Ruonia;
+  pb::MarketSpec MissingSec = fixtureMarket();
+  MissingSec.set_snapshot_id("no-sec");
+  MissingSec.mutable_instruments()->RemoveLast();
+  MissingSec.set_from_date("2024-01-09");
+  MissingSec.set_to_date("2024-01-09");
+  worker::Context Context{Bars, Calendar, Ruonia};
+  pb::GetBarsRequest Request;
+  *Request.mutable_market() = MissingSec;
+  Request.set_from_step(0);
+  Request.set_to_step(0);
+  EXPECT_EQ(worker::handleGetBars(Context, Request, &ErrResponse).error_code(),
+            grpc::StatusCode::FAILED_PRECONDITION);
+}

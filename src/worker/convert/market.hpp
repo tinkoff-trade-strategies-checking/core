@@ -32,8 +32,10 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec &Market);
 inline constexpr std::int32_t kMaxWarmupBars = 5000;
 
 // Шкала времени сессии по снапшоту и периоду; с прогревом warmup_bars (вне
-// 0…kMaxWarmupBars - std::invalid_argument). Нет версии данных, нет бумаги или
-// нет ни одного бара за период - core::SnapshotNotFound /
+// 0…kMaxWarmupBars - std::invalid_argument). Проверяет наличие каждого
+// инструмента в снапшоте (securities) и совпадение lot_size и price_step
+// (расхождение - core::MarketDataError -> INTERNAL). Нет версии данных, нет
+// бумаги или нет ни одного бара за период - core::SnapshotNotFound /
 // core::SecurityNotFound (statusFromCurrentException переводит в
 // FAILED_PRECONDITION).
 std::shared_ptr<const core::Timeline>

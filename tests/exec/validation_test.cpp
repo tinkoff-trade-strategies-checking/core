@@ -295,6 +295,21 @@ TEST(OcoValidation, ValidPairsPass) {
   EXPECT_TRUE(core::validateOcoPair(Take, StopLimit).Ok);
 }
 
+TEST(OcoValidation, StopLimitPlusTakeIsAccepted) {
+  // OCO «стоп + тейк»: стоп = стоп-рыночная или стоп-лимитная (decisions.md).
+  Fixture F;
+  F.hold(5);
+  OrderSpec StopLimit = spec(Side::Sell, OrderType::StopLimit, 5, 0);
+  StopLimit.StopPrice = d("90");
+  StopLimit.LimitPrice = d("89");
+  OrderSpec Take = spec(Side::Sell, OrderType::TakeProfit, 5, 0);
+  Take.LimitPrice = d("110");
+  EXPECT_TRUE(F.check(StopLimit).Ok);
+  EXPECT_TRUE(F.check(Take).Ok);
+  EXPECT_TRUE(core::validateOcoPair(StopLimit, Take).Ok);
+  EXPECT_TRUE(core::validateOcoPair(Take, StopLimit).Ok);
+}
+
 TEST(OcoValidation, RejectsDifferentInstruments) {
   OrderSpec Stop = spec(Side::Sell, OrderType::Stop, 5, 0);
   Stop.StopPrice = d("90");

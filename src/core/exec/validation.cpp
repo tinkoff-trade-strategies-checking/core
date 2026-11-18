@@ -105,6 +105,8 @@ Validation validateOcoPair(const OrderSpec &First, const OrderSpec &Second) {
   if (First.OrderSide != Second.OrderSide) {
     return invalid("side");
   }
+  // OCO «стоп + тейк»: стоп = стоп-рыночная или стоп-лимитная заявка
+  // (решение владельца продукта, `decisions.md`).
   const bool FirstIsStop =
       First.Type == OrderType::Stop || First.Type == OrderType::StopLimit;
   const bool FirstIsTake = First.Type == OrderType::TakeProfit;
