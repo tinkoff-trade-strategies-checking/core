@@ -150,8 +150,8 @@ loadBenchmark(Context &Context, const pb::MarketSpec &Market) {
   }
 }
 
-core::RuoniaSeries
-loadRuonia(Context &Context, const pb::MarketSpec &Market, std::int32_t UpToYmd) {
+core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,
+                              std::int32_t UpToYmd) {
   return core::RuoniaSeries{
       Context.Ruonia.ruoniaRates(Market.snapshot_id(), UpToYmd)};
 }

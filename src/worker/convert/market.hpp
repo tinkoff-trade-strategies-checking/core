@@ -44,8 +44,8 @@ std::optional<core::BenchmarkSeries>
 loadBenchmark(Context &Context, const pb::MarketSpec &Market);
 
 // Дневной ряд ставок RUONIA до даты UpToYmd включительно.
-core::RuoniaSeries
-loadRuonia(Context &Context, const pb::MarketSpec &Market, std::int32_t UpToYmd);
+core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,
+                              std::int32_t UpToYmd);
 
 // "yyyy-mm-dd" -> yyyymmdd; неверная строка - std::invalid_argument.
 std::int32_t parseIsoDate(const std::string &Text);
