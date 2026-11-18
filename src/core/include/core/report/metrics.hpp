@@ -80,6 +80,7 @@ struct Report {
   Decimal
       FinalEquity; // стоимость на последнем шаге; без точек - начальный капитал
   std::vector<EquityPoint> BenchmarkEquity; // из MetricsInput::benchmarkEquity
+  std::vector<RoundTrip> RoundTrips; // пары FIFO как во входе
 };
 
 // Считает отчёт. std::invalid_argument: initialCash <= 0, шаг точки вне

@@ -304,6 +304,19 @@ message EquityPoint {
   Decimal equity = 2;
 }
 
+// Пара покупка -> продажа по FIFO (Portfolio::roundTrips()): закрытая часть покупки. Суммы до копейки.
+message RoundTrip {
+  string instrument_key = 1;
+  int64 entry_step = 2;
+  int64 exit_step = 3;
+  int64 lots = 4;
+  Decimal entry_price = 5;   // цена за единицу бумаги
+  Decimal exit_price = 6;
+  Decimal gross_pnl = 7;     // до издержек: сумма продажи - сумма покупки
+  Decimal costs = 8;         // комиссия и сбор обеих сторон (пропорционально лотам пары)
+  Decimal net_pnl = 9;       // после издержек
+}
+
 message Report {
   Metrics metrics = 1;
   CostTotals costs = 2;
@@ -314,6 +327,8 @@ message Report {
   // Кривая бенчмарка (MarketSpec.benchmark_ticker) в рублях того же капитала: initial_cash * close дня / open первого
   // дня, точка на последнем шаге каждого полностью пройденного торгового дня. Пусто без бенчмарка.
   repeated EquityPoint benchmark_equity = 7;
+  // Пары FIFO в порядке продаж, внутри продажи — в порядке покупок (ФТ-20, лист «Сделки» выгрузки).
+  repeated RoundTrip round_trips = 8;
 }
 
 // ---------------------------------------------------------------------------

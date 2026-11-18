@@ -30,6 +30,7 @@ struct EquityPoint {
 struct RoundTrip {
   int Instrument;
   std::int64_t EntryStep, ExitStep, EntryOrderId, Lots;
+  Decimal EntryPrice, ExitPrice; // цена за единицу бумаги покупки и продажи
   Decimal EntryValue, ExitValue, Costs, NetPnl;
 };
 
@@ -72,7 +73,8 @@ private:
   struct OpenLot {
     std::int64_t Step, OrderId;
     std::int64_t Lots, LotsLeft;
-    Decimal Value, Costs; // сумма сделки и комиссия + сбор всей покупки
+    Decimal Price, Value,
+        Costs; // цена покупки, сумма сделки и комиссия + сбор всей покупки
   };
   struct Position {
     std::int64_t Lots = 0;

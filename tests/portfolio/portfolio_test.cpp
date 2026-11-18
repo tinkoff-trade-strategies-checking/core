@@ -47,6 +47,8 @@ TEST(Portfolio, BuyThenSellRoundTrip) {
   EXPECT_EQ(T.ExitStep, 5);
   EXPECT_EQ(T.EntryOrderId, 4);
   EXPECT_EQ(T.Lots, 100);
+  EXPECT_EQ(T.EntryPrice, d("271.54"));
+  EXPECT_EQ(T.ExitPrice, d("274.03"));
   EXPECT_EQ(T.EntryValue, d("271540.00"));
   EXPECT_EQ(T.ExitValue, d("274030.00"));
   EXPECT_EQ(T.Costs, d("327.36"));

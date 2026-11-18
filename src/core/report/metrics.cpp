@@ -123,6 +123,7 @@ Report computeReport(const MetricsInput &In) {
   Report Report;
   Report.Equity = In.Equity;
   Report.BenchmarkEquity = In.BenchmarkEquity;
+  Report.RoundTrips = In.RoundTrips;
   Report.FinalEquity =
       In.Equity.empty() ? In.InitialCash : In.Equity.back().Equity;
   Metrics &M = Report.Stats;

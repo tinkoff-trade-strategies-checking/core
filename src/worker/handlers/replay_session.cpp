@@ -97,7 +97,7 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
                 Engine, Spec.InitialCash, *Timeline,
                 benchmarkUpTo(Context, Market, *Timeline, Result.LastStep),
                 Ruonia)),
-            Out->mutable_report());
+            *Timeline, Out->mutable_report());
   }
 }
 
