@@ -90,15 +90,15 @@ cmake --preset debug && cmake --build --preset debug -j2 && ctest --preset debug
 
 Через vcpkg (нужен `VCPKG_ROOT`): те же команды с пресетами `vcpkg-debug` / `vcpkg-release`.
 
-Интеграционный тест `ClickHouseBarSource` (`ClickHouseIntegration.*`) идёт на настоящем ClickHouse с фикстурой-снапшотом и пропускается без `CLICKHOUSE_URL` (формат `http://user:password@host:8123/база`). Запуск (из корня рабочего пространства; пароли любые). **Пока не работает:** в `backend` ещё нет `deploy/` и импортёра `tools/marketdata-import`; команды ниже заработают, когда они появятся.
+Интеграционный тест `ClickHouseBarSource` (`ClickHouseIntegration.*`) идёт на настоящем ClickHouse с фикстурой-снапшотом и пропускается без `CLICKHOUSE_URL` (формат `http://user:password@host:8123/база`). В CI запускается джобой `clickhouse-integration` с SQL-фикстурой `testdata/clickhouse-fixture.sql`. Локальный запуск (Docker):
 
 ```bash
-export POSTGRES_PASSWORD=x CLICKHOUSE_PASSWORD=secret
-docker compose -p chit -f backend/deploy/docker-compose.yml -f backend/tools/marketdata-import/compose.test.yml up -d clickhouse
-CLICKHOUSE_URL=http://ttsc:secret@127.0.0.1:8123/ttsc marketdata-import fixture   # backend/tools/marketdata-import/README.md
-# тест внутри Docker-образа, в сети compose (после `scripts/dev.sh build`):
-docker run --rm --network chit_default -e CLICKHOUSE_URL=http://ttsc:secret@clickhouse:8123/ttsc   -v "$PWD/core:/src" -v pac-core-build:/src/build -w /src pac-core-dev   build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration*'
-docker compose -p chit -f backend/deploy/docker-compose.yml -f backend/tools/marketdata-import/compose.test.yml down -v
+docker run -d --rm --name clickhouse-test -p 8123:8123 clickhouse/clickhouse-server:24.8
+# Подождать старта сервера, затем загрузить фикстуру:
+curl -sS "http://localhost:8123/?multiquery=1" --data-binary @testdata/clickhouse-fixture.sql
+# Запуск интеграционного теста:
+CLICKHOUSE_URL=http://localhost:8123/ttsc build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration.*'
+docker stop clickhouse-test
 ```
 
 Без gRPC (только ядро, CLI и тесты ядра): `cmake --preset debug -DCORE_BUILD_WORKER=OFF`.
