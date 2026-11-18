@@ -41,6 +41,9 @@ struct MetricsInput {
   // Дневная ставка RUONIA (% годовых) на каждый торговый день (размер равен
   // числу торговых дней). При tradingDays >= 2 отсутствие - MarketDataError.
   std::vector<Decimal> RuoniaRates;
+  // Число календарных дней Delta_d на каждый торговый день для Actual/365
+  // (core#26). Если пусто - считается Delta_d = 1 для всех дней.
+  std::vector<std::int32_t> CalendarDays;
 };
 
 struct Metrics {

@@ -90,9 +90,12 @@ metricsInput(const core::SessionEngine &Engine,
   countOrders(Engine.orders(), &In);
   In.PositionValuesByStep = Engine.positionValues();
   setBenchmark(Benchmark, Timeline, &In);
-  if (Ruonia)
-    In.RuoniaRates =
+  if (Ruonia) {
+    core::MatchedRuonia Matched =
         core::matchRuoniaRates(*Ruonia, Timeline, Engine.currentStep());
+    In.RuoniaRates = std::move(Matched.Rates);
+    In.CalendarDays = std::move(Matched.CalendarDays);
+  }
   return In;
 }
 
