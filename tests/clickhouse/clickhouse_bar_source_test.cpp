@@ -255,6 +255,16 @@ TEST(ClickHouseBarSource, AmbiguousSecurityIsAnError) {
   EXPECT_THROW(Source.security(kSnap, "SBER"), core::MarketDataError);
 }
 
+TEST(ClickHouseBarSource, AmbiguousSecurityInLoadIsAnError) {
+  // Неоднозначный инструмент в load() должен отклоняться так же, как и в
+  // security() (INV-4).
+  Fixture F;
+  F.SecurityCount = "2\n";
+  auto Source = F.make();
+  EXPECT_THROW(Source.load({kSnap, "SBER", 60, 0, 1000}),
+               core::MarketDataError);
+}
+
 TEST(ClickHouseBarSource, TruncatedResponseIsAnError) {
   Fixture F;
   auto Source = F.make();
