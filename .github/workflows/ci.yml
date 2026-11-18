@@ -57,7 +57,8 @@ jobs:
       - name: Ожидание ClickHouse
         run: |
           for i in $(seq 1 30); do
-            if curl -sS "http://localhost:8123/ping" | grep -q "Ok"; then
+            CID=$(docker ps -q --filter ancestor=clickhouse/clickhouse-server:24.8)
+            if [ -n "$CID" ] && docker exec "$CID" clickhouse-client --user ttsc --password secret --query "SELECT 1" 2>/dev/null | grep -q "1"; then
               echo "ClickHouse готов"
               break
             fi
@@ -66,7 +67,8 @@ jobs:
 
       - name: Загрузка SQL-фикстуры
         run: |
-          curl -sS --fail -u ttsc:secret "http://localhost:8123/?multiquery=1" --data-binary @testdata/clickhouse-fixture.sql
+          CID=$(docker ps -q --filter ancestor=clickhouse/clickhouse-server:24.8)
+          docker exec -i "$CID" clickhouse-client --user ttsc --password secret -n < testdata/clickhouse-fixture.sql
 
       - name: Конфигурация
         run: cmake --preset debug

@@ -97,7 +97,7 @@ docker run -d --rm --name clickhouse-test -p 8123:8123 \
   -e CLICKHOUSE_USER=ttsc -e CLICKHOUSE_PASSWORD=secret -e CLICKHOUSE_DB=ttsc \
   -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 clickhouse/clickhouse-server:24.8
 # Подождать старта сервера, затем загрузить фикстуру:
-curl -sS --fail -u ttsc:secret "http://localhost:8123/?multiquery=1" --data-binary @testdata/clickhouse-fixture.sql
+docker exec -i clickhouse-test clickhouse-client --user ttsc --password secret -n < testdata/clickhouse-fixture.sql
 # Запуск интеграционного теста:
 CLICKHOUSE_URL=http://ttsc:secret@localhost:8123/ttsc build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration.*'
 docker stop clickhouse-test
