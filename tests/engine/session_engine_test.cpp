@@ -73,6 +73,24 @@ OrderSpec limit(Side Side, std::int64_t Lots, const char *Price,
   return S;
 }
 
+OrderSpec stop(Side Side, std::int64_t Lots, const char *Price,
+               int Instrument = 0) {
+  OrderSpec S = market(Side, Lots, Instrument);
+  S.Type = OrderType::Stop;
+  S.StopPrice = d(Price);
+  S.Tif = TimeInForce::Gtc;
+  return S;
+}
+
+OrderSpec takeProfit(Side Side, std::int64_t Lots, const char *Price,
+                     int Instrument = 0) {
+  OrderSpec S = market(Side, Lots, Instrument);
+  S.Type = OrderType::TakeProfit;
+  S.LimitPrice = d(Price);
+  S.Tif = TimeInForce::Gtc;
+  return S;
+}
+
 JournalEntry place(std::int64_t Seq, std::int64_t Step, OrderSpec Spec) {
   JournalEntry E;
   E.Seq = Seq;
@@ -346,23 +364,62 @@ TEST(Replay, ReplaceAtomic) {
 }
 
 TEST(Replay, ReplaceOcoReplacesWholePair) {
+  // На шаге 0 покупаем 5 лотов FIXA, чтобы была позиция для OCO
+  const JournalEntry Buy = place(0, 0, market(Side::Buy, 5));
   JournalEntry Pair;
-  Pair.Seq = 0;
+  Pair.Seq = 1;
   Pair.Step = 1;
   Pair.Command =
-      PlaceCmd{limit(Side::Buy, 5, "90"), limit(Side::Buy, 3, "0.01", 1)};
-  const ReplayResult Placed = replay({Pair}, 1);
-  ASSERT_EQ(Placed.CommandResults[0].OrderIds,
-            (std::vector<std::int64_t>{0, 1}));
-  EXPECT_EQ(orderById(Placed.Engine, 0).OcoSiblingId, 1);
-  EXPECT_EQ(orderById(Placed.Engine, 1).OcoSiblingId, 0);
+      PlaceCmd{stop(Side::Sell, 5, "90"), takeProfit(Side::Sell, 5, "120")};
+  const ReplayResult Placed = replay({Buy, Pair}, 1);
+  ASSERT_EQ(Placed.CommandResults[1].OrderIds,
+            (std::vector<std::int64_t>{2, 3}));
+  EXPECT_EQ(orderById(Placed.Engine, 2).OcoSiblingId, 3);
+  EXPECT_EQ(orderById(Placed.Engine, 3).OcoSiblingId, 2);
 
   const ReplayResult R =
-      replay({Pair, replace(1, 2, 0, limit(Side::Buy, 4, "91"))}, 2);
-  EXPECT_TRUE(R.CommandResults[1].Accepted);
-  EXPECT_EQ(orderById(R.Engine, 0).Status, OrderStatus::Cancelled);
-  EXPECT_EQ(orderById(R.Engine, 1).Status, OrderStatus::Cancelled);
-  EXPECT_EQ(orderById(R.Engine, 2).Status, OrderStatus::Active);
+      replay({Buy, Pair, replace(2, 2, 2, limit(Side::Sell, 4, "115"))}, 2);
+  EXPECT_TRUE(R.CommandResults[2].Accepted);
+  EXPECT_EQ(orderById(R.Engine, 2).Status, OrderStatus::Cancelled);
+  EXPECT_EQ(orderById(R.Engine, 3).Status, OrderStatus::Cancelled);
+  EXPECT_EQ(orderById(R.Engine, 4).Status, OrderStatus::Active);
+}
+
+TEST(Replay, OcoInvalidPairRejected) {
+  // Попытка подать OCO из двух лимитных заявок
+  JournalEntry BadTypes;
+  BadTypes.Seq = 0;
+  BadTypes.Step = 1;
+  BadTypes.Command =
+      PlaceCmd{limit(Side::Buy, 5, "90"), limit(Side::Buy, 5, "85")};
+  const ReplayResult R1 = replay({BadTypes}, 1);
+  EXPECT_FALSE(R1.CommandResults[0].Accepted);
+  EXPECT_EQ(R1.CommandResults[0].ReasonCode, Reason::InvalidParams);
+  EXPECT_EQ(R1.CommandResults[0].Field, "type");
+  EXPECT_EQ(orderById(R1.Engine, 0).Status, OrderStatus::Rejected);
+  EXPECT_EQ(orderById(R1.Engine, 1).Status, OrderStatus::Rejected);
+
+  // Попытка подать OCO на разные бумаги
+  JournalEntry BadInstruments;
+  BadInstruments.Seq = 1;
+  BadInstruments.Step = 1;
+  BadInstruments.Command = PlaceCmd{stop(Side::Sell, 5, "90", 0),
+                                    takeProfit(Side::Sell, 5, "120", 1)};
+  const ReplayResult R2 = replay({BadInstruments}, 1);
+  EXPECT_FALSE(R2.CommandResults[0].Accepted);
+  EXPECT_EQ(R2.CommandResults[0].ReasonCode, Reason::InvalidParams);
+  EXPECT_EQ(R2.CommandResults[0].Field, "instrument");
+
+  // Попытка подать OCO на разные стороны (Sell + Buy)
+  JournalEntry BadSides;
+  BadSides.Seq = 2;
+  BadSides.Step = 1;
+  BadSides.Command = PlaceCmd{stop(Side::Sell, 5, "90", 0),
+                              takeProfit(Side::Buy, 5, "120", 0)};
+  const ReplayResult R3 = replay({BadSides}, 1);
+  EXPECT_FALSE(R3.CommandResults[0].Accepted);
+  EXPECT_EQ(R3.CommandResults[0].ReasonCode, Reason::InvalidParams);
+  EXPECT_EQ(R3.CommandResults[0].Field, "side");
 }
 
 TEST(Replay, OrderIdIsSeqTimesTwoPlusLeg) {
@@ -509,22 +566,23 @@ TEST(SessionEngine, AdvanceAfterStopThrows) {
 }
 
 TEST(Replay, CancelOcoLegCancelsPair) {
+  const JournalEntry Buy = place(0, 0, market(Side::Buy, 5));
   JournalEntry Pair;
-  Pair.Seq = 0;
+  Pair.Seq = 1;
   Pair.Step = 1;
   Pair.Command =
-      PlaceCmd{limit(Side::Buy, 5, "90"), limit(Side::Buy, 3, "0.01", 1)};
-  const ReplayResult R = replay({Pair, cancel(1, 2, 1)}, 3);
-  EXPECT_TRUE(R.CommandResults[1].Accepted);
-  EXPECT_EQ(orderById(R.Engine, 0).Status, OrderStatus::Cancelled);
-  EXPECT_EQ(orderById(R.Engine, 0).ReasonCode, Reason::CancelledByUser);
-  EXPECT_EQ(orderById(R.Engine, 1).Status, OrderStatus::Cancelled);
-  EXPECT_EQ(orderById(R.Engine, 1).ClosedStep, 2);
+      PlaceCmd{stop(Side::Sell, 5, "90"), takeProfit(Side::Sell, 5, "120")};
+  const ReplayResult R = replay({Buy, Pair, cancel(2, 2, 3)}, 3);
+  EXPECT_TRUE(R.CommandResults[2].Accepted);
+  EXPECT_EQ(orderById(R.Engine, 2).Status, OrderStatus::Cancelled);
+  EXPECT_EQ(orderById(R.Engine, 2).ReasonCode, Reason::CancelledByUser);
+  EXPECT_EQ(orderById(R.Engine, 3).Status, OrderStatus::Cancelled);
+  EXPECT_EQ(orderById(R.Engine, 3).ClosedStep, 2);
   // Повторная отмена - OrderNotActive.
   const ReplayResult Again =
-      replay({Pair, cancel(1, 2, 1), cancel(2, 2, 0)}, 3);
-  EXPECT_FALSE(Again.CommandResults[2].Accepted);
-  EXPECT_EQ(Again.CommandResults[2].ReasonCode, Reason::OrderNotActive);
+      replay({Buy, Pair, cancel(2, 2, 3), cancel(3, 2, 2)}, 3);
+  EXPECT_FALSE(Again.CommandResults[3].Accepted);
+  EXPECT_EQ(Again.CommandResults[3].ReasonCode, Reason::OrderNotActive);
 }
 
 // Одна бумага, лот 1, шаг цены 0.01, 4 дня; close по списку (open = close
