@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -15,8 +16,9 @@
 #include "handlers.hpp"
 
 // Конвертеры рынка и данных: MarketSpec -> SessionSpec и Timeline, бар ->
-// proto. Чистые функции: без состояния и часов (INV-4). Ошибки спецификации -
-// std::invalid_argument.
+// proto. Чистые функции: без часов (INV-4); единственное состояние -
+// необязательный кэш шкал в Context, он результат не меняет. Ошибки
+// спецификации - std::invalid_argument.
 
 namespace worker {
 
@@ -38,10 +40,14 @@ std::shared_ptr<const core::Timeline>
 loadTimeline(Context &Context, const pb::MarketSpec &Market);
 
 // Бенчмарк: open первого дневного бара и close каждого дня бумаги
-// benchmark_ticker за период [from_date; to_date] по D1. Нет тикера, нет бумаги
-// в снапшоте или нет баров за период - nullopt.
+// benchmark_ticker за период [from_date; to_date] по D1, но не позже дня
+// UpToYmd включительно (INV-1: бар дня позже курсора - будущее). Шкала бумаги
+// читается и кэшируется по полному периоду сессии, UpToYmd только обрезает
+// ряд, поэтому записей в кэше не больше одной на сессию. Нет тикера, нет бумаги
+// в снапшоте или нет баров за период до UpToYmd - nullopt.
 std::optional<core::BenchmarkSeries>
-loadBenchmark(Context &Context, const pb::MarketSpec &Market);
+loadBenchmark(Context &Context, const pb::MarketSpec &Market,
+              std::int32_t UpToYmd = std::numeric_limits<std::int32_t>::max());
 
 // Дневной ряд ставок RUONIA до даты UpToYmd включительно.
 core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,

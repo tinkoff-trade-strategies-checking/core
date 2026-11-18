@@ -41,9 +41,9 @@ benchmarkUpTo(Context &Context, const pb::MarketSpec &Market,
     if (Step < 0)
       return std::nullopt; // ни одного полного дня
   }
-  pb::MarketSpec Limited = Market;
-  Limited.set_to_date(formatIsoDate(Timeline.yyyymmddOf(Step)));
-  return loadBenchmark(Context, Limited);
+  // Ряд читается (и кэшируется) за весь период сессии и обрезается по дню
+  // курсора после чтения.
+  return loadBenchmark(Context, Market, Timeline.yyyymmddOf(Step));
 }
 
 void fill(Context &Context, const pb::ReplaySessionRequest &Request,

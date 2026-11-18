@@ -9,6 +9,7 @@ file(GLOB worker_sources CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/clickhouse/*.cpp)
 
 add_library(simulation_worker_lib
+  timeline_cache.cpp
   worker_service.cpp
   ${worker_sources})
 target_include_directories(simulation_worker_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
