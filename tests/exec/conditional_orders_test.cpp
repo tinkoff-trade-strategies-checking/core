@@ -789,6 +789,19 @@ TEST(StopBeforeTake, TrailingStopCountsAsStop) {
   EXPECT_TRUE(B.Fills[0].StopAndTakeSameBar);
 }
 
+TEST(StopBeforeTake, PlainSellLimitDoesNotSetFlag) {
+  // Обычная лимитная продажа в одной свече со стопом пометку ФТ-9 не ставит.
+  const Timeline T = twoBars(B{0, 1, "100", "111", "94", "100"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  B.Orders.push_back(stopOrder(0, Side::Sell, "95", 10));
+  B.Orders.push_back(limitOrder(1, Side::Sell, "110", 10));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_FALSE(B.Fills[0].StopAndTakeSameBar);
+}
+
 // ---- Срок «день»
 // -----------------------------------------------------------------------------------------
 
@@ -927,8 +940,8 @@ TEST(ConditionalOrders, StopsRunBeforeLimits) {
   step(Engine, 1, T, B, Pf);
   ASSERT_EQ(B.Fills.size(), 1u);
   EXPECT_EQ(B.Fills[0].OrderId, 1);
-  EXPECT_TRUE(B.Fills[0].StopAndTakeSameBar); // лимитная продажа 100.50 тоже
-                                              // была бы задета (high 101)
+  EXPECT_FALSE(B.Fills[0].StopAndTakeSameBar); // лимитная продажа 100.50 - не
+                                               // тейк-профит и не нога OCO
 }
 
 } // namespace

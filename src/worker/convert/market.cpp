@@ -131,6 +131,15 @@ loadTimeline(Context &Context, const pb::MarketSpec &Market) {
     }
   }
 
+  for (const core::Instrument &Inst : Instruments) {
+    const core::Security Sec =
+        Context.Bars.security(Market.snapshot_id(), Inst.Ticker);
+    if (Sec.LotSize != Inst.LotSize || Sec.PriceStep != Inst.PriceStep) {
+      throw core::MarketDataError("параметры инструмента " + Inst.Ticker +
+                                  " не совпадают со снапшотом (securities)");
+    }
+  }
+
   core::Timeline Timeline = core::Timeline::loadWithWarmup(
       Context.Bars, Context.Calendar, Key.SnapshotId, std::move(Instruments),
       Key.Timeframe, Key.FromYmd, Key.ToYmd, Key.WarmupBars);

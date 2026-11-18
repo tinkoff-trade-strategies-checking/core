@@ -112,3 +112,22 @@ jobs:
 
       - name: Запуск CLI из образа
         run: docker run --rm --entrypoint sim_cli simulation-worker version
+
+  invariants:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: core
+      - uses: actions/checkout@v4
+        with:
+          repository: tinkoff-trade-strategies-checking/documentation
+          path: documentation
+          fetch-depth: 1
+      - uses: actions/checkout@v4
+        with:
+          repository: tinkoff-trade-strategies-checking/frontend
+          path: frontend
+          fetch-depth: 1
+      - name: Проверка ссылок invariants.md
+        run: python3 documentation/scripts/check-invariants.py --core core --frontend frontend

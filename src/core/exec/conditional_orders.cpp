@@ -85,17 +85,19 @@ void cancelSibling(Context &C, const Order &O) {
     closeOrder(C, *Sibling, OrderStatus::Cancelled, Reason::OcoSiblingFilled);
 }
 
-// Лимитная заявка на продажу той же бумаги, которую этот бар тоже задел бы (для
-// пометки ФТ-9).
-bool sellLimitWouldFill(const Context &C, const Order &Stop,
-                        const StepBar &Bar) {
+// Тейк-профит (или вторая нога OCO-пары) на продажу той же бумаги, который этот
+// бар тоже задел бы (для пометки ФТ-9).
+bool takeWouldFill(const Context &C, const Order &Stop, const StepBar &Bar) {
   for (std::size_t I = 0; I < C.Orders.size(); ++I) {
     const Order &O = C.Orders[I];
     if (&O == &Stop || !live(O) || O.PlacedStep >= C.Step ||
         O.Spec.Instrument != Stop.Spec.Instrument)
       continue;
-    if (O.Spec.OrderSide != Side::Sell || !isLimitType(O) ||
-        C.TriggeredNow[I] || !O.Spec.LimitPrice)
+    const bool IsTakeOrOcoSibling =
+        O.Spec.Type == OrderType::TakeProfit ||
+        (Stop.OcoSiblingId >= 0 && O.Id == Stop.OcoSiblingId);
+    if (!IsTakeOrOcoSibling || O.Spec.OrderSide != Side::Sell ||
+        !isLimitType(O) || C.TriggeredNow[I] || !O.Spec.LimitPrice)
       continue;
     const Decimal &Level = *O.Spec.LimitPrice;
     if (Bar.Open >= Level || Bar.High > Level)
@@ -214,7 +216,7 @@ void runStops(Context &C) {
     const Decimal Base =
         Buy ? std::max(Bar->Open, Level) : std::min(Bar->Open, Level);
     const bool Flag =
-        !Buy && sellLimitWouldFill(C, O, *Bar); // до снятия второй ноги OCO
+        !Buy && takeWouldFill(C, O, *Bar); // до снятия второй ноги OCO
     const Instrument &Inst = C.instrumentOf(O);
     Fill *Fill = nullptr;
     const Executed E = execute(
