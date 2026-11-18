@@ -1,7 +1,7 @@
 #include "convert/blind.hpp"
 
 #include <cstddef>
-#include <string>
+#include <cstdint>
 #include <vector>
 
 #include "convert/state.hpp"
@@ -11,15 +11,9 @@ namespace worker {
 
 namespace {
 
-const std::string &keyOf(const core::Timeline &Timeline, int Instrument) {
-  return Timeline.instruments().at(static_cast<std::size_t>(Instrument)).Key;
-}
-
-void blindBarToProto(const core::BlindBar &Bar, const core::Timeline &Timeline,
-                     pb::BlindBar *Out) {
+void blindBarToProto(const core::BlindBar &Bar, pb::BlindBar *Out) {
   Out->set_step(Bar.Step);
-  Out->set_instrument_key(keyOf(Timeline, Bar.Instrument));
-  Out->set_time_unix_ms(Bar.TimeUnixMs);
+  Out->set_instrument_index(static_cast<std::int32_t>(Bar.Instrument));
   Out->set_trading_day(Bar.TradingDay);
   core::toProto(Bar.Open, Out->mutable_open());
   core::toProto(Bar.High, Out->mutable_high());
@@ -30,24 +24,22 @@ void blindBarToProto(const core::BlindBar &Bar, const core::Timeline &Timeline,
 }
 
 void blindPortfolioToProto(const core::BlindPortfolio &Portfolio,
-                           const core::Timeline &Timeline,
                            pb::BlindPortfolio *Out) {
   core::toProto(Portfolio.CashPct, Out->mutable_cash_pct());
   core::toProto(Portfolio.EquityPct, Out->mutable_equity_pct());
   core::toProto(Portfolio.PnlPct, Out->mutable_pnl_pct());
   for (const core::BlindPosition &P : Portfolio.Positions) {
     pb::BlindPosition *Pos = Out->add_positions();
-    Pos->set_instrument_key(keyOf(Timeline, P.Instrument));
+    Pos->set_instrument_index(static_cast<std::int32_t>(P.Instrument));
     Pos->set_lots(P.Lots);
     core::toProto(P.AvgPrice, Pos->mutable_avg_price());
     core::toProto(P.MarketValuePct, Pos->mutable_market_value_pct());
   }
 }
 
-void blindOrderToProto(const core::BlindOrder &Order,
-                       const core::Timeline &Timeline, pb::BlindOrder *Out) {
+void blindOrderToProto(const core::BlindOrder &Order, pb::BlindOrder *Out) {
   Out->set_id(Order.Id);
-  Out->set_instrument_key(keyOf(Timeline, Order.Instrument));
+  Out->set_instrument_index(static_cast<std::int32_t>(Order.Instrument));
   if (Order.LimitPrice)
     core::toProto(*Order.LimitPrice, Out->mutable_limit_price());
   if (Order.StopPrice)
@@ -57,11 +49,10 @@ void blindOrderToProto(const core::BlindOrder &Order,
   }
 }
 
-void blindFillToProto(const core::BlindFill &Fill,
-                      const core::Timeline &Timeline, pb::BlindFill *Out) {
+void blindFillToProto(const core::BlindFill &Fill, pb::BlindFill *Out) {
   Out->set_order_id(Fill.OrderId);
   Out->set_step(Fill.Step);
-  Out->set_instrument_key(keyOf(Timeline, Fill.Instrument));
+  Out->set_instrument_index(static_cast<std::int32_t>(Fill.Instrument));
   Out->set_side(toProto(Fill.OrderSide));
   Out->set_lots(Fill.Lots);
   core::toProto(Fill.Price, Out->mutable_price());
@@ -74,8 +65,7 @@ void blindFillToProto(const core::BlindFill &Fill,
   Out->set_stop_and_take_same_bar(Fill.StopAndTakeSameBar);
 }
 
-void blindReportToProto(const core::BlindReport &Report,
-                        const core::Timeline &Timeline, pb::BlindReport *Out) {
+void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
   pb::BlindCostTotals *Costs = Out->mutable_costs();
   core::toProto(Report.Costs.CommissionPct, Costs->mutable_commission_pct());
   core::toProto(Report.Costs.FeePct, Costs->mutable_exchange_fee_pct());
@@ -98,7 +88,7 @@ void blindReportToProto(const core::BlindReport &Report,
 
   for (const core::BlindRoundTrip &T : Report.RoundTrips) {
     pb::BlindRoundTrip *Trip = Out->add_round_trips();
-    Trip->set_instrument_key(keyOf(Timeline, T.Instrument));
+    Trip->set_instrument_index(static_cast<std::int32_t>(T.Instrument));
     Trip->set_entry_step(T.EntryStep);
     Trip->set_exit_step(T.ExitStep);
     Trip->set_lots(T.Lots);
@@ -124,7 +114,7 @@ void fillBlindView(const core::Timeline &Timeline,
 
   for (std::size_t Idx = 0; Idx < Timeline.instruments().size(); ++Idx) {
     pb::BlindInstrument *Inst = Out->add_instruments();
-    Inst->set_instrument_key(Timeline.instruments()[Idx].Key);
+    Inst->set_instrument_index(static_cast<std::int32_t>(Idx));
     if (Scales[Idx].LotValueAtStart) {
       core::toProto(*Scales[Idx].LotValueAtStart,
                     Inst->mutable_lot_value_at_start());
@@ -137,54 +127,53 @@ void fillBlindView(const core::Timeline &Timeline,
     pb::BlindStepEvents *Ev = Out->add_events();
     Ev->set_step(BlindEvents.Step);
     for (const core::BlindBar &B : BlindEvents.Bars)
-      blindBarToProto(B, Timeline, Ev->add_bars());
+      blindBarToProto(B, Ev->add_bars());
     for (const core::BlindFill &F : BlindEvents.Fills)
-      blindFillToProto(F, Timeline, Ev->add_fills());
+      blindFillToProto(F, Ev->add_fills());
     for (const core::BlindOrder &O : BlindEvents.ChangedOrders)
-      blindOrderToProto(O, Timeline, Ev->add_changed_orders());
-    blindPortfolioToProto(BlindEvents.Portfolio, Timeline,
-                          Ev->mutable_portfolio());
+      blindOrderToProto(O, Ev->add_changed_orders());
+    blindPortfolioToProto(BlindEvents.Portfolio, Ev->mutable_portfolio());
   }
 
   if (IncludeHistory) {
+    // До появления P0 (первого бара <= LastStep) бумага отсутствует в слепом
+    // виде целиком — её бары прогрева тоже не отдаются.
     for (const core::StepBar &Bar : Timeline.warmupBars()) {
       const core::BlindScale &Scale =
           Scales.at(static_cast<std::size_t>(Bar.Instrument));
       if (!Scale.P0)
         continue;
-      blindBarToProto(core::toBlindBar(Bar, Scale), Timeline,
-                      Out->add_history());
+      blindBarToProto(core::toBlindBar(Bar, Scale), Out->add_history());
     }
     for (std::int64_t Step = 0; Step <= LastStep; ++Step) {
       for (const core::StepBar &Bar : Timeline.barsAt(Step)) {
         const core::BlindScale &Scale =
             Scales.at(static_cast<std::size_t>(Bar.Instrument));
-        blindBarToProto(core::toBlindBar(Bar, Scale), Timeline,
-                        Out->add_history());
+        blindBarToProto(core::toBlindBar(Bar, Scale), Out->add_history());
       }
     }
   }
 
   blindPortfolioToProto(
-      core::toBlindPortfolio(Engine.snapshot(), InitialCash, Scales), Timeline,
+      core::toBlindPortfolio(Engine.snapshot(), InitialCash, Scales),
       Out->mutable_portfolio());
 
   for (const core::Order &O : Engine.orders()) {
     blindOrderToProto(core::toBlindOrder(O, Scales.at(static_cast<std::size_t>(
                                                 O.Spec.Instrument))),
-                      Timeline, Out->add_orders());
+                      Out->add_orders());
   }
 
   for (const core::Fill &F : Engine.fills()) {
     blindFillToProto(
         core::toBlindFill(F, InitialCash,
                           Scales.at(static_cast<std::size_t>(F.Instrument))),
-        Timeline, Out->add_fills());
+        Out->add_fills());
   }
 
   if (Report) {
     blindReportToProto(core::toBlindReport(*Report, InitialCash, Scales),
-                       Timeline, Out->mutable_report());
+                       Out->mutable_report());
   }
 }
 

@@ -3,10 +3,12 @@
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 
 #include "core/blind/blind.hpp"
 #include "core/exec/costs.hpp"
 #include "core/exec/execution.hpp"
+#include "core/money/rounding.hpp"
 
 namespace core {
 
@@ -42,7 +44,8 @@ OrderEstimate estimateOrder(const SessionSpec &Spec,
         Out.Commission = A.Commission;
         Out.Fee = A.Fee;
         Out.RequiredCash =
-            requiredCashForOrder(Last->Close, Order.Lots, LotSize, Spec.Costs);
+            requiredCashForOrder(Last->Close, Order.Lots, LotSize, Spec.Costs)
+                .round(2, RoundingMode::CEILING);
         Out.ValuePct = toPercentOfCapital(Out.Value, Spec.InitialCash);
         Out.CommissionPct =
             toPercentOfCapital(Out.Commission, Spec.InitialCash);
@@ -50,8 +53,8 @@ OrderEstimate estimateOrder(const SessionSpec &Spec,
         Out.RequiredCashPct =
             toPercentOfCapital(Out.RequiredCash, Spec.InitialCash);
       } catch (const DecimalOverflow &) {
-        // Сумма не помещается в Decimal — Check уже содержит InsufficientCash
-        // (для покупки) или оставляем нулевые суммы.
+        throw std::invalid_argument(
+            "order.lots: переполнение при расчёте суммы заявки");
       }
     }
   }

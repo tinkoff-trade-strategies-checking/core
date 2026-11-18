@@ -80,6 +80,9 @@ TEST(EstimateOrder, MatchesPlacementMoneyCheckForMarketAndLimit) {
   EXPECT_EQ(MarketEst.Value, ExpectedAmounts.Value);
   EXPECT_EQ(MarketEst.Commission, ExpectedAmounts.Commission);
   EXPECT_EQ(MarketEst.Fee, ExpectedAmounts.Fee);
+  // required_cash округляется вверх до копейки (CEILING, 2 знака):
+  // 104.25 * 5 * 10 * (1 + 0.003 + 0.0001) = 5228.65875 -> 5228.66.
+  EXPECT_EQ(MarketEst.RequiredCash, core::Decimal::parse("5228.66"));
   EXPECT_EQ(MarketEst.ValuePct,
             core::toPercentOfCapital(ExpectedAmounts.Value, Cash));
   EXPECT_EQ(MarketEst.CommissionPct,
@@ -102,15 +105,19 @@ TEST(EstimateOrder, MatchesPlacementMoneyCheckForMarketAndLimit) {
   EXPECT_EQ(LimitEst.Fee, MarketEst.Fee);
   EXPECT_EQ(LimitEst.RequiredCash, MarketEst.RequiredCash);
 
-  // Точная граница проверки денег при подаче (validate): при cash ==
-  // RequiredCash заявка проходит, на 1 наноединицу меньше — InsufficientCash.
+  // Проверка денег при подаче (validate) не меняется и использует
+  // неокруглённый requiredCashForOrder; в ответе оценки RequiredCash
+  // округлён вверх до копейки (верхняя граница резерва >= порога validate).
   core::ExecutionEngine Exec(Spec.Instruments, Spec.Costs);
   core::Portfolio ExactPortfolio(MarketEst.RequiredCash, 1);
   EXPECT_TRUE(Exec.validate(MarketBuy, ExactPortfolio, *Tl, 2).Ok);
   EXPECT_TRUE(Exec.validate(LimitBuy, ExactPortfolio, *Tl, 2).Ok);
 
+  const core::Decimal ExactNeed =
+      core::requiredCashForOrder(MarketEst.ReferencePrice, 5, 10, Spec.Costs);
+  EXPECT_GE(MarketEst.RequiredCash, ExactNeed);
   const core::Decimal OneNano = core::Decimal::fromRaw(1);
-  core::Portfolio ShortPortfolio(MarketEst.RequiredCash - OneNano, 1);
+  core::Portfolio ShortPortfolio(ExactNeed - OneNano, 1);
   EXPECT_EQ(Exec.validate(MarketBuy, ShortPortfolio, *Tl, 2).ReasonCode,
             core::Reason::InsufficientCash);
   EXPECT_EQ(Exec.validate(LimitBuy, ShortPortfolio, *Tl, 2).ReasonCode,
@@ -187,4 +194,18 @@ TEST(EstimateOrder, NoFutureBarsAffectEstimate) {
   EXPECT_EQ(E1.Commission, E2.Commission);
   EXPECT_EQ(E1.Fee, E2.Fee);
   EXPECT_EQ(E1.RequiredCash, E2.RequiredCash);
+}
+
+TEST(EstimateOrder, ThrowsOnDecimalOverflow) {
+  auto Tl = makeTimeline("1000000000000000"); // 10^15
+  const core::SessionSpec Spec = makeSpec(core::Decimal::fromUnits(100000));
+  core::OrderSpec Order;
+  Order.Instrument = 0;
+  Order.OrderSide = core::Side::Buy;
+  Order.Type = core::OrderType::Market;
+  Order.Lots =
+      9223372036854775807LL; // 10^15 * 9.22*10^18 * 10 > 1.7*10^29 -> overflow
+  Order.Tif = core::TimeInForce::Day;
+  EXPECT_THROW(core::estimateOrder(Spec, Tl, {}, 2, Order),
+               std::invalid_argument);
 }

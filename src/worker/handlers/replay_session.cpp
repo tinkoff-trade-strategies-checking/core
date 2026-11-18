@@ -97,10 +97,10 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
     const core::RuoniaSeries Ruonia = loadRuonia(Context, Market, UpToYmd);
     const std::int32_t PreviousDay =
         previousTradingDay(Context, Market, *Timeline);
-    CoreReport = core::computeReport(metricsInput(
-        Engine, Spec.InitialCash, *Timeline,
-        benchmarkUpTo(Context, Market, *Timeline, Result.LastStep), Ruonia,
-        PreviousDay));
+    CoreReport = core::computeReport(
+        metricsInput(Engine, Spec.InitialCash, *Timeline,
+                     benchmarkUpTo(Context, Market, *Timeline, Result.LastStep),
+                     Ruonia, PreviousDay));
     toProto(*CoreReport, *Timeline, Out->mutable_report());
   }
   if (Request.blind()) {

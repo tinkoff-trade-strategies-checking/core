@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <vector>
@@ -60,14 +61,49 @@ TEST(PeriodClassifier, SyntheticSeriesKnownSigmaMddAndCategories) {
   EXPECT_NEAR(Res.Windows[5].Mdd, 3.0 / 11.0, 1e-12);
   EXPECT_EQ(Res.Windows[5].Category, core::PeriodCategory::Stress);
 
-  EXPECT_LE(Res.P33, Res.P80);
-  // Окно 2 или 3 должно попасть в Medium (между P33 и P80, MDD < 10%).
-  bool HasMedium = false;
-  for (const auto &W : Res.Windows) {
-    if (W.Category == core::PeriodCategory::Medium)
-      HasMedium = true;
-  }
-  EXPECT_TRUE(HasMedium);
+  // Ожидаемые пороги P33 и P80 по Type 7: pos = q * (N - 1).
+  std::vector<double> ExpectedSigmas;
+  ExpectedSigmas.reserve(Res.Windows.size());
+  for (const auto &W : Res.Windows)
+    ExpectedSigmas.push_back(W.Sigma);
+  std::sort(ExpectedSigmas.begin(), ExpectedSigmas.end());
+  const double Pos33 = 0.33 * 5.0; // 1.65 -> между индексами 1 и 2
+  const double ExpectedP33 =
+      ExpectedSigmas[1] + 0.65 * (ExpectedSigmas[2] - ExpectedSigmas[1]);
+  const double Pos80 = 0.80 * 5.0; // 4.0 -> индекс 4
+  const double ExpectedP80 = ExpectedSigmas[4];
+  (void)Pos33;
+  (void)Pos80;
+  EXPECT_NEAR(Res.P33, ExpectedP33, 1e-12);
+  EXPECT_NEAR(Res.P80, ExpectedP80, 1e-12);
+
+  // Категория каждого окна синтетического ряда:
+  // 0, 2 -> Calm (sigma <= P33, mdd < 10%; у окна 2 sigma чуть меньше, чем у
+  // 1); 1, 3 -> Medium (P33 < sigma < P80, mdd < 10%); 4 -> Stress (sigma >=
+  // P80); 5 -> Stress (sigma >= P80 и mdd >= 20%).
+  EXPECT_EQ(Res.Windows[0].Category, core::PeriodCategory::Calm);
+  EXPECT_EQ(Res.Windows[1].Category, core::PeriodCategory::Medium);
+  EXPECT_EQ(Res.Windows[2].Category, core::PeriodCategory::Calm);
+  EXPECT_EQ(Res.Windows[3].Category, core::PeriodCategory::Medium);
+  EXPECT_EQ(Res.Windows[4].Category, core::PeriodCategory::Stress);
+  EXPECT_EQ(Res.Windows[5].Category, core::PeriodCategory::Stress);
+}
+
+TEST(PeriodClassifier, StressWinsOverCalmWhenP33EqualsP80) {
+  // Одно окно с нулевой волатильностью и MDD = 0 -> P33 = P80 = sigma = 0.
+  // Подходит и под Stress (sigma >= P80), и под Calm (sigma <= P33, mdd < 10%);
+  // побеждает Stress.
+  const std::vector<core::DailyClose> Series = {
+      dc(20250101, "100"),
+      dc(20250102, "100"),
+      dc(20250103, "100"),
+      dc(20250106, "100"),
+  };
+  const core::PeriodClassification Res = core::classifyPeriods(Series, 4);
+  ASSERT_EQ(Res.Windows.size(), 1u);
+  EXPECT_DOUBLE_EQ(Res.P33, 0.0);
+  EXPECT_DOUBLE_EQ(Res.P80, 0.0);
+  EXPECT_EQ(Res.Windows[0].Category, core::PeriodCategory::Stress);
 }
 
 TEST(PeriodClassifier, SingleWindowVariantMatchesFullClassification) {

@@ -116,3 +116,28 @@ TEST(WorkerEstimateOrder, NoFutureBarsAffectRpcEstimate) {
   ASSERT_TRUE(worker::handleEstimateOrder(Ctx2, Req, &R2).ok());
   EXPECT_EQ(R1.SerializeAsString(), R2.SerializeAsString());
 }
+
+TEST(WorkerEstimateOrder, ReturnsInvalidArgumentOnDecimalOverflow) {
+  core::testing::Fixture Fixture = core::testing::fixture1();
+  const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::D1);
+  std::vector<core::Bar> BarsA = Fixture.Bars.load(
+      core::BarRequest{"fixture-1", "FIXA", IntervalSec, 0, 2000000000000LL});
+  BarsA[2].Close = core::Decimal::parse("1000000000000000");
+  Fixture.Bars.addSeries("fixture-1", "FIXA", IntervalSec, BarsA);
+  worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+
+  pb::EstimateOrderRequest Req;
+  *Req.mutable_market() = fixtureMarket();
+  Req.set_up_to_step(2);
+  pb::OrderSpec *Order = Req.mutable_order();
+  Order->set_instrument_key("A");
+  Order->set_side(pb::BUY);
+  Order->set_type(pb::MARKET);
+  Order->set_lots(9223372036854775807LL);
+  Order->set_time_in_force(pb::DAY);
+
+  pb::EstimateOrderResponse Resp;
+  const grpc::Status Status = worker::handleEstimateOrder(Ctx, Req, &Resp);
+  EXPECT_EQ(Status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  EXPECT_NE(Status.error_message().find("lots"), std::string::npos);
+}

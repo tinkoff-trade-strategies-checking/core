@@ -94,6 +94,35 @@ TEST(WorkerClassifyPeriods, AllWindowsAndSingleWindowViaRpc) {
   EXPECT_DOUBLE_EQ(SingleResp.p33(), AllResp.p33());
   EXPECT_DOUBLE_EQ(SingleResp.p80(), AllResp.p80());
 
+  // Вариант «своя дата» с узким диапазоном from/to: пороги и категория
+  // должны совпадать с полным снапшотом, а не вырождаться по одному окну.
+  pb::ClassifyPeriodsRequest NarrowReq;
+  NarrowReq.set_snapshot_id("snap-1");
+  NarrowReq.set_window_length(4);
+  NarrowReq.set_from_date("2025-01-06");
+  NarrowReq.set_to_date("2025-01-09");
+
+  pb::ClassifyPeriodsResponse NarrowResp;
+  grpc::ClientContext ClientCtx3;
+  ASSERT_TRUE(Stub->ClassifyPeriods(&ClientCtx3, NarrowReq, &NarrowResp).ok());
+  ASSERT_EQ(NarrowResp.windows_size(), 1);
+  EXPECT_DOUBLE_EQ(NarrowResp.p33(), AllResp.p33());
+  EXPECT_DOUBLE_EQ(NarrowResp.p80(), AllResp.p80());
+  EXPECT_EQ(NarrowResp.windows(0).SerializeAsString(),
+            AllResp.windows(0).SerializeAsString());
+  EXPECT_EQ(NarrowResp.windows(0).category(), pb::CALM);
+
+  NarrowReq.set_start_date("2025-01-06");
+  pb::ClassifyPeriodsResponse NarrowSingleResp;
+  grpc::ClientContext ClientCtx4;
+  ASSERT_TRUE(
+      Stub->ClassifyPeriods(&ClientCtx4, NarrowReq, &NarrowSingleResp).ok());
+  ASSERT_EQ(NarrowSingleResp.windows_size(), 1);
+  EXPECT_DOUBLE_EQ(NarrowSingleResp.p33(), AllResp.p33());
+  EXPECT_DOUBLE_EQ(NarrowSingleResp.p80(), AllResp.p80());
+  EXPECT_EQ(NarrowSingleResp.windows(0).SerializeAsString(),
+            AllResp.windows(0).SerializeAsString());
+
   Server->Shutdown();
 }
 

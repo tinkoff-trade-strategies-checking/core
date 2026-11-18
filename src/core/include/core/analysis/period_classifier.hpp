@@ -12,9 +12,9 @@
 // - sigma = выборочное stdev(ln(C_d / C_{d-1})) * sqrt(252);
 // - mdd = max(1 - C_t / max_{s <= t} C_s);
 // - пороги P33 и P80 по sigma среди всех окон длины L в снапшоте;
-// - категория:
-//     Calm   — sigma <= P33 и mdd < 0.10;
+// - категория (при совпадении условий, например P33 == P80, побеждает Stress):
 //     Stress — sigma >= P80 или mdd >= 0.20;
+//     Calm   — sigma <= P33 и mdd < 0.10;
 //     Medium — иначе.
 
 namespace core {

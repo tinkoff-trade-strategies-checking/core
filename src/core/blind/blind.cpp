@@ -102,7 +102,6 @@ BlindBar toBlindBar(const StepBar &Bar, const BlindScale &Scale) {
   BlindBar Out;
   Out.Step = Bar.Step;
   Out.Instrument = Bar.Instrument;
-  Out.TimeUnixMs = Bar.TimeUnixMs;
   Out.TradingDay = Bar.TradingDay;
   Out.Open = scaleBlindPrice(Bar.Open, *Scale.P0);
   Out.High = scaleBlindPrice(Bar.High, *Scale.P0);

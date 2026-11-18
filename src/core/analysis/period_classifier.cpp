@@ -29,10 +29,12 @@ double percentileLinear(const std::vector<double> &Sorted, double Q) {
 }
 
 PeriodCategory categoryOf(double Sigma, double Mdd, double P33, double P80) {
-  if (Sigma <= P33 && Mdd < kCalmMaxMdd)
-    return PeriodCategory::Calm;
+  // Stress проверяется раньше Calm: при совпадении условий (например, P33 ==
+  // P80) побеждает более консервативный стрессовый режим.
   if (Sigma >= P80 || Mdd >= kStressMinMdd)
     return PeriodCategory::Stress;
+  if (Sigma <= P33 && Mdd < kCalmMaxMdd)
+    return PeriodCategory::Calm;
   return PeriodCategory::Medium;
 }
 
