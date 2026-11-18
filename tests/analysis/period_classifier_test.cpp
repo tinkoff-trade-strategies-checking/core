@@ -67,13 +67,11 @@ TEST(PeriodClassifier, SyntheticSeriesKnownSigmaMddAndCategories) {
   for (const auto &W : Res.Windows)
     ExpectedSigmas.push_back(W.Sigma);
   std::sort(ExpectedSigmas.begin(), ExpectedSigmas.end());
-  const double Pos33 = 0.33 * 5.0; // 1.65 -> между индексами 1 и 2
+  // Pos33 = 0.33 * 5.0 = 1.65 -> между индексами 1 и 2.
   const double ExpectedP33 =
       ExpectedSigmas[1] + 0.65 * (ExpectedSigmas[2] - ExpectedSigmas[1]);
-  const double Pos80 = 0.80 * 5.0; // 4.0 -> индекс 4
+  // Pos80 = 0.80 * 5.0 = 4.0 -> индекс 4.
   const double ExpectedP80 = ExpectedSigmas[4];
-  (void)Pos33;
-  (void)Pos80;
   EXPECT_NEAR(Res.P33, ExpectedP33, 1e-12);
   EXPECT_NEAR(Res.P80, ExpectedP80, 1e-12);
 
