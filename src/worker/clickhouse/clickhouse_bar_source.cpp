@@ -182,7 +182,10 @@ ClickHouseBarSource::load(const core::BarRequest &Request) {
   if (Request.IntervalSec < 1)
     throw std::invalid_argument("BarRequest: intervalSec должен быть >= 1");
   requireReadySnapshot(Request.SnapshotId);
-  requireSecurity(Request.SnapshotId, Request.Secid);
+  if (requireSecurity(Request.SnapshotId, Request.Secid) > 1) {
+    throw core::MarketDataError(
+        "в версии данных несколько записей инструмента: " + Request.Secid);
+  }
   if (Request.FromMs >= Request.ToMs)
     return {};
 
