@@ -31,6 +31,59 @@ jobs:
       - name: Тесты
         run: ctest --preset debug
 
+  clickhouse-integration:
+    runs-on: ubuntu-24.04
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8
+        ports:
+          - 8123:8123
+        env:
+          CLICKHOUSE_USER: ttsc
+          CLICKHOUSE_PASSWORD: secret
+          CLICKHOUSE_DB: ttsc
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Зависимости
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++-13 cmake ninja-build pkg-config \
+            libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libgtest-dev libcurl4-openssl-dev \
+            librapidcheck-dev
+
+      - name: Ожидание ClickHouse
+        run: |
+          for i in $(seq 1 30); do
+            CID=$(docker ps -q --filter ancestor=clickhouse/clickhouse-server:24.8)
+            if [ -n "$CID" ] && docker exec "$CID" clickhouse-client --user ttsc --password secret --query "SELECT 1" 2>/dev/null | grep -q "1"; then
+              echo "ClickHouse готов"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Загрузка SQL-фикстуры
+        run: |
+          CID=$(docker ps -q --filter ancestor=clickhouse/clickhouse-server:24.8)
+          docker exec -i "$CID" clickhouse-client --user ttsc --password secret -n < testdata/clickhouse-fixture.sql
+
+      - name: Конфигурация
+        run: cmake --preset debug
+        env:
+          CC: gcc-13
+          CXX: g++-13
+
+      - name: Сборка
+        run: cmake --build --preset debug --target worker_tests -j2
+
+      - name: Интеграционные тесты ClickHouse
+        run: ./build/debug/tests/worker_tests --gtest_filter='ClickHouseIntegration.*'
+        env:
+          CLICKHOUSE_URL: http://ttsc:secret@localhost:8123/ttsc
+
   style:
     runs-on: ubuntu-24.04
     steps:
