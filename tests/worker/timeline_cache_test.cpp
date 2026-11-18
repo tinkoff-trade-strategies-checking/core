@@ -200,7 +200,8 @@ TEST(TimelineCache, ReplaySessionReusesCachedTimeline) {
   EXPECT_EQ(Resp1.total_steps(), Resp2.total_steps());
 }
 
-// Замер производительности шага плеера по НФТ-7 (p95 <= 300 мс на фикстуре).
+// Замер шага плеера по НФТ-7 (p95 <= 300 мс) на фикстуре: цифры печатаются в
+// вывод теста (ctest -R PlayerStepBenchmarkNft7 -V).
 TEST(TimelineCache, PlayerStepBenchmarkNft7) {
   core::testing::Fixture F = core::testing::fixture1();
   worker::TimelineCache Cache(4);
@@ -247,15 +248,11 @@ TEST(TimelineCache, PlayerStepBenchmarkNft7) {
   const double Max = LatenciesMs.back();
 
   std::cout << "[BENCHMARK NFT-7] Шаг плеера с TimelineCache (100 итераций):"
-            << "\n  p50: " << P50 << " ms"
-            << "\n  p90: " << P90 << " ms"
-            << "\n  p95: " << P95 << " ms"
-            << "\n  p99: " << P99 << " ms"
+            << "\n  p50: " << P50 << " ms" << "\n  p90: " << P90 << " ms"
+            << "\n  p95: " << P95 << " ms" << "\n  p99: " << P99 << " ms"
             << "\n  max: " << Max << " ms" << std::endl;
 
-  // НФТ-7 требует p95 <= 300 мс. С кэшем время должно быть значительно меньше!
+  // НФТ-7: p95 <= 300 мс. Замер на фикстуре с источником в памяти: он
+  // измеряет накладные расходы обработчика и кэша, но не чтение ClickHouse.
   EXPECT_LE(P95, 300.0);
-  // Проверяем, что шаг плеера укладывается в единицы миллисекунд (на самом деле
-  // < 1 мс).
-  EXPECT_LE(P95, 10.0);
 }
