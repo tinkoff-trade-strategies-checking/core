@@ -20,7 +20,8 @@ constexpr std::int64_t kMinGapIntervals = 2;
 
 // Дней от 1970-01-01 до даты (григорианский календарь, алгоритм Говарда
 // Хиннанта).
-std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M, std::int32_t D) {
+constexpr std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M,
+                                     std::int32_t D) {
   Y -= M <= 2 ? 1 : 0;
   const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
   const std::int64_t Yoe = Y - Era * 400;
@@ -61,13 +62,16 @@ std::int64_t lastSundayDays(std::int32_t Year, std::int32_t Month) {
 // (INV-4). С 2014-10-26 01:00 UTC+3 (2014-10-25 22:00 UTC) - UTC+3;
 // с 2011-03-27 03:00 UTC+4 (2011-03-26 23:00 UTC) до перехода 2014-10-26 -
 // UTC+4; ранее - сезонный перевод РФ (последнее воскресенье марта/октября).
+// Правило точно для 1996-2010: до 1996 осенний перевод был в сентябре, поэтому
+// для дат раньше 1996 смещение в сентябре определяется неверно (берётся UTC+4
+// до последнего воскресенья октября). Поддерживаемый диапазон - с 1996 года.
 std::int64_t moscowOffsetMs(std::int64_t TsMs) {
-  static const std::int64_t kOct2014SwitchMs =
+  constexpr std::int64_t kOct2014SwitchMs =
       daysFromCivil(2014, 10, 25) * kDayMs + 22 * kHourMs;
   if (TsMs >= kOct2014SwitchMs)
     return kMoscowUtc3Ms;
 
-  static const std::int64_t kMar2011SwitchMs =
+  constexpr std::int64_t kMar2011SwitchMs =
       daysFromCivil(2011, 3, 26) * kDayMs + 23 * kHourMs;
   if (TsMs >= kMar2011SwitchMs)
     return kMoscowUtc4Ms;
