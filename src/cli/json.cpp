@@ -210,12 +210,7 @@ private:
       if (Ec == std::errc() && Ptr == NumStr.data() + NumStr.size())
         return JsonValue(IntVal);
     }
-    std::string Copy(NumStr);
-    std::size_t Parsed = 0;
-    const double DblVal = std::stod(Copy, &Parsed);
-    if (Parsed != Copy.size() || !std::isfinite(DblVal))
-      throw error("число вне диапазона");
-    return JsonValue(DblVal);
+    return JsonValue(JsonNumber{std::string(NumStr)});
   }
 
   JsonArray parseArray() {
@@ -309,6 +304,8 @@ void dumpImpl(std::ostringstream &Out, const JsonValue &Val, int Indent,
     Out << (Val.asBool() ? "true" : "false");
   } else if (Val.isInt()) {
     Out << Val.asInt64();
+  } else if (std::holds_alternative<JsonNumber>(Val.Data)) {
+    Out << std::get<JsonNumber>(Val.Data).Raw;
   } else if (Val.isNumber()) {
     const double Num = Val.asDouble();
     if (!std::isfinite(Num))
@@ -372,30 +369,33 @@ double JsonValue::asDouble(std::string_view Context) const {
     return static_cast<double>(std::get<std::int64_t>(Data));
   if (std::holds_alternative<double>(Data))
     return std::get<double>(Data);
+  if (std::holds_alternative<JsonNumber>(Data)) {
+    const std::string &Raw = std::get<JsonNumber>(Data).Raw;
+    std::size_t Parsed = 0;
+    const double DblVal = std::stod(Raw, &Parsed);
+    if (Parsed != Raw.size() || !std::isfinite(DblVal))
+      throw std::runtime_error(ctxPrefix(Context) + "число вне диапазона");
+    return DblVal;
+  }
   throw std::runtime_error(ctxPrefix(Context) + "ожидалось число");
 }
 
 core::Decimal JsonValue::asDecimal(std::string_view Context) const {
+  auto ParseExact = [Context](std::string_view Text) -> core::Decimal {
+    try {
+      return core::Decimal::parse(Text);
+    } catch (const std::exception &E) {
+      throw std::runtime_error(ctxPrefix(Context) + E.what());
+    }
+  };
   if (isString())
-    return core::Decimal::parse(std::get<std::string>(Data));
+    return ParseExact(std::get<std::string>(Data));
   if (isInt())
     return core::Decimal::fromUnits(std::get<std::int64_t>(Data));
-  if (std::holds_alternative<double>(Data)) {
-    std::ostringstream Ss;
-    Ss << std::fixed << std::setprecision(core::Decimal::kScale)
-       << std::get<double>(Data);
-    std::string Str = Ss.str();
-    const std::size_t Dot = Str.find('.');
-    if (Dot != std::string::npos) {
-      while (Str.size() > Dot + 1 && Str.back() == '0')
-        Str.pop_back();
-      if (Str.back() == '.')
-        Str.pop_back();
-    }
-    return core::Decimal::parse(Str);
-  }
+  if (std::holds_alternative<JsonNumber>(Data))
+    return ParseExact(std::get<JsonNumber>(Data).Raw);
   throw std::runtime_error(ctxPrefix(Context) +
-                           "ожидалась строка или число для Decimal");
+                           "ожидалась строка или десятичное число для Decimal");
 }
 
 const std::string &JsonValue::asString(std::string_view Context) const {

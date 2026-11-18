@@ -8,7 +8,7 @@
 #include "core/market/instrument.hpp"
 #include "core/market/ruonia_source.hpp"
 
-// Общие фикстуры тестов (входят и в core_tests, и в worker_tests).
+// Общие фикстуры для тестов и CLI (библиотека core_fixtures).
 
 namespace core::testing {
 

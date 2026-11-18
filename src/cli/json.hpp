@@ -15,9 +15,15 @@ struct JsonValue;
 using JsonArray = std::vector<JsonValue>;
 using JsonObject = std::map<std::string, JsonValue, std::less<>>;
 
+// Нецелое или не помещающееся в int64_t число JSON, сохранённое как исходный
+// токен без преобразования в double (INV-6).
+struct JsonNumber {
+  std::string Raw;
+};
+
 struct JsonValue {
   using Storage = std::variant<std::nullptr_t, bool, std::int64_t, double,
-                               std::string, JsonArray, JsonObject>;
+                               JsonNumber, std::string, JsonArray, JsonObject>;
 
   Storage Data;
 
@@ -27,6 +33,7 @@ struct JsonValue {
   JsonValue(int Val) : Data(static_cast<std::int64_t>(Val)) {}
   JsonValue(std::int64_t Val) : Data(Val) {}
   JsonValue(double Val) : Data(Val) {}
+  JsonValue(JsonNumber Val) : Data(std::move(Val)) {}
   JsonValue(const char *Val) : Data(std::string(Val)) {}
   JsonValue(std::string Val) : Data(std::move(Val)) {}
   JsonValue(JsonArray Val) : Data(std::move(Val)) {}
@@ -37,7 +44,8 @@ struct JsonValue {
   bool isInt() const { return std::holds_alternative<std::int64_t>(Data); }
   bool isNumber() const {
     return std::holds_alternative<std::int64_t>(Data) ||
-           std::holds_alternative<double>(Data);
+           std::holds_alternative<double>(Data) ||
+           std::holds_alternative<JsonNumber>(Data);
   }
   bool isString() const { return std::holds_alternative<std::string>(Data); }
   bool isArray() const { return std::holds_alternative<JsonArray>(Data); }

@@ -1,6 +1,5 @@
 #include "replay.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
@@ -8,22 +7,16 @@
 #include <iterator>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "core/engine/journal.hpp"
 #include "core/engine/session_engine.hpp"
 #include "core/exec/costs.hpp"
 #include "core/exec/order.hpp"
-#include "core/market/bar.hpp"
-#include "core/market/bar_source.hpp"
-#include "core/market/calendar_source.hpp"
-#include "core/market/in_memory_bar_source.hpp"
 #include "core/market/instrument.hpp"
 #include "core/market/timeframe.hpp"
 #include "core/market/timeline.hpp"
@@ -32,100 +25,11 @@
 #include "core/report/metrics.hpp"
 #include "core/report/ruonia.hpp"
 #include "json.hpp"
+#include "support/fixture1.hpp"
 
 namespace cli {
 
 namespace {
-
-constexpr std::int64_t kDayMs = 86'400'000;
-constexpr std::int64_t kMoscowOffsetMs = 3 * 3'600'000;
-
-std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M, std::int32_t D) {
-  Y -= M <= 2 ? 1 : 0;
-  const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
-  const std::int64_t Yoe = Y - Era * 400;
-  const std::int64_t Doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
-  const std::int64_t Doe = Yoe * 365 + Yoe / 4 - Yoe / 100 + Doy;
-  return Era * 146097 + Doe - 719468;
-}
-
-std::int64_t moscowDayStartMs(std::int32_t Ymd) {
-  return daysFromCivil(Ymd / 10000, Ymd / 100 % 100, Ymd % 100) * kDayMs -
-         kMoscowOffsetMs;
-}
-
-struct FixtureData {
-  std::string SnapshotId;
-  std::vector<core::Instrument> Instruments;
-  core::InMemoryBarSource Bars;
-  core::InMemoryCalendarSource Calendar;
-  core::RuoniaSeries Ruonia;
-  std::int32_t FromYmd = 20240109;
-  std::int32_t ToYmd = 20240122;
-};
-
-FixtureData makeFixture1() {
-  FixtureData Data;
-  Data.SnapshotId = "fixture-1";
-  const std::int32_t TradingDays[] = {20240109, 20240110, 20240111, 20240112,
-                                      20240115, 20240116, 20240117, 20240118,
-                                      20240119, 20240122};
-  const char *const ClosesA[] = {"100", "101", "103", "106", "104",
-                                 "101", "99",  "102", "105", "108"};
-
-  Data.Instruments = {
-      core::Instrument{"A", "FIXA", 10, core::Decimal::parse("0.01")},
-      core::Instrument{"B", "FIXB", 10000, core::Decimal::parse("0.000005")}};
-  Data.Bars.addSecurity(
-      Data.SnapshotId,
-      core::Security{"FIXA", "Финансы", 10, core::Decimal::parse("0.01")});
-  Data.Bars.addSecurity(Data.SnapshotId,
-                        core::Security{"FIXB", "Энергетика", 10000,
-                                       core::Decimal::parse("0.000005")});
-
-  std::vector<core::Bar> BarsA;
-  std::vector<core::Bar> BarsB;
-  core::Decimal PreviousClose = core::Decimal::parse("100");
-  for (int I = 0; I < 10; ++I) {
-    const std::int64_t Open = moscowDayStartMs(TradingDays[I]);
-    const core::Decimal Close = core::Decimal::parse(ClosesA[I]);
-    core::Bar BarA;
-    BarA.TsOpenMs = Open;
-    BarA.AvailableAtMs = Open + kDayMs;
-    BarA.Open = PreviousClose;
-    BarA.High = std::max(PreviousClose, Close) + core::Decimal::one();
-    BarA.Low = std::min(PreviousClose, Close) - core::Decimal::one();
-    BarA.Close = Close;
-    BarA.Volume = 100'000;
-    BarA.Value = Close.times(BarA.Volume);
-    BarsA.push_back(BarA);
-    PreviousClose = Close;
-
-    if (TradingDays[I] == 20240112)
-      continue;
-    core::Bar BarB;
-    BarB.TsOpenMs = Open;
-    BarB.AvailableAtMs = Open + kDayMs;
-    BarB.Open = BarB.High = BarB.Low = BarB.Close =
-        core::Decimal::parse("0.0200");
-    BarB.Volume = 1'000'000'000;
-    BarB.Value = BarB.Close.times(BarB.Volume);
-    BarsB.push_back(BarB);
-  }
-  Data.Bars.addSeries(Data.SnapshotId, "FIXA", 86400, std::move(BarsA));
-  Data.Bars.addSeries(Data.SnapshotId, "FIXB", 86400, std::move(BarsB));
-
-  std::vector<core::TradingDay> Calendar;
-  for (std::int32_t Day = 20240108; Day <= 20240122; ++Day) {
-    const bool Trading =
-        std::find(std::begin(TradingDays), std::end(TradingDays), Day) !=
-        std::end(TradingDays);
-    Calendar.push_back(core::TradingDay{Day, Trading});
-  }
-  Data.Calendar.add(Data.SnapshotId, std::move(Calendar));
-  Data.Ruonia.Rates = {core::DailyRate{20240108, core::Decimal::parse("15.0")}};
-  return Data;
-}
 
 std::string toUpper(std::string_view Str) {
   std::string Out(Str);
@@ -404,6 +308,7 @@ JsonValue buildReportJson(const core::ReplayResult &Replay,
     Item["entry_price"] = Trip.EntryPrice.toString();
     Item["exit_price"] = Trip.ExitPrice.toString();
     Item["gross_pnl"] = (Trip.ExitValue - Trip.EntryValue).toString();
+    Item["costs"] = Trip.Costs.toString();
     Item["net_pnl"] = Trip.NetPnl.toString();
     TripsArr.emplace_back(std::move(Item));
   }
@@ -487,10 +392,12 @@ buildMetricsInput(const core::SessionEngine &Engine,
 }
 
 int runBuiltInFixture(std::ostream &Out) {
-  FixtureData Fix = makeFixture1();
+  core::testing::Fixture Fix = core::testing::fixture1();
+  constexpr std::int32_t kFromYmd = 20240109;
+  constexpr std::int32_t kToYmd = 20240122;
   auto Tl = std::make_shared<core::Timeline>(core::Timeline::load(
       Fix.Bars, Fix.Calendar, Fix.SnapshotId, Fix.Instruments,
-      core::Timeframe::D1, Fix.FromYmd, Fix.ToYmd));
+      core::Timeframe::D1, kFromYmd, kToYmd));
 
   core::SessionSpec Spec;
   Spec.Instruments = Fix.Instruments;
@@ -516,8 +423,10 @@ int runBuiltInFixture(std::ostream &Out) {
   const std::int64_t UpTo = Tl->totalSteps() - 1;
   const core::ReplayResult Replay =
       core::replaySession(Spec, Tl, Journal, UpTo, 0);
+  const core::RuoniaSeries Ruonia{
+      Fix.Ruonia.ruoniaRates(Fix.SnapshotId, kToYmd)};
   const core::MetricsInput Input =
-      buildMetricsInput(Replay.Engine, Spec.InitialCash, *Tl, Fix.Ruonia);
+      buildMetricsInput(Replay.Engine, Spec.InitialCash, *Tl, Ruonia);
   const core::Report Report = core::computeReport(Input);
   Out << dumpJson(buildReportJson(Replay, Report, Spec.Instruments)) << "\n";
   return 0;
@@ -549,7 +458,7 @@ int runFromJson(std::string_view PathArg, std::ostream &Out) {
                              "' (встроенный: fixture-1)");
   }
 
-  FixtureData Fix = makeFixture1();
+  core::testing::Fixture Fix = core::testing::fixture1();
   const core::Timeframe Tf = parseTimeframe(
       requireField(Market, "timeframe", "market").asString("timeframe"));
   const std::int32_t FromYmd =
@@ -624,8 +533,10 @@ int runFromJson(std::string_view PathArg, std::ostream &Out) {
 
   const core::ReplayResult Replay =
       core::replaySession(Spec, Tl, Journal, UpToStep, 0);
+  const core::RuoniaSeries Ruonia{
+      Fix.Ruonia.ruoniaRates(Fix.SnapshotId, ToYmd)};
   const core::MetricsInput Input =
-      buildMetricsInput(Replay.Engine, Spec.InitialCash, *Tl, Fix.Ruonia);
+      buildMetricsInput(Replay.Engine, Spec.InitialCash, *Tl, Ruonia);
   const core::Report Report = core::computeReport(Input);
   Out << dumpJson(buildReportJson(Replay, Report, Spec.Instruments)) << "\n";
   return 0;
