@@ -200,6 +200,10 @@ BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
     Pos.AvgPrice = scaleBlindPrice(Snapshot.AvgPrice[Idx], *Scale.P0);
     Pos.MarketValuePct =
         toPercentOfCapital(Snapshot.MarketValue[Idx], InitialCash);
+    if (Idx < Snapshot.CostBasis.size()) {
+      Pos.PnlPct = positionPnlPct(Snapshot.MarketValue[Idx],
+                                  Snapshot.CostBasis[Idx], InitialCash);
+    }
     Out.Positions.push_back(std::move(Pos));
   }
   return Out;

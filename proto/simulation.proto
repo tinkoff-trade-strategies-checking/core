@@ -270,18 +270,26 @@ message Position {
   int64 lots = 2;
   Decimal avg_price = 3;
   Decimal market_value = 4;
-  Decimal share_pct = 5;   // market_value / equity * 100, 2 знака HALF_UP; 0 при equity <= 0 (core#54)
-  Decimal pnl_pct = 6;     // нереализованный P&L: (market_value - avg_price * lots * lot_size) / (avg_price * lots * lot_size) * 100, 2 знака HALF_UP
+  // Проценты (core#54), ×100, 2 знака HALF_UP; база — начальный капитал (как BlindPosition).
+  Decimal value_pct = 5;   // market_value / initial_cash
+  Decimal pnl_pct = 6;     // нереализованный P&L: (market_value - себестоимость) / initial_cash; себестоимость — точная сумма покупок открытых лотов (FIFO), без комиссии и сбора
 }
 
 message Portfolio {
   Decimal cash = 1;
   Decimal equity = 2;
   repeated Position positions = 3;
-  // Проценты (core#54), уже ×100, 2 знака HALF_UP:
-  Decimal invested_pct = 4;  // сумма стоимости позиций / equity; 0 при equity <= 0
+  // Проценты (core#54), уже ×100, 2 знака HALF_UP; база всех — начальный капитал (initial_cash).
+  // cash_pct + invested_pct = equity_pct с точностью до 0,01 (округляются по отдельности).
+  Decimal invested_pct = 4;  // сумма стоимости позиций / initial_cash
   Decimal costs_pct = 5;     // накопленные издержки сделок до этого шага включительно / initial_cash
   Decimal pnl_pct = 6;       // (equity - initial_cash) / initial_cash
+  Decimal equity_pct = 7;    // equity / initial_cash
+  Decimal cash_pct = 8;      // cash / initial_cash
+  // Те же величины в рублях (точные суммы):
+  Decimal invested = 9;      // сумма стоимости позиций
+  Decimal pnl = 10;          // equity - initial_cash
+  Decimal costs = 11;        // накопленные издержки сделок до этого шага включительно
 }
 
 message CommandResult {
@@ -323,7 +331,7 @@ message Metrics {
   double max_position_share = 16;
   optional double benchmark_return = 17;
   int32 trading_days = 18;
-  int64 max_drawdown_days = 20;    // длительность макс. просадки в днях: ceil(max_drawdown_steps / шагов в дне), core#54
+  int64 max_drawdown_days = 20;    // число разных торговых дней, на которые пришлась самая длинная серия шагов ниже пика (без деления и округления), core#54
   int64 stop_take_same_bar = 19;   // сделок, где стоп и тейк задеты одной свечой (исполнен стоп, INV-3)
 }
 
@@ -370,8 +378,8 @@ message Report {
   repeated UnderwaterPoint underwater = 9;
 }
 
-// Глубина просадки от пика, в процентах (уже ×100): (пик - equity) / пик * 100, 0..100, 2 знака HALF_UP; 0 в пике.
-// Пик стартует с initial_cash (как Metrics.max_drawdown).
+// Глубина просадки от пика, в процентах (уже ×100): (пик - equity) / пик * 100, >= 0, 2 знака HALF_UP; 0 в пике.
+// Пик стартует с initial_cash (как Metrics.max_drawdown). При отрицательном equity значение может превысить 100.
 message UnderwaterPoint {
   int64 step = 1;
   Decimal drawdown_pct = 2;
@@ -413,6 +421,7 @@ message BlindPosition {
   int64 lots = 2;
   Decimal avg_price = 3;         // x * 100 / P0, 2 знака HALF_UP
   Decimal market_value_pct = 4;  // % от начального капитала, 2 знака HALF_UP
+  Decimal pnl_pct = 5;           // нереализованный P&L, % начального капитала, 2 знака HALF_UP (core#54)
 }
 
 message BlindPortfolio {
@@ -420,7 +429,7 @@ message BlindPortfolio {
   Decimal equity_pct = 2;
   Decimal pnl_pct = 3;
   repeated BlindPosition positions = 4;
-  Decimal invested_pct = 5;  // как Portfolio.invested_pct
+  Decimal invested_pct = 5;  // как Portfolio.invested_pct (% начального капитала)
   Decimal costs_pct = 6;     // как Portfolio.costs_pct
 }
 

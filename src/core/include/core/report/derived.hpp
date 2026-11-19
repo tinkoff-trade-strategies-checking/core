@@ -15,28 +15,41 @@
 
 namespace core {
 
-// Портфель в процентах на шаге.
+// Портфель на шаге: рубли и проценты. База ВСЕХ процентов - начальный капитал
+// (`decisions.md`, «Слепой режим»), поэтому CashPct + InvestedPct = EquityPct
+// (с точностью до 0,01 из-за отдельных округлений).
 struct PortfolioPcts {
-  Decimal InvestedPct; // стоимость позиций / equity; 0 при equity <= 0
-  Decimal CostsPct; // накопленные издержки сделок / начальный капитал
-  Decimal PnlPct; // (equity - начальный капитал) / начальный капитал
+  Decimal Invested; // сумма стоимости позиций, ₽
+  Decimal Pnl;      // equity - начальный капитал, ₽
+  Decimal Costs;    // накопленные издержки сделок, ₽
+  Decimal EquityPct, CashPct, InvestedPct, PnlPct, CostsPct;
 };
 
-// Сумма издержек сделок (Fill::cost()) на шагах <= UpToStep.
-Decimal cumulativeCosts(const std::vector<Fill> &Fills, std::int64_t UpToStep);
+// Накопленные издержки сделок (Fill::cost()) до шага включительно: префиксные
+// суммы по сделкам в порядке исполнения (шаги не убывают), запрос - O(log n).
+class CostLedger {
+public:
+  explicit CostLedger(const std::vector<Fill> &Fills);
+  Decimal upTo(std::int64_t Step) const;
+
+private:
+  std::vector<std::int64_t> Steps;
+  std::vector<Decimal> Prefix; // Prefix[i] - сумма первых i сделок
+};
 
 // InitialCash > 0, иначе std::invalid_argument.
 PortfolioPcts portfolioPcts(const PortfolioSnapshot &Snapshot,
                             const Decimal &InitialCash,
                             const Decimal &CumulativeCosts);
 
-// Доля позиции в equity: MarketValue / Equity; 0 при equity <= 0.
-Decimal positionSharePct(const Decimal &MarketValue, const Decimal &Equity);
+// Стоимость позиции в % начального капитала.
+Decimal positionValuePct(const Decimal &MarketValue,
+                         const Decimal &InitialCash);
 
-// Нереализованный P&L позиции: (MarketValue - Avg*Lots*LotSize) /
-// (Avg*Lots*LotSize); 0 при нулевой базе.
-Decimal positionPnlPct(const Decimal &MarketValue, const Decimal &AvgPrice,
-                       std::int64_t Lots, std::int64_t LotSize);
+// Нереализованный P&L позиции в % начального капитала:
+// (MarketValue - CostBasis) / InitialCash.
+Decimal positionPnlPct(const Decimal &MarketValue, const Decimal &CostBasis,
+                       const Decimal &InitialCash);
 
 // Изменение цены бумаги на курсоре (INV-1: только бары шагов <= LastStep).
 // StepPct: close последнего бара <= LastStep к close предыдущего бара

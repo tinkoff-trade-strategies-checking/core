@@ -1,5 +1,6 @@
 #include "core/report/derived.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 #include "core/money/rounding.hpp"
@@ -19,12 +20,17 @@ Decimal pct(const Decimal &Part, const Decimal &Whole) {
 
 } // namespace
 
-Decimal cumulativeCosts(const std::vector<Fill> &Fills, std::int64_t UpToStep) {
-  Decimal Sum;
-  for (const Fill &F : Fills)
-    if (F.Step <= UpToStep)
-      Sum += F.cost();
-  return Sum;
+CostLedger::CostLedger(const std::vector<Fill> &Fills) {
+  Prefix.push_back(Decimal::zero());
+  for (const Fill &F : Fills) {
+    Steps.push_back(F.Step);
+    Prefix.push_back(Prefix.back() + F.cost());
+  }
+}
+
+Decimal CostLedger::upTo(std::int64_t Step) const {
+  const auto End = std::upper_bound(Steps.begin(), Steps.end(), Step);
+  return Prefix[static_cast<std::size_t>(End - Steps.begin())];
 }
 
 PortfolioPcts portfolioPcts(const PortfolioSnapshot &Snapshot,
@@ -32,24 +38,27 @@ PortfolioPcts portfolioPcts(const PortfolioSnapshot &Snapshot,
                             const Decimal &CumulativeCosts) {
   if (InitialCash <= Decimal::zero())
     throw std::invalid_argument("начальный капитал должен быть > 0");
-  Decimal Invested;
-  for (const Decimal &V : Snapshot.MarketValue)
-    Invested += V;
   PortfolioPcts Out;
-  Out.InvestedPct = pct(Invested, Snapshot.Equity);
+  for (const Decimal &V : Snapshot.MarketValue)
+    Out.Invested += V;
+  Out.Pnl = Snapshot.Equity - InitialCash;
+  Out.Costs = CumulativeCosts;
+  Out.EquityPct = pct(Snapshot.Equity, InitialCash);
+  Out.CashPct = pct(Snapshot.Cash, InitialCash);
+  Out.InvestedPct = pct(Out.Invested, InitialCash);
+  Out.PnlPct = pct(Out.Pnl, InitialCash);
   Out.CostsPct = pct(CumulativeCosts, InitialCash);
-  Out.PnlPct = pct(Snapshot.Equity - InitialCash, InitialCash);
   return Out;
 }
 
-Decimal positionSharePct(const Decimal &MarketValue, const Decimal &Equity) {
-  return pct(MarketValue, Equity);
+Decimal positionValuePct(const Decimal &MarketValue,
+                         const Decimal &InitialCash) {
+  return pct(MarketValue, InitialCash);
 }
 
-Decimal positionPnlPct(const Decimal &MarketValue, const Decimal &AvgPrice,
-                       std::int64_t Lots, std::int64_t LotSize) {
-  const Decimal Basis = AvgPrice.times(Lots).times(LotSize);
-  return pct(MarketValue - Basis, Basis);
+Decimal positionPnlPct(const Decimal &MarketValue, const Decimal &CostBasis,
+                       const Decimal &InitialCash) {
+  return pct(MarketValue - CostBasis, InitialCash);
 }
 
 InstrumentChange instrumentChange(const Timeline &Timeline, int Instrument,
@@ -59,11 +68,12 @@ InstrumentChange instrumentChange(const Timeline &Timeline, int Instrument,
   if (Last == nullptr)
     return Out;
 
-  // Предыдущий close: бары до Last по шагам, затем прогрев.
+  // Предыдущий close: бар до Last по шагам, затем прогрев.
   std::optional<Decimal> PrevClose;
-  for (std::int64_t Step = Last->Step - 1; Step >= 0 && !PrevClose; --Step)
-    if (const StepBar *B = Timeline.barOf(Instrument, Step))
-      PrevClose = B->Close;
+  if (Last->Step >= 1) {
+    if (const StepBar *Prev = Timeline.lastBarOf(Instrument, Last->Step - 1))
+      PrevClose = Prev->Close;
+  }
   if (!PrevClose) {
     for (const StepBar &B : Timeline.warmupBars())
       if (B.Instrument == Instrument)

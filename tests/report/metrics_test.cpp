@@ -338,27 +338,63 @@ TEST(MetricsDerived, UnderwaterEdgeCases) {
   EXPECT_EQ(Round.Underwater[1].DrawdownPct, d("0.17"));
 }
 
-// core#54: длительность максимальной просадки в днях.
-TEST(MetricsDerived, MaxDrawdownDays) {
-  // По 2 шага в дне, 3 шага подряд ниже пика -> ceil(3 / 2) = 2 дня.
+// core#54: длительность максимальной просадки в днях - число разных торговых
+// дней, на которые пришлась самая длинная серия шагов ниже пика.
+MetricsInput intraday(const std::vector<const char *> &Equity,
+                      const std::vector<std::int32_t> &Days) {
   MetricsInput In;
   In.InitialCash = d("1000000");
-  const char *Eq[] = {"1010000", "1000000", "990000",
-                      "980000",  "985000",  "1020000"};
-  const std::int32_t Day[] = {1, 1, 2, 2, 3, 3};
-  for (int I = 0; I < 6; ++I) {
-    In.Equity.push_back({I, d(Eq[I])});
-    In.TradingDayOfStep.push_back(Day[I]);
+  for (std::size_t I = 0; I < Equity.size(); ++I) {
+    In.Equity.push_back({static_cast<std::int64_t>(I), d(Equity[I])});
+    In.TradingDayOfStep.push_back(Days[I]);
   }
-  In.RuoniaRates = {Decimal::zero(), Decimal::zero(), Decimal::zero()};
-  In.CalendarDays = {1, 1, 1};
-  const core::Metrics M = core::computeReport(In).Stats;
+  for (std::int32_t Day = 1; Day <= Days.back(); ++Day) {
+    In.RuoniaRates.push_back(Decimal::zero());
+    In.CalendarDays.push_back(1);
+  }
+  return In;
+}
+
+TEST(MetricsDerived, MaxDrawdownDaysIntraday) {
+  // По 2 шага в дне; ниже пика шаги 1..4: дни 1, 2, 2, 3 -> 3 дня.
+  const core::Metrics M =
+      core::computeReport(intraday({"1010000", "1000000", "990000", "980000",
+                                    "985000", "1020000"},
+                                   {1, 1, 2, 2, 3, 3}))
+          .Stats;
   EXPECT_EQ(M.MaxDrawdownSteps, 4);
-  EXPECT_EQ(M.MaxDrawdownDays, 2);
+  EXPECT_EQ(M.MaxDrawdownDays, 3);
+}
+
+TEST(MetricsDerived, MaxDrawdownDaysShortDayAndInsideOneDay) {
+  // Короткий день 2 из одного шага: серия шагов 1..3 (дни 1, 2, 3) -> 3 дня,
+  // хотя шагов в дне не поровну.
+  const core::Metrics Short =
+      core::computeReport(
+          intraday({"1010000", "1000000", "990000", "985000", "1020000"},
+                   {1, 1, 2, 3, 3}))
+          .Stats;
+  EXPECT_EQ(Short.MaxDrawdownSteps, 3);
+  EXPECT_EQ(Short.MaxDrawdownDays, 3);
+  // Серия целиком внутри одного дня - 1 день.
+  const core::Metrics Inside =
+      core::computeReport(
+          intraday({"1010000", "1000000", "990000", "1020000"}, {1, 1, 1, 2}))
+          .Stats;
+  EXPECT_EQ(Inside.MaxDrawdownSteps, 2);
+  EXPECT_EQ(Inside.MaxDrawdownDays, 1);
+  // Две серии: берётся самая длинная по шагам, а не по дням.
+  const core::Metrics Two =
+      core::computeReport(intraday({"990000", "1010000", "1000000", "990000",
+                                    "1020000", "1000000"},
+                                   {1, 2, 3, 3, 4, 5}))
+          .Stats;
+  EXPECT_EQ(Two.MaxDrawdownSteps, 2);
+  EXPECT_EQ(Two.MaxDrawdownDays, 1);
 }
 
 TEST(MetricsDerived, MaxDrawdownDaysDailyAndNone) {
-  // Шаг = день: дни равны шагам.
+  // Дневная шкала: дни равны шагам.
   EXPECT_EQ(core::computeReport(dailyInput({"990000", "980000", "985000"}))
                 .Stats.MaxDrawdownDays,
             3);

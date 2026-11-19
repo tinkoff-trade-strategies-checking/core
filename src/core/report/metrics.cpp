@@ -27,23 +27,35 @@ double annualFactor() { return std::sqrt(kTradingDaysPerYear); }
 struct Dd {
   double MaxDrawdown = 0;
   std::int64_t MaxSteps = 0;
+  std::int64_t MaxDays = 0; // торговых дней, на которые пришлась серия MaxSteps
 };
 
 // Просадка от пика; пик стартует с начального капитала. Шаги «ниже пика»
-// считаются подряд, пока цена не вернётся на пик или выше.
-Dd drawdown(const Decimal &InitialCash,
-            const std::vector<EquityPoint> &Equity) {
+// считаются подряд, пока цена не вернётся на пик или выше. Длительность в днях
+// - число разных торговых дней самой длинной серии (при равных - первой).
+Dd drawdown(const MetricsInput &In) {
   Dd Out;
-  Decimal Peak = InitialCash;
-  std::int64_t Run = 0;
-  for (const EquityPoint &P : Equity) {
+  Decimal Peak = In.InitialCash;
+  std::int64_t Run = 0, RunDays = 0;
+  std::int32_t PrevDay = 0;
+  for (const EquityPoint &P : In.Equity) {
     if (P.Equity > Peak) {
       Peak = P.Equity;
       Run = 0;
     } else if (P.Equity < Peak) {
       Out.MaxDrawdown = std::max(Out.MaxDrawdown,
                                  1.0 - P.Equity.toDouble() / Peak.toDouble());
-      Out.MaxSteps = std::max(Out.MaxSteps, ++Run);
+      const std::int32_t Day =
+          In.TradingDayOfStep[static_cast<std::size_t>(P.Step)];
+      if (++Run == 1 || Day != PrevDay)
+        ++RunDays;
+      if (Run == 1)
+        RunDays = 1;
+      PrevDay = Day;
+      if (Run > Out.MaxSteps) {
+        Out.MaxSteps = Run;
+        Out.MaxDays = RunDays;
+      }
     } else {
       Run = 0;
     }
@@ -217,19 +229,10 @@ Report computeReport(const MetricsInput &In) {
       M.Sortino = MuE / DownsideDev * annualFactor();
   }
 
-  const Dd Dd = drawdown(In.InitialCash, In.Equity);
+  const Dd Dd = drawdown(In);
   M.MaxDrawdown = Dd.MaxDrawdown;
   M.MaxDrawdownSteps = Dd.MaxSteps;
-  if (Dd.MaxSteps > 0) {
-    std::int64_t StepsPerDay = 1, InDay = 0;
-    std::int32_t Day = 0;
-    for (std::size_t I = 0; I < In.TradingDayOfStep.size(); ++I) {
-      InDay = (I > 0 && In.TradingDayOfStep[I] == Day) ? InDay + 1 : 1;
-      Day = In.TradingDayOfStep[I];
-      StepsPerDay = std::max(StepsPerDay, InDay);
-    }
-    M.MaxDrawdownDays = (Dd.MaxSteps + StepsPerDay - 1) / StepsPerDay;
-  }
+  M.MaxDrawdownDays = Dd.MaxDays;
 
   M.Fills = static_cast<std::int64_t>(In.Fills.size());
   M.RoundTrips = static_cast<std::int64_t>(In.RoundTrips.size());

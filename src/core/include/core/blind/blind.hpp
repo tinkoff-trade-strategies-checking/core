@@ -52,6 +52,7 @@ struct BlindPosition {
   std::int64_t Lots = 0;
   Decimal AvgPrice;
   Decimal MarketValuePct;
+  Decimal PnlPct; // нереализованный P&L, % начального капитала (core#54)
 };
 
 struct BlindPortfolio {
@@ -173,7 +174,7 @@ Decimal toPercentOfCapital(const Decimal &Amount, const Decimal &InitialCash);
 BlindBar toBlindBar(const StepBar &Bar, const BlindScale &Scale);
 
 // CumulativeCosts - сумма издержек сделок до шага снимка включительно
-// (cumulativeCosts), для CostsPct.
+// (CostLedger::upTo), для CostsPct.
 BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
                                 const Decimal &InitialCash,
                                 const std::vector<BlindScale> &Scales,

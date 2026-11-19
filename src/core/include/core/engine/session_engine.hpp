@@ -30,6 +30,7 @@ struct PortfolioSnapshot {
   std::vector<Decimal> AvgPrice; // средневзвешенная цена покупки, 0 без позиции
   std::vector<Decimal>
       MarketValue; // стоимость позиции по close последнего бара, 0 без позиции
+  std::vector<Decimal> CostBasis; // себестоимость открытой позиции (core#54)
 };
 
 struct StepEvents {

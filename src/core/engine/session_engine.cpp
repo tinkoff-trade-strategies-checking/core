@@ -250,6 +250,7 @@ PortfolioSnapshot SessionEngine::snapshot() const {
   for (std::size_t I = 0; I < N; ++I) {
     S.Lots.push_back(PortfolioState.lots(static_cast<int>(I)));
     S.AvgPrice.push_back(PortfolioState.avgPrice(static_cast<int>(I)));
+    S.CostBasis.push_back(PortfolioState.costBasis(static_cast<int>(I)));
   }
   S.MarketValue = PositionValues.back();
   return S;

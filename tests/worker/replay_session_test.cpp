@@ -903,6 +903,7 @@ TEST_F(ReplaySession, DerivedBlindView) {
 }
 
 // core#54: проценты портфеля, позиций, изменение цены, просадка в днях.
+// База всех процентов - начальный капитал.
 TEST_F(ReplaySession, DerivedPortfolioAndPositionPcts) {
   Journal = {marketOrder(0, 0, "A", pb::BUY, 5)};
   pb::ReplaySessionResponse Response;
@@ -913,25 +914,37 @@ TEST_F(ReplaySession, DerivedPortfolioAndPositionPcts) {
   const core::Decimal Cost = core::fromProto(Response.fills(0).cost());
   EXPECT_EQ(core::fromProto(P.costs_pct()),
             core::toPercentOfCapital(Cost, Cash));
+  EXPECT_EQ(core::fromProto(P.costs()), Cost);
   EXPECT_EQ(core::fromProto(P.pnl_pct()),
             core::toPercentOfCapital(Equity - Cash, Cash));
+  EXPECT_EQ(core::fromProto(P.pnl()), Equity - Cash);
+  EXPECT_EQ(core::fromProto(P.equity_pct()),
+            core::toPercentOfCapital(Equity, Cash));
+  EXPECT_EQ(core::fromProto(P.cash_pct()),
+            core::toPercentOfCapital(core::fromProto(P.cash()), Cash));
   ASSERT_EQ(P.positions_size(), 1);
   const pb::Position &Pos = P.positions(0);
   const core::Decimal Value = core::fromProto(Pos.market_value());
+  EXPECT_EQ(core::fromProto(P.invested()), Value);
   EXPECT_EQ(core::fromProto(P.invested_pct()),
-            core::positionSharePct(Value, Equity));
-  EXPECT_EQ(core::fromProto(Pos.share_pct()),
+            core::toPercentOfCapital(Value, Cash));
+  EXPECT_EQ(core::fromProto(Pos.value_pct()),
             core::fromProto(P.invested_pct()));
+  // cash_pct + invested_pct = equity_pct с точностью до 0,01
+  const core::Decimal Diff =
+      core::fromProto(P.equity_pct()) -
+      (core::fromProto(P.cash_pct()) + core::fromProto(P.invested_pct()));
+  EXPECT_LE(Diff.abs(), core::Decimal::parse("0.01"));
+  // себестоимость - точная сумма покупки (value сделки)
   EXPECT_EQ(core::fromProto(Pos.pnl_pct()),
-            core::positionPnlPct(Value, core::fromProto(Pos.avg_price()),
-                                 Pos.lots(), 10));
-  // события шага 4 несут тот же портфель, а на шаге 0 - издержек ещё нет
+            core::toPercentOfCapital(
+                Value - core::fromProto(Response.fills(0).value()), Cash));
+  // портфель в событии шага 4 - тот же; покупка исполнена на шаге 1
   EXPECT_EQ(core::fromProto(Response.events(3).portfolio().costs_pct()),
             core::fromProto(P.costs_pct()));
-  EXPECT_EQ(
-      core::fromProto(Response.events(0).portfolio().costs_pct()),
-      core::toPercentOfCapital(Cost, Cash)); // покупка исполнена на шаге 1
-  // в пустом портфеле: нули
+  EXPECT_EQ(core::fromProto(Response.events(0).portfolio().costs_pct()),
+            core::toPercentOfCapital(Cost, Cash));
+  // пустой портфель: нули, equity 100%
   Journal.clear();
   pb::ReplaySessionResponse Empty;
   ASSERT_TRUE(replay(4, -1, &Empty, false, true).ok());
@@ -941,6 +954,24 @@ TEST_F(ReplaySession, DerivedPortfolioAndPositionPcts) {
             core::Decimal::zero());
   EXPECT_EQ(core::fromProto(Empty.portfolio().pnl_pct()),
             core::Decimal::zero());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().equity_pct()),
+            core::Decimal::parse("100.00"));
+  EXPECT_EQ(core::fromProto(Empty.portfolio().invested()),
+            core::Decimal::zero());
+}
+
+// seq сделок не зависит от курсора: префикс совпадает (UUID v5 у backend).
+TEST_F(ReplaySession, DerivedSeqStableAcrossCursor) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5),
+             marketOrder(1, 4, "A", pb::SELL, 5)};
+  pb::ReplaySessionResponse Early, Late;
+  ASSERT_TRUE(replay(9, -1, &Late, false, false).ok());
+  Journal.pop_back(); // команды позже курсора журнал не допускает
+  ASSERT_TRUE(replay(2, -1, &Early, false, false).ok());
+  ASSERT_EQ(Early.fills_size(), 1);
+  ASSERT_EQ(Late.fills_size(), 2);
+  EXPECT_EQ(Early.fills(0).seq(), Late.fills(0).seq());
+  EXPECT_EQ(Late.fills(1).seq(), 1);
 }
 
 TEST_F(ReplaySession, DerivedInstrumentChanges) {
@@ -979,6 +1010,11 @@ TEST_F(ReplaySession, DerivedBlindPortfolioAndChange) {
   const pb::BlindSessionView &Bv = Response.blind_view();
   EXPECT_EQ(core::fromProto(Bv.portfolio().invested_pct()),
             core::fromProto(Response.portfolio().invested_pct()));
+  EXPECT_EQ(core::fromProto(Bv.portfolio().equity_pct()),
+            core::fromProto(Response.portfolio().equity_pct()));
+  ASSERT_EQ(Bv.portfolio().positions_size(), 1);
+  EXPECT_EQ(core::fromProto(Bv.portfolio().positions(0).pnl_pct()),
+            core::fromProto(Response.portfolio().positions(0).pnl_pct()));
   EXPECT_EQ(core::fromProto(Bv.portfolio().costs_pct()),
             core::fromProto(Response.portfolio().costs_pct()));
   ASSERT_EQ(Bv.events_size(), 3);

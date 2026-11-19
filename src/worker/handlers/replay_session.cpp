@@ -77,8 +77,9 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
   Out->set_last_step(Result.LastStep);
   if (Result.LastStep >= 0 && Result.LastStep < Timeline->totalSteps())
     Out->set_current_day(Timeline->tradingDayOf(Result.LastStep));
+  const core::CostLedger Ledger(Engine.fills());
   for (const core::StepEvents &E : Result.Events)
-    toProto(E, *Timeline, Spec.InitialCash, Engine.fills(), Out->add_events());
+    toProto(E, *Timeline, Spec.InitialCash, Ledger, Out->add_events());
   if (Request.include_history()) {
     // Прогрев и шаги до last_step, а не до up_to_step: сессия могла
     // остановиться раньше (банкротство, INV-1).
@@ -86,8 +87,7 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
                Out->mutable_history());
   }
   toProto(Engine.snapshot(), *Timeline, Spec.InitialCash,
-          core::cumulativeCosts(Engine.fills(), Result.LastStep),
-          Out->mutable_portfolio());
+          Ledger.upTo(Result.LastStep), Out->mutable_portfolio());
   for (std::size_t I = 0; I < Timeline->instruments().size(); ++I) {
     pb::InstrumentChange *Change = Out->add_instrument_changes();
     Change->set_instrument_key(Timeline->instrumentKey(static_cast<int>(I)));

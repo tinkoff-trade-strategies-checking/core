@@ -6,6 +6,7 @@
 
 #include "core/market/timeline.hpp"
 #include "core/money/decimal.hpp"
+#include "core/portfolio/portfolio.hpp"
 #include "core/report/derived.hpp"
 #include "support/fixture1.hpp"
 
@@ -30,62 +31,102 @@ Fill fillAt(std::int64_t Step, const char *Commission) {
 }
 
 PortfolioSnapshot snapshot(const char *Cash, const char *Equity,
-                           const char *PositionValue) {
+                           const char *PositionValue,
+                           const char *CostBasis = "0") {
   PortfolioSnapshot S;
   S.Cash = d(Cash);
   S.Equity = d(Equity);
   S.Lots = {5};
   S.AvgPrice = {d("100")};
   S.MarketValue = {d(PositionValue)};
+  S.CostBasis = {d(CostBasis)};
   return S;
 }
 
-TEST(Derived, PortfolioPcts) {
+// База всех процентов - начальный капитал: cash + invested = equity.
+TEST(Derived, PortfolioPctsBaseIsInitialCapital) {
+  // убыток 20% при полностью вложенном портфеле: invested не 100%, а 80%
+  const PortfolioPcts Full =
+      portfolioPcts(snapshot("0", "800000", "800000"), d("1000000"), d("0"));
+  EXPECT_EQ(Full.InvestedPct, d("80.00"));
+  EXPECT_EQ(Full.CashPct, d("0.00"));
+  EXPECT_EQ(Full.EquityPct, d("80.00"));
+  EXPECT_EQ(Full.PnlPct, d("-20.00"));
+  EXPECT_EQ(Full.Invested, d("800000"));
+  EXPECT_EQ(Full.Pnl, d("-200000"));
+
   const PortfolioPcts P = portfolioPcts(snapshot("500000", "1010000", "510000"),
                                         d("1000000"), d("135.77"));
-  EXPECT_EQ(P.InvestedPct, d("50.50")); // 510000 / 1010000 = 50.495 -> 50.50
-  EXPECT_EQ(P.CostsPct, d("0.01"));     // 0.013577 -> 0.01
+  EXPECT_EQ(P.InvestedPct, d("51.00"));
+  EXPECT_EQ(P.CashPct, d("50.00"));
+  EXPECT_EQ(P.EquityPct, d("101.00"));
+  EXPECT_EQ(P.CashPct + P.InvestedPct, P.EquityPct);
+  EXPECT_EQ(P.CostsPct, d("0.01")); // 0.013577 -> 0.01
+  EXPECT_EQ(P.Costs, d("135.77"));
   EXPECT_EQ(P.PnlPct, d("1.00"));
 }
 
+// Раздельные округления: сумма может разойтись с equity_pct не более чем на
+// 0,01.
+TEST(Derived, PortfolioPctsRoundingWithinOneCent) {
+  const PortfolioPcts P = portfolioPcts(
+      snapshot("333333.33", "666666.67", "333333.34"), d("1000000"), d("0"));
+  const Decimal Diff = P.EquityPct - (P.CashPct + P.InvestedPct);
+  EXPECT_LE(Diff.abs(), d("0.01"));
+}
+
 TEST(Derived, PortfolioPctsEdgeCases) {
-  // без позиций и издержек
   const PortfolioPcts Flat =
       portfolioPcts(snapshot("1000000", "1000000", "0"), d("1000000"), d("0"));
   EXPECT_EQ(Flat.InvestedPct, Decimal::zero());
   EXPECT_EQ(Flat.CostsPct, Decimal::zero());
   EXPECT_EQ(Flat.PnlPct, Decimal::zero());
-  // банкротство: equity 0 - доля вложенного 0, P&L -100
+  EXPECT_EQ(Flat.EquityPct, d("100.00"));
+  // банкротство: equity 0
   const PortfolioPcts Bust =
       portfolioPcts(snapshot("0", "0", "0"), d("1000000"), d("0"));
   EXPECT_EQ(Bust.InvestedPct, Decimal::zero());
+  EXPECT_EQ(Bust.EquityPct, Decimal::zero());
   EXPECT_EQ(Bust.PnlPct, d("-100.00"));
-  // убыток
-  EXPECT_EQ(
-      portfolioPcts(snapshot("0", "900000", "900000"), d("1000000"), d("0"))
-          .PnlPct,
-      d("-10.00"));
   EXPECT_THROW(portfolioPcts(snapshot("0", "0", "0"), d("0"), d("0")),
                std::invalid_argument);
 }
 
-TEST(Derived, CumulativeCostsUpToStep) {
+TEST(Derived, CostLedgerUpToStep) {
   const std::vector<Fill> Fills = {fillAt(1, "10.00"), fillAt(3, "5.50"),
                                    fillAt(3, "0.25"), fillAt(7, "100.00")};
-  EXPECT_EQ(cumulativeCosts({}, 9), Decimal::zero());
-  EXPECT_EQ(cumulativeCosts(Fills, 0), Decimal::zero());
-  EXPECT_EQ(cumulativeCosts(Fills, 1), d("10.00"));
-  EXPECT_EQ(cumulativeCosts(Fills, 3), d("15.75"));
-  EXPECT_EQ(cumulativeCosts(Fills, 9), d("115.75"));
+  EXPECT_EQ(CostLedger({}).upTo(9), Decimal::zero());
+  const CostLedger L(Fills);
+  EXPECT_EQ(L.upTo(0), Decimal::zero());
+  EXPECT_EQ(L.upTo(1), d("10.00"));
+  EXPECT_EQ(L.upTo(2), d("10.00"));
+  EXPECT_EQ(L.upTo(3), d("15.75"));
+  EXPECT_EQ(L.upTo(9), d("115.75"));
 }
 
 TEST(Derived, PositionPcts) {
-  EXPECT_EQ(positionSharePct(d("510000"), d("1010000")), d("50.50"));
-  EXPECT_EQ(positionSharePct(d("1"), d("0")), Decimal::zero());
-  // 5 лотов по 10 шт. по 100 = 5000; стоимость 5300 -> +6.00%
-  EXPECT_EQ(positionPnlPct(d("5300"), d("100"), 5, 10), d("6.00"));
-  EXPECT_EQ(positionPnlPct(d("4750"), d("100"), 5, 10), d("-5.00"));
-  EXPECT_EQ(positionPnlPct(d("0"), d("0"), 0, 10), Decimal::zero());
+  EXPECT_EQ(positionValuePct(d("510000"), d("1000000")), d("51.00"));
+  // стоимость 5300 при себестоимости 5000: +300 от капитала 1 000 000 = 0.03%
+  EXPECT_EQ(positionPnlPct(d("5300"), d("5000"), d("1000000")), d("0.03"));
+  EXPECT_EQ(positionPnlPct(d("4750"), d("5000"), d("1000000")), d("-0.03"));
+  EXPECT_EQ(positionPnlPct(d("0"), d("0"), d("1000000")), Decimal::zero());
+}
+
+// Себестоимость - точная сумма покупок открытых лотов, а не avg * лоты.
+TEST(Derived, PortfolioCostBasisIsExactSumOfOpenLots) {
+  Portfolio P(d("1000000"), 1);
+  // 3 лота по 10 шт.: цены 100.0000001 и 100.0000002 дают разную себестоимость
+  // при округлённом avg; value уже округлено до копеек (сумма сделки).
+  P.applyFill(0, Side::Buy, 2, d("100.01"), d("2000.20"), d("1"), d("0"), 1, 0);
+  P.applyFill(0, Side::Buy, 1, d("100.03"), d("1000.30"), d("1"), d("0"), 2, 1);
+  EXPECT_EQ(P.costBasis(0), d("3000.50"));
+  // продажа 1 лота гасит первую покупку на половину: остаётся 1000.10 + 1000.30
+  P.applyFill(0, Side::Sell, 1, d("100.05"), d("1000.50"), d("1"), d("0"), 3,
+              2);
+  EXPECT_EQ(P.costBasis(0), d("2000.40"));
+  P.applyFill(0, Side::Sell, 2, d("100.05"), d("2001.00"), d("1"), d("0"), 4,
+              3);
+  EXPECT_EQ(P.costBasis(0), Decimal::zero());
 }
 
 TEST(Derived, InstrumentChange) {

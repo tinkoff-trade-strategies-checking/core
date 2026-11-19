@@ -37,6 +37,7 @@ void blindPortfolioToProto(const core::BlindPortfolio &Portfolio,
     Pos->set_lots(P.Lots);
     core::toProto(P.AvgPrice, Pos->mutable_avg_price());
     core::toProto(P.MarketValuePct, Pos->mutable_market_value_pct());
+    core::toProto(P.PnlPct, Pos->mutable_pnl_pct());
   }
 }
 
@@ -124,6 +125,7 @@ void fillBlindView(const core::Timeline &Timeline,
                    pb::BlindSessionView *Out) {
   const std::vector<core::BlindScale> Scales =
       core::computeBlindScales(Timeline, InitialCash, LastStep);
+  const core::CostLedger Ledger(Engine.fills());
 
   for (std::size_t Idx = 0; Idx < Timeline.instruments().size(); ++Idx) {
     pb::BlindInstrument *Inst = Out->add_instruments();
@@ -141,8 +143,8 @@ void fillBlindView(const core::Timeline &Timeline,
   }
 
   for (const core::StepEvents &E : Events) {
-    const core::BlindStepEvents BlindEvents = core::toBlindStepEvents(
-        E, InitialCash, Scales, core::cumulativeCosts(Engine.fills(), E.Step));
+    const core::BlindStepEvents BlindEvents =
+        core::toBlindStepEvents(E, InitialCash, Scales, Ledger.upTo(E.Step));
     pb::BlindStepEvents *Ev = Out->add_events();
     Ev->set_step(BlindEvents.Step);
     for (const core::BlindBar &B : BlindEvents.Bars)
@@ -173,10 +175,9 @@ void fillBlindView(const core::Timeline &Timeline,
     }
   }
 
-  blindPortfolioToProto(
-      core::toBlindPortfolio(Engine.snapshot(), InitialCash, Scales,
-                             core::cumulativeCosts(Engine.fills(), LastStep)),
-      Out->mutable_portfolio());
+  blindPortfolioToProto(core::toBlindPortfolio(Engine.snapshot(), InitialCash,
+                                               Scales, Ledger.upTo(LastStep)),
+                        Out->mutable_portfolio());
 
   for (const core::Order &O : Engine.orders()) {
     if (O.Spec.Instrument < 0 ||
