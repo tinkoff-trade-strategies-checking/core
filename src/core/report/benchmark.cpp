@@ -36,8 +36,8 @@ std::vector<EquityPoint> benchmarkEquity(const BenchmarkSeries &Series,
     if (It == Series.Closes.end() || It->Yyyymmdd != Ymd)
       continue;
     Out.push_back(
-        EquityPoint{Step, InitialCash.mul(It->Close, RoundingMode::HalfUp)
-                              .div(Series.FirstOpen, RoundingMode::HalfUp)});
+        EquityPoint{Step, InitialCash.mulDiv(It->Close, Series.FirstOpen, 2,
+                                             RoundingMode::HalfUp)});
   }
   return Out;
 }

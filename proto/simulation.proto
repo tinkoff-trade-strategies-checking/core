@@ -341,7 +341,7 @@ message CostTotals {
   Decimal exchange_fee = 2;
   Decimal spread = 3;
   Decimal slippage = 4;
-  Decimal total = 5;   // сумма четырёх видов, ₽ (core#54)
+  Decimal total = 5;   // сумма четырёх видов, ₽ (core#54); все суммы до копейки, спред и проскальзывание — HALF_UP от точной суммы (core#58)
 }
 
 message EquityPoint {
@@ -371,7 +371,7 @@ message Report {
   reserved "findings", "level";
   Decimal final_equity = 6;
   // Кривая бенчмарка (MarketSpec.benchmark_ticker) в рублях того же капитала: initial_cash * close дня / open первого
-  // дня, точка на последнем шаге каждого полностью пройденного торгового дня. Пусто без бенчмарка.
+  // дня, точка на последнем шаге каждого полностью пройденного торгового дня; до копейки HALF_UP (core#58). Пусто без бенчмарка.
   repeated EquityPoint benchmark_equity = 7;
   // Пары FIFO в порядке продаж, внутри продажи — в порядке покупок (ФТ-20, лист «Сделки» выгрузки).
   repeated RoundTrip round_trips = 8;
