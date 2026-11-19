@@ -69,6 +69,10 @@ public:
   // шагов нет).
   Timeline slice(std::int32_t FromDay, std::int32_t ToDay) const;
   const std::vector<Instrument> &instruments() const { return Instruments; }
+  // Ключ бумаги по индексу; индекс вне диапазона - std::out_of_range.
+  const std::string &instrumentKey(int Instrument) const;
+  // Суммарное число баров в шкале и прогреве (для оценки памяти кэша).
+  std::size_t totalBars() const { return Bars.size() + Warmup.size(); }
 
   // История до начала шкалы - прогрев индикаторов (`MarketSpec.warmup_bars`).
   // Шаги прогрева -W…-1, торговые дни

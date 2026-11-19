@@ -1,50 +1,11 @@
 #include "convert/report.hpp"
 
-#include <cstddef>
-#include <utility>
-#include <vector>
-
 #include "core/money/proto_conv.hpp"
+#include "core/report/metrics_input.hpp"
 
 namespace worker {
 
 namespace {
-
-// Номера торговых дней шагов 0…lastStep (в шкале с 1).
-std::vector<std::int32_t> tradingDays(const core::Timeline &Timeline,
-                                      std::int64_t LastStep) {
-  std::vector<std::int32_t> Days;
-  Days.reserve(static_cast<std::size_t>(LastStep) + 1);
-  for (std::int64_t Step = 0; Step <= LastStep; ++Step)
-    Days.push_back(Timeline.tradingDayOf(Step));
-  return Days;
-}
-
-void countOrders(const std::vector<core::Order> &Orders,
-                 core::MetricsInput *In) {
-  for (const core::Order &O : Orders) {
-    if (O.Status == core::OrderStatus::Rejected)
-      ++In->Rejections;
-    if (O.FilledLots > 0 && O.FilledLots < O.Spec.Lots)
-      ++In->PartialFills;
-  }
-}
-
-// Доходность бенчмарка за период и кривая до последнего шага кривой стоимости
-// (только полностью пройденные дни).
-void setBenchmark(const std::optional<core::BenchmarkSeries> &Benchmark,
-                  const core::Timeline &Timeline, core::MetricsInput *In) {
-  if (!Benchmark)
-    return;
-  In->Benchmark = core::benchmarkRange(*Benchmark);
-  // open первого дня <= 0 - испорченный бар индекса: доходности нет
-  // (computeReport), кривой тоже, отчёт считается.
-  if (In->Benchmark && In->Benchmark->first > core::Decimal::zero() &&
-      !In->Equity.empty()) {
-    In->BenchmarkEquity = core::benchmarkEquity(
-        *Benchmark, In->InitialCash, Timeline, In->Equity.back().Step);
-  }
-}
 
 void metricsToProto(const core::Metrics &M, pb::Metrics *Out) {
   Out->set_total_return(M.TotalReturn);
@@ -82,22 +43,8 @@ metricsInput(const core::SessionEngine &Engine,
              const std::optional<core::BenchmarkSeries> &Benchmark,
              const std::optional<core::RuoniaSeries> &Ruonia,
              std::int32_t RuoniaPreviousDayYmd) {
-  core::MetricsInput In;
-  In.InitialCash = InitialCash;
-  In.Equity = Engine.equity();
-  In.TradingDayOfStep = tradingDays(Timeline, Engine.currentStep());
-  In.Fills = Engine.fills();
-  In.RoundTrips = Engine.portfolio().roundTrips();
-  countOrders(Engine.orders(), &In);
-  In.PositionValuesByStep = Engine.positionValues();
-  setBenchmark(Benchmark, Timeline, &In);
-  if (Ruonia) {
-    core::MatchedRuonia Matched = core::matchRuoniaRates(
-        *Ruonia, Timeline, Engine.currentStep(), RuoniaPreviousDayYmd);
-    In.RuoniaRates = std::move(Matched.Rates);
-    In.CalendarDays = std::move(Matched.CalendarDays);
-  }
-  return In;
+  return core::buildMetricsInput(Engine, InitialCash, Timeline, Benchmark,
+                                 Ruonia, RuoniaPreviousDayYmd);
 }
 
 void toProto(const core::Report &Report, const core::Timeline &Timeline,
@@ -121,8 +68,7 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
   }
   for (const core::RoundTrip &T : Report.RoundTrips) {
     pb::RoundTrip *Trip = Out->add_round_trips();
-    Trip->set_instrument_key(
-        Timeline.instruments().at(static_cast<std::size_t>(T.Instrument)).Key);
+    Trip->set_instrument_key(Timeline.instrumentKey(T.Instrument));
     Trip->set_entry_step(T.EntryStep);
     Trip->set_exit_step(T.ExitStep);
     Trip->set_lots(T.Lots);

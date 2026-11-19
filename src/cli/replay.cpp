@@ -17,12 +17,15 @@
 #include "core/engine/session_engine.hpp"
 #include "core/exec/costs.hpp"
 #include "core/exec/order.hpp"
+#include "core/market/date_utils.hpp"
 #include "core/market/instrument.hpp"
 #include "core/market/timeframe.hpp"
 #include "core/market/timeline.hpp"
 #include "core/money/decimal.hpp"
 #include "core/portfolio/portfolio.hpp"
+#include "core/report/benchmark.hpp"
 #include "core/report/metrics.hpp"
+#include "core/report/metrics_input.hpp"
 #include "core/report/ruonia.hpp"
 #include "json.hpp"
 #include "support/fixture1.hpp"
@@ -46,11 +49,8 @@ std::int32_t parseYmd(const JsonValue &Val, std::string_view Context) {
     return static_cast<std::int32_t>(Raw);
   }
   const std::string &Str = Val.asString(Context);
-  if (Str.size() == 10 && Str[4] == '-' && Str[7] == '-') {
-    const std::string Compact =
-        Str.substr(0, 4) + Str.substr(5, 2) + Str.substr(8, 2);
-    return std::stoi(Compact);
-  }
+  if (Str.size() == 10 && Str[4] == '-' && Str[7] == '-')
+    return core::parseIsoDate(Str);
   if (Str.size() == 8)
     return std::stoi(Str);
   throw std::runtime_error(std::string(Context) +
@@ -361,34 +361,44 @@ JsonValue buildReportJson(const core::ReplayResult &Replay,
   return JsonValue(std::move(Root));
 }
 
-core::MetricsInput
-buildMetricsInput(const core::SessionEngine &Engine,
-                  const core::Decimal &InitialCash,
-                  const core::Timeline &Timeline,
-                  const std::optional<core::RuoniaSeries> &Ruonia) {
-  core::MetricsInput In;
-  In.InitialCash = InitialCash;
-  In.Equity = Engine.equity();
-  In.TradingDayOfStep.reserve(static_cast<std::size_t>(Engine.currentStep()) +
-                              1);
-  for (std::int64_t S = 0; S <= Engine.currentStep(); ++S)
-    In.TradingDayOfStep.push_back(Timeline.tradingDayOf(S));
-  In.Fills = Engine.fills();
-  In.RoundTrips = Engine.portfolio().roundTrips();
-  for (const core::Order &O : Engine.orders()) {
-    if (O.Status == core::OrderStatus::Rejected)
-      ++In.Rejections;
-    if (O.FilledLots > 0 && O.FilledLots < O.Spec.Lots)
-      ++In.PartialFills;
+// Бенчмарк для отчёта CLI: читает D1-ряд по benchmark_ticker за период сессии
+// и обрезает по последнему полностью пройденному дню (INV-1). Если тикер не
+// задан, отсутствует в снапшоте или нет завершённого дня — nullopt (в JSON
+// выводится benchmark_return: null).
+std::optional<core::BenchmarkSeries>
+loadBenchmarkUpTo(core::testing::Fixture &Fix, const std::string &SnapshotId,
+                  const std::string &BenchmarkTicker, std::int32_t FromYmd,
+                  std::int32_t ToYmd, const core::Timeline &Timeline,
+                  std::int64_t LastStep) {
+  if (BenchmarkTicker.empty())
+    return std::nullopt;
+  const std::optional<std::int32_t> CompletedDay =
+      core::lastCompletedDayYmd(Timeline, LastStep);
+  if (!CompletedDay)
+    return std::nullopt;
+  core::Instrument Index{BenchmarkTicker, BenchmarkTicker, 1,
+                         core::Decimal::parse("0.01")};
+  try {
+    const core::Timeline IndexTl =
+        core::Timeline::load(Fix.Bars, Fix.Calendar, SnapshotId, {Index},
+                             core::Timeframe::D1, FromYmd, ToYmd);
+    if (IndexTl.totalSteps() == 0)
+      return std::nullopt;
+    core::BenchmarkSeries Series;
+    Series.FirstOpen = IndexTl.barsAt(0).front().Open;
+    for (std::int64_t Step = 0; Step < IndexTl.totalSteps(); ++Step) {
+      const std::int32_t Day = IndexTl.yyyymmddOf(Step);
+      if (Day > *CompletedDay)
+        break;
+      Series.Closes.push_back(
+          core::DailyClose{Day, IndexTl.barsAt(Step).front().Close});
+    }
+    if (Series.Closes.empty())
+      return std::nullopt;
+    return Series;
+  } catch (const core::SecurityNotFound &) {
+    return std::nullopt;
   }
-  In.PositionValuesByStep = Engine.positionValues();
-  if (Ruonia) {
-    core::MatchedRuonia Matched =
-        core::matchRuoniaRates(*Ruonia, Timeline, Engine.currentStep());
-    In.RuoniaRates = std::move(Matched.Rates);
-    In.CalendarDays = std::move(Matched.CalendarDays);
-  }
-  return In;
 }
 
 int runBuiltInFixture(std::ostream &Out) {
@@ -423,10 +433,14 @@ int runBuiltInFixture(std::ostream &Out) {
   const std::int64_t UpTo = Tl->totalSteps() - 1;
   const core::ReplayResult Replay =
       core::replaySession(Spec, Tl, Journal, UpTo, 0);
+  const std::int32_t UpToYmd = Tl->yyyymmddOf(Replay.LastStep);
   const core::RuoniaSeries Ruonia{
-      Fix.Ruonia.ruoniaRates(Fix.SnapshotId, kToYmd)};
-  const core::MetricsInput Input =
-      buildMetricsInput(Replay.Engine, Spec.InitialCash, *Tl, Ruonia);
+      Fix.Ruonia.ruoniaRates(Fix.SnapshotId, UpToYmd)};
+  const std::int32_t PrevDay =
+      core::previousTradingDay(Fix.Calendar, Fix.SnapshotId, *Tl);
+  // Во встроенной фикстуре fixture-1 нет индекса IMOEX — benchmark_return null.
+  const core::MetricsInput Input = core::buildMetricsInput(
+      Replay.Engine, Spec.InitialCash, *Tl, std::nullopt, Ruonia, PrevDay);
   const core::Report Report = core::computeReport(Input);
   Out << dumpJson(buildReportJson(Replay, Report, Spec.Instruments)) << "\n";
   return 0;
@@ -471,6 +485,12 @@ int runFromJson(std::string_view PathArg, std::ostream &Out) {
   std::int64_t WarmupBars = 0;
   if (const JsonValue *W = findField(Market, "warmup_bars"); W && !W->isNull())
     WarmupBars = W->asInt64("warmup_bars");
+
+  std::string BenchmarkTicker;
+  if (const JsonValue *Bench = findField(Market, "benchmark_ticker");
+      Bench && !Bench->isNull()) {
+    BenchmarkTicker = Bench->asString("benchmark_ticker");
+  }
 
   core::SessionSpec Spec;
   Spec.Instruments = Fix.Instruments;
@@ -533,10 +553,15 @@ int runFromJson(std::string_view PathArg, std::ostream &Out) {
 
   const core::ReplayResult Replay =
       core::replaySession(Spec, Tl, Journal, UpToStep, 0);
+  const std::int32_t UpToYmd = Tl->yyyymmddOf(Replay.LastStep);
   const core::RuoniaSeries Ruonia{
-      Fix.Ruonia.ruoniaRates(Fix.SnapshotId, ToYmd)};
-  const core::MetricsInput Input =
-      buildMetricsInput(Replay.Engine, Spec.InitialCash, *Tl, Ruonia);
+      Fix.Ruonia.ruoniaRates(Fix.SnapshotId, UpToYmd)};
+  const std::int32_t PrevDay =
+      core::previousTradingDay(Fix.Calendar, SnapshotId, *Tl);
+  const std::optional<core::BenchmarkSeries> Benchmark = loadBenchmarkUpTo(
+      Fix, SnapshotId, BenchmarkTicker, FromYmd, ToYmd, *Tl, Replay.LastStep);
+  const core::MetricsInput Input = core::buildMetricsInput(
+      Replay.Engine, Spec.InitialCash, *Tl, Benchmark, Ruonia, PrevDay);
   const core::Report Report = core::computeReport(Input);
   Out << dumpJson(buildReportJson(Replay, Report, Spec.Instruments)) << "\n";
   return 0;

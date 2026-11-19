@@ -5,30 +5,9 @@
 #include <iterator>
 #include <utility>
 
+#include "core/market/date_utils.hpp"
+
 namespace core::testing {
-
-namespace {
-
-constexpr std::int64_t kDayMs = 86'400'000;
-constexpr std::int64_t kMoscowOffsetMs = 3 * 3'600'000;
-
-// Дней от 1970-01-01 до даты (григорианский календарь).
-std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M, std::int32_t D) {
-  Y -= M <= 2 ? 1 : 0;
-  const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
-  const std::int64_t Yoe = Y - Era * 400;
-  const std::int64_t Doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
-  const std::int64_t Doe = Yoe * 365 + Yoe / 4 - Yoe / 100 + Doy;
-  return Era * 146097 + Doe - 719468;
-}
-
-// Начало московских суток в UTC, мс.
-std::int64_t moscowDayStartMs(std::int32_t Ymd) {
-  return daysFromCivil(Ymd / 10000, Ymd / 100 % 100, Ymd % 100) * kDayMs -
-         kMoscowOffsetMs;
-}
-
-} // namespace
 
 Fixture fixture1() {
   const std::string Snapshot = "fixture-1";

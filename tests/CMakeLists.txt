@@ -15,7 +15,10 @@ if(CORE_BUILD_WORKER)
   add_executable(worker_tests worker_ping_test.cpp)
   target_include_directories(worker_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(worker_tests PRIVATE simulation_worker_lib core::simulation_core core_fixtures GTest::gtest_main core_warnings)
-  target_compile_definitions(worker_tests PRIVATE CORE_TESTDATA_DIR="${PROJECT_SOURCE_DIR}/testdata")
+  target_compile_definitions(worker_tests PRIVATE
+    CORE_TESTDATA_DIR="${PROJECT_SOURCE_DIR}/testdata"
+    SIM_CLI_PATH="$<TARGET_FILE:sim_cli>")
+  add_dependencies(worker_tests sim_cli)
   add_subdirectory(worker)
   add_subdirectory(clickhouse)
 endif()

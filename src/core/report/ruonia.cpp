@@ -6,43 +6,9 @@
 #include <string>
 
 #include "core/market/bar_source.hpp" // MarketDataError
+#include "core/market/date_utils.hpp"
 
 namespace core {
-
-namespace {
-
-constexpr std::int64_t daysFromCivil(std::int32_t Y, std::int32_t M,
-                                     std::int32_t D) {
-  Y -= M <= 2 ? 1 : 0;
-  const std::int64_t Era = (Y >= 0 ? Y : Y - 399) / 400;
-  const std::int64_t Yoe = Y - Era * 400;
-  const std::int64_t Doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
-  const std::int64_t Doe = Yoe * 365 + Yoe / 4 - Yoe / 100 + Doy;
-  return Era * 146097 + Doe - 719468;
-}
-
-std::int64_t ymdToDays(std::int32_t Ymd) {
-  const int Y = Ymd / 10000;
-  const int M = Ymd / 100 % 100;
-  const int D = Ymd % 100;
-  return daysFromCivil(Y, M, D);
-}
-
-std::int32_t civilFromDays(std::int64_t Z) {
-  Z += 719468;
-  const std::int64_t Era = (Z >= 0 ? Z : Z - 146096) / 146097;
-  const std::int64_t Doe = Z - Era * 146097;
-  const std::int64_t Yoe =
-      (Doe - Doe / 1460 + Doe / 36524 - Doe / 146096) / 365;
-  const std::int64_t Doy = Doe - (365 * Yoe + Yoe / 4 - Yoe / 100);
-  const std::int64_t Mp = (5 * Doy + 2) / 153;
-  const std::int64_t D = Doy - (153 * Mp + 2) / 5 + 1;
-  const std::int64_t M = Mp < 10 ? Mp + 3 : Mp - 9;
-  const std::int64_t Y = Yoe + Era * 400 + (M <= 2 ? 1 : 0);
-  return static_cast<std::int32_t>(Y * 10000 + M * 100 + D);
-}
-
-} // namespace
 
 std::int32_t calendarDaysBetween(std::int32_t FromYmd, std::int32_t ToYmd) {
   return static_cast<std::int32_t>(ymdToDays(ToYmd) - ymdToDays(FromYmd));
@@ -130,6 +96,33 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
   }
 
   return matchRuoniaRates(Series, DayDates, PreviousDayYmd);
+}
+
+std::int32_t findPreviousTradingDay(CalendarSource &Calendar,
+                                    const std::string &SnapshotId,
+                                    std::int32_t FirstYmd) {
+  const std::int32_t To = addCalendarDays(FirstYmd, -1);
+  for (const std::int32_t Lookback : {31, 62, 124, 248, 366}) {
+    const std::vector<TradingDay> Days = Calendar.tradingDays(
+        SnapshotId, addCalendarDays(FirstYmd, -Lookback), To);
+    for (auto It = Days.rbegin(); It != Days.rend(); ++It) {
+      if (It->IsTrading)
+        return It->Yyyymmdd;
+    }
+  }
+  return 0;
+}
+
+std::int32_t previousTradingDay(CalendarSource &Calendar,
+                                const std::string &SnapshotId,
+                                const Timeline &Timeline) {
+  const std::int32_t First = Timeline.yyyymmddOf(0);
+  const std::int32_t Found =
+      findPreviousTradingDay(Calendar, SnapshotId, First);
+  if (Found > 0)
+    return Found;
+  const std::int32_t Warmup = Timeline.previousDayYmd();
+  return Warmup < First ? Warmup : 0;
 }
 
 } // namespace core
