@@ -4,8 +4,9 @@
 
 namespace worker {
 
-TimelineCache::TimelineCache(std::size_t MaxEntries)
-    : Capacity(MaxEntries > 0 ? MaxEntries : 1) {}
+TimelineCache::TimelineCache(std::size_t MaxEntries, std::size_t MaxBarsLimit)
+    : Capacity(MaxEntries > 0 ? MaxEntries : 1),
+      MaxBars(MaxBarsLimit > 0 ? MaxBarsLimit : 1) {}
 
 std::shared_ptr<const core::Timeline>
 TimelineCache::get(const TimelineKey &Key) {
@@ -15,7 +16,16 @@ TimelineCache::get(const TimelineKey &Key) {
     return nullptr;
   }
   Items.splice(Items.begin(), Items, It->second);
-  return It->second->second;
+  return It->second->Timeline;
+}
+
+void TimelineCache::evictWhileOverLimit() {
+  while (!Items.empty() && (Items.size() > Capacity || TotalBars > MaxBars)) {
+    const auto Last = --Items.end();
+    TotalBars -= Last->Bars;
+    Index.erase(Last->Key);
+    Items.pop_back();
+  }
 }
 
 void TimelineCache::put(TimelineKey Key,
@@ -23,28 +33,38 @@ void TimelineCache::put(TimelineKey Key,
   if (!Timeline) {
     return;
   }
+  const std::size_t Bars = Timeline->totalBars();
   std::lock_guard<std::mutex> Lock(Mutex);
   const auto It = Index.find(Key);
+  if (Bars > MaxBars) {
+    if (It != Index.end()) {
+      TotalBars -= It->second->Bars;
+      Items.erase(It->second);
+      Index.erase(It);
+    }
+    return;
+  }
   if (It != Index.end()) {
-    It->second->second = std::move(Timeline);
+    TotalBars -= It->second->Bars;
+    It->second->Timeline = std::move(Timeline);
+    It->second->Bars = Bars;
+    TotalBars += Bars;
     Items.splice(Items.begin(), Items, It->second);
+    evictWhileOverLimit();
     return;
   }
 
   // Сначала вставка (может бросить), потом вытеснение: при исключении кэш
   // остаётся согласованным (Items и Index одного размера).
-  Items.emplace_front(Key, std::move(Timeline));
+  Items.push_front(Entry{Key, std::move(Timeline), Bars});
   try {
     Index.emplace(std::move(Key), Items.begin());
   } catch (...) {
     Items.pop_front();
     throw;
   }
-  if (Items.size() > Capacity) {
-    const auto Last = --Items.end();
-    Index.erase(Last->first);
-    Items.pop_back();
-  }
+  TotalBars += Bars;
+  evictWhileOverLimit();
 }
 
 std::size_t TimelineCache::size() const {
@@ -54,10 +74,18 @@ std::size_t TimelineCache::size() const {
 
 std::size_t TimelineCache::capacity() const { return Capacity; }
 
+std::size_t TimelineCache::totalBars() const {
+  std::lock_guard<std::mutex> Lock(Mutex);
+  return TotalBars;
+}
+
+std::size_t TimelineCache::maxBars() const { return MaxBars; }
+
 void TimelineCache::clear() {
   std::lock_guard<std::mutex> Lock(Mutex);
   Items.clear();
   Index.clear();
+  TotalBars = 0;
   PrevDays.clear();
   PrevDayIndex.clear();
 }

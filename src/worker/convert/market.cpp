@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "clickhouse/clickhouse_client.hpp"
+#include "core/market/date_utils.hpp"
 #include "core/money/proto_conv.hpp"
 #include "core/report/ruonia.hpp"
 #include "timeline_cache.hpp"
@@ -49,27 +50,11 @@ core::Decimal requirePositive(const pb::Decimal &Value, const char *What) {
 } // namespace
 
 std::int32_t parseIsoDate(const std::string &Text) {
-  bool Ok = Text.size() == 10 && Text[4] == '-' && Text[7] == '-';
-  for (std::size_t I = 0; Ok && I < Text.size(); ++I) {
-    if (I != 4 && I != 7 && !std::isdigit(static_cast<unsigned char>(Text[I])))
-      Ok = false;
-  }
-  if (!Ok)
-    throw std::invalid_argument("неверная дата, нужен формат гггг-мм-дд: " +
-                                Text);
-  const std::int32_t Year = std::stoi(Text.substr(0, 4));
-  const std::int32_t Month = std::stoi(Text.substr(5, 2));
-  const std::int32_t Day = std::stoi(Text.substr(8, 2));
-  if (Month < 1 || Month > 12 || Day < 1 || Day > 31)
-    throw std::invalid_argument("неверная дата: " + Text);
-  return Year * 10000 + Month * 100 + Day;
+  return core::parseIsoDate(Text);
 }
 
 std::string formatIsoDate(std::int32_t Yyyymmdd) {
-  std::string Out = std::to_string(Yyyymmdd);
-  Out.insert(6, "-");
-  Out.insert(4, "-");
-  return Out;
+  return core::formatIsoDate(Yyyymmdd);
 }
 
 core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
@@ -135,8 +120,13 @@ loadTimeline(Context &Context, const pb::MarketSpec &Market) {
     const core::Security Sec =
         Context.Bars.security(Market.snapshot_id(), Inst.Ticker);
     if (Sec.LotSize != Inst.LotSize || Sec.PriceStep != Inst.PriceStep) {
-      throw core::MarketDataError("параметры инструмента " + Inst.Ticker +
-                                  " не совпадают со снапшотом (securities)");
+      throw core::SecurityParamsMismatch(
+          "параметры инструмента " + Inst.Ticker +
+          " не совпадают со снапшотом (securities): ожидалось lot_size=" +
+          std::to_string(Sec.LotSize) +
+          ", price_step=" + Sec.PriceStep.toString() +
+          "; передано lot_size=" + std::to_string(Inst.LotSize) +
+          ", price_step=" + Inst.PriceStep.toString());
     }
   }
 
@@ -206,32 +196,19 @@ std::optional<core::BenchmarkSeries> loadBenchmark(Context &Context,
 std::int32_t previousTradingDay(Context &Context, const pb::MarketSpec &Market,
                                 const core::Timeline &Timeline) {
   const std::int32_t First = Timeline.yyyymmddOf(0);
+  std::int32_t Found = 0;
   if (Context.Cache != nullptr) {
     if (const auto Cached =
             Context.Cache->getPreviousTradingDay(Market.snapshot_id(), First)) {
-      if (*Cached > 0)
-        return *Cached;
-      const std::int32_t Warmup = Timeline.previousDayYmd();
-      return Warmup < First ? Warmup : 0;
+      Found = *Cached;
+    } else {
+      Found = core::findPreviousTradingDay(Context.Calendar,
+                                           Market.snapshot_id(), First);
+      Context.Cache->putPreviousTradingDay(Market.snapshot_id(), First, Found);
     }
-  }
-
-  const std::int32_t To = core::addCalendarDays(First, -1);
-  std::int32_t Found = 0;
-  for (const std::int32_t Lookback : {31, 62, 124, 248, 366}) {
-    const std::vector<core::TradingDay> Days = Context.Calendar.tradingDays(
-        Market.snapshot_id(), core::addCalendarDays(First, -Lookback), To);
-    for (auto It = Days.rbegin(); It != Days.rend(); ++It) {
-      if (It->IsTrading) {
-        Found = It->Yyyymmdd;
-        break;
-      }
-    }
-    if (Found > 0)
-      break;
-  }
-  if (Context.Cache != nullptr) {
-    Context.Cache->putPreviousTradingDay(Market.snapshot_id(), First, Found);
+  } else {
+    return core::previousTradingDay(Context.Calendar, Market.snapshot_id(),
+                                    Timeline);
   }
   if (Found > 0)
     return Found;
@@ -248,8 +225,7 @@ core::RuoniaSeries loadRuonia(Context &Context, const pb::MarketSpec &Market,
 void toProto(const core::StepBar &Bar, const core::Timeline &Timeline,
              pb::Bar *Out) {
   Out->set_step(Bar.Step);
-  Out->set_instrument_key(
-      Timeline.instruments().at(static_cast<std::size_t>(Bar.Instrument)).Key);
+  Out->set_instrument_key(Timeline.instrumentKey(Bar.Instrument));
   Out->set_time_unix_ms(Bar.TimeUnixMs);
   Out->set_trading_day(Bar.TradingDay);
   core::toProto(Bar.Open, Out->mutable_open());
@@ -294,6 +270,8 @@ grpc::Status statusFromCurrentException() {
   } catch (const core::SnapshotNotFound &E) {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
   } catch (const core::SecurityNotFound &E) {
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
+  } catch (const core::SecurityParamsMismatch &E) {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, E.what());
   } catch (const IntervalUnavailable &E) {
     return grpc::Status(grpc::StatusCode::NOT_FOUND, E.what());

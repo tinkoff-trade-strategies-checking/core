@@ -36,24 +36,38 @@ struct TimelineKey {
 // воркера. Позволяет обработчикам replaySession и getBars мгновенно отдавать
 // готовую шкалу без повторных запросов в ClickHouse (НФТ-7: шаг плеера p95 <=
 // 300 мс).
+// Ограничен одновременно числом записей (MaxEntries) и суммарным числом баров
+// (MaxBars, с учётом прогрева): шкала с числом баров > MaxBars не кэшируется,
+// чтобы 64 длинные M1-шкалы не исчерпали память воркера.
 class TimelineCache {
 public:
   static constexpr std::size_t kDefaultCapacity = 64;
+  // ~2 млн StepBar (~250 МБ с индексами): вмещает десятки D1/H1/M5 шкал или
+  // 1-2 годовые M1-шкалы на 5 бумаг без роста памяти до гигабайт.
+  static constexpr std::size_t kDefaultMaxBars = 2'000'000;
 
-  explicit TimelineCache(std::size_t MaxEntries = kDefaultCapacity);
+  explicit TimelineCache(std::size_t MaxEntries = kDefaultCapacity,
+                         std::size_t MaxBars = kDefaultMaxBars);
 
   // Возвращает шкалу из кэша, если найдена (и перемещает её в MRU).
   // Если не найдена - nullptr.
   std::shared_ptr<const core::Timeline> get(const TimelineKey &Key);
 
-  // Сохраняет шкалу в кэш. При превышении ёмкости вытесняет LRU.
+  // Сохраняет шкалу в кэш. При превышении ёмкости по записям или по числу баров
+  // вытесняет LRU. Шкала с totalBars() > maxBars() в кэш не помещается.
   void put(TimelineKey Key, std::shared_ptr<const core::Timeline> Timeline);
 
   // Число элементов в кэше.
   std::size_t size() const;
 
-  // Ёмкость кэша.
+  // Ёмкость кэша по числу записей.
   std::size_t capacity() const;
+
+  // Суммарное число баров (включая прогрев) в кэше.
+  std::size_t totalBars() const;
+
+  // Максимальное суммарное число баров в кэше.
+  std::size_t maxBars() const;
 
   // Очистить кэш.
   void clear();
@@ -66,14 +80,22 @@ public:
                              std::int32_t PrevYmd);
 
 private:
-  using Item = std::pair<TimelineKey, std::shared_ptr<const core::Timeline>>;
+  struct Entry {
+    TimelineKey Key;
+    std::shared_ptr<const core::Timeline> Timeline;
+    std::size_t Bars = 0;
+  };
   using PrevDayKey = std::pair<std::string, std::int32_t>;
   using PrevDayItem = std::pair<PrevDayKey, std::int32_t>;
 
+  void evictWhileOverLimit();
+
   const std::size_t Capacity;
+  const std::size_t MaxBars;
   mutable std::mutex Mutex;
-  std::list<Item> Items;
-  std::map<TimelineKey, std::list<Item>::iterator> Index;
+  std::list<Entry> Items;
+  std::map<TimelineKey, std::list<Entry>::iterator> Index;
+  std::size_t TotalBars = 0;
   std::list<PrevDayItem> PrevDays;
   std::map<PrevDayKey, std::list<PrevDayItem>::iterator> PrevDayIndex;
 };
