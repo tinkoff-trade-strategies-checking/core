@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "core/money/rounding.hpp"
+#include "core/report/derived.hpp"
 
 namespace core {
 
@@ -177,8 +178,13 @@ BlindBar toBlindBar(const StepBar &Bar, const BlindScale &Scale) {
 
 BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
                                 const Decimal &InitialCash,
-                                const std::vector<BlindScale> &Scales) {
+                                const std::vector<BlindScale> &Scales,
+                                const Decimal &CumulativeCosts) {
   BlindPortfolio Out;
+  const PortfolioPcts Pcts =
+      portfolioPcts(Snapshot, InitialCash, CumulativeCosts);
+  Out.InvestedPct = Pcts.InvestedPct;
+  Out.CostsPct = Pcts.CostsPct;
   Out.CashPct = toPercentOfCapital(Snapshot.Cash, InitialCash);
   Out.EquityPct = toPercentOfCapital(Snapshot.Equity, InitialCash);
   Out.PnlPct = toPercentOfCapital(Snapshot.Equity - InitialCash, InitialCash);
@@ -194,6 +200,11 @@ BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
     Pos.AvgPrice = scaleBlindPrice(Snapshot.AvgPrice[Idx], *Scale.P0);
     Pos.MarketValuePct =
         toPercentOfCapital(Snapshot.MarketValue[Idx], InitialCash);
+    // Нет себестоимости - ошибка, как нет P0: молчаливый 0 исказил бы P&L.
+    if (Idx >= Snapshot.CostBasis.size())
+      throw std::invalid_argument("нет себестоимости для открытой позиции");
+    Pos.PnlPct = positionPnlPct(Snapshot.MarketValue[Idx],
+                                Snapshot.CostBasis[Idx], InitialCash);
     Out.Positions.push_back(std::move(Pos));
   }
   return Out;
@@ -240,12 +251,17 @@ BlindFill toBlindFill(const Fill &Fill, const Decimal &InitialCash,
   Out.SpreadCostPct = toPercentOfCapital(Fill.SpreadCost, InitialCash);
   Out.SlippageCostPct = toPercentOfCapital(Fill.SlippageCost, InitialCash);
   Out.StopAndTakeSameBar = Fill.StopAndTakeSameBar;
+  // Издержки в % считаются от суммы в рублях, а не складываются из
+  // округлённых процентов (сумма округлённых расходится до 0,02 п. п.).
+  Out.CostPct = toPercentOfCapital(Fill.cost(), InitialCash);
+  Out.Seq = Fill.Seq;
   return Out;
 }
 
 BlindStepEvents toBlindStepEvents(const StepEvents &Events,
                                   const Decimal &InitialCash,
-                                  const std::vector<BlindScale> &Scales) {
+                                  const std::vector<BlindScale> &Scales,
+                                  const Decimal &CumulativeCosts) {
   BlindStepEvents Out;
   Out.Step = Events.Step;
   Out.Bars.reserve(Events.Bars.size());
@@ -270,7 +286,8 @@ BlindStepEvents toBlindStepEvents(const StepEvents &Events,
       continue;
     Out.ChangedOrders.push_back(toBlindOrder(O, Scale));
   }
-  Out.Portfolio = toBlindPortfolio(Events.Portfolio, InitialCash, Scales);
+  Out.Portfolio =
+      toBlindPortfolio(Events.Portfolio, InitialCash, Scales, CumulativeCosts);
   return Out;
 }
 
@@ -283,6 +300,8 @@ BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
   Out.Costs.SpreadPct = toPercentOfCapital(Report.Costs.Spread, InitialCash);
   Out.Costs.SlippagePct =
       toPercentOfCapital(Report.Costs.Slippage, InitialCash);
+  Out.Costs.TotalPct = toPercentOfCapital(Report.Costs.Total, InitialCash);
+  Out.Underwater = Report.Underwater;
 
   Out.Equity.reserve(Report.Equity.size());
   for (const EquityPoint &P : Report.Equity) {

@@ -12,6 +12,8 @@
 #include "convert/report.hpp"
 #include "convert/state.hpp"
 #include "core/engine/session_engine.hpp"
+#include "core/money/proto_conv.hpp"
+#include "core/report/derived.hpp"
 #include "core/report/metrics.hpp"
 #include "core/report/metrics_input.hpp"
 #include "handlers.hpp"
@@ -73,19 +75,33 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
   Out->set_warmup_steps(Timeline->warmupSteps());
   Out->set_status(toProto(Result.Status));
   Out->set_last_step(Result.LastStep);
+  if (Result.LastStep >= 0 && Result.LastStep < Timeline->totalSteps())
+    Out->set_current_day(Timeline->tradingDayOf(Result.LastStep));
+  const core::CostLedger Ledger(Engine.fills());
   for (const core::StepEvents &E : Result.Events)
-    toProto(E, *Timeline, Out->add_events());
+    toProto(E, *Timeline, Spec.InitialCash, Ledger, Out->add_events());
   if (Request.include_history()) {
     // Прогрев и шаги до last_step, а не до up_to_step: сессия могла
     // остановиться раньше (банкротство, INV-1).
     appendBars(*Timeline, -Timeline->warmupSteps(), Result.LastStep,
                Out->mutable_history());
   }
-  toProto(Engine.snapshot(), *Timeline, Out->mutable_portfolio());
+  toProto(Engine.snapshot(), *Timeline, Spec.InitialCash,
+          Ledger.upTo(Result.LastStep), Out->mutable_portfolio());
+  for (std::size_t I = 0; I < Timeline->instruments().size(); ++I) {
+    pb::InstrumentChange *Change = Out->add_instrument_changes();
+    Change->set_instrument_key(Timeline->instrumentKey(static_cast<int>(I)));
+    const core::InstrumentChange C =
+        core::instrumentChange(*Timeline, static_cast<int>(I), Result.LastStep);
+    if (C.StepPct)
+      core::toProto(*C.StepPct, Change->mutable_step_pct());
+    if (C.PeriodPct)
+      core::toProto(*C.PeriodPct, Change->mutable_period_pct());
+  }
   for (const core::Order &O : Engine.orders())
     toProto(O, *Timeline, Out->add_orders());
   for (const core::Fill &F : Engine.fills())
-    toProto(F, *Timeline, Out->add_fills());
+    toProto(F, *Timeline, Spec.InitialCash, Out->add_fills());
   for (const core::CommandResult &R : Result.CommandResults)
     toProto(R, Out->add_command_results());
   std::optional<core::Report> CoreReport;

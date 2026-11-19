@@ -6,6 +6,7 @@
 
 #include "convert/state.hpp"
 #include "core/money/proto_conv.hpp"
+#include "core/report/derived.hpp"
 
 namespace worker {
 
@@ -28,12 +29,15 @@ void blindPortfolioToProto(const core::BlindPortfolio &Portfolio,
   core::toProto(Portfolio.CashPct, Out->mutable_cash_pct());
   core::toProto(Portfolio.EquityPct, Out->mutable_equity_pct());
   core::toProto(Portfolio.PnlPct, Out->mutable_pnl_pct());
+  core::toProto(Portfolio.InvestedPct, Out->mutable_invested_pct());
+  core::toProto(Portfolio.CostsPct, Out->mutable_costs_pct());
   for (const core::BlindPosition &P : Portfolio.Positions) {
     pb::BlindPosition *Pos = Out->add_positions();
     Pos->set_instrument_index(static_cast<std::int32_t>(P.Instrument));
     Pos->set_lots(P.Lots);
     core::toProto(P.AvgPrice, Pos->mutable_avg_price());
     core::toProto(P.MarketValuePct, Pos->mutable_market_value_pct());
+    core::toProto(P.PnlPct, Pos->mutable_pnl_pct());
   }
 }
 
@@ -63,6 +67,8 @@ void blindFillToProto(const core::BlindFill &Fill, pb::BlindFill *Out) {
   core::toProto(Fill.SpreadCostPct, Out->mutable_spread_cost_pct());
   core::toProto(Fill.SlippageCostPct, Out->mutable_slippage_cost_pct());
   Out->set_stop_and_take_same_bar(Fill.StopAndTakeSameBar);
+  core::toProto(Fill.CostPct, Out->mutable_cost_pct());
+  Out->set_seq(Fill.Seq);
 }
 
 void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
@@ -71,6 +77,12 @@ void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
   core::toProto(Report.Costs.FeePct, Costs->mutable_exchange_fee_pct());
   core::toProto(Report.Costs.SpreadPct, Costs->mutable_spread_pct());
   core::toProto(Report.Costs.SlippagePct, Costs->mutable_slippage_pct());
+  core::toProto(Report.Costs.TotalPct, Costs->mutable_total_pct());
+  for (const core::UnderwaterPoint &P : Report.Underwater) {
+    pb::UnderwaterPoint *Pt = Out->add_underwater();
+    Pt->set_step(P.Step);
+    core::toProto(P.DrawdownPct, Pt->mutable_drawdown_pct());
+  }
 
   for (const core::BlindEquityPoint &P : Report.Equity) {
     pb::BlindEquityPoint *Pt = Out->add_equity();
@@ -86,8 +98,10 @@ void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
     core::toProto(P.EquityPct, Pt->mutable_equity_pct());
   }
 
+  std::int64_t TripSeq = 0;
   for (const core::BlindRoundTrip &T : Report.RoundTrips) {
     pb::BlindRoundTrip *Trip = Out->add_round_trips();
+    Trip->set_seq(TripSeq++);
     Trip->set_instrument_index(static_cast<std::int32_t>(T.Instrument));
     Trip->set_entry_step(T.EntryStep);
     Trip->set_exit_step(T.ExitStep);
@@ -111,6 +125,7 @@ void fillBlindView(const core::Timeline &Timeline,
                    pb::BlindSessionView *Out) {
   const std::vector<core::BlindScale> Scales =
       core::computeBlindScales(Timeline, InitialCash, LastStep);
+  const core::CostLedger Ledger(Engine.fills());
 
   for (std::size_t Idx = 0; Idx < Timeline.instruments().size(); ++Idx) {
     pb::BlindInstrument *Inst = Out->add_instruments();
@@ -119,11 +134,17 @@ void fillBlindView(const core::Timeline &Timeline,
       core::toProto(*Scales[Idx].LotValueAtStart,
                     Inst->mutable_lot_value_at_start());
     }
+    const core::InstrumentChange Change =
+        core::instrumentChange(Timeline, static_cast<int>(Idx), LastStep);
+    if (Change.StepPct)
+      core::toProto(*Change.StepPct, Inst->mutable_change_step_pct());
+    if (Change.PeriodPct)
+      core::toProto(*Change.PeriodPct, Inst->mutable_change_period_pct());
   }
 
   for (const core::StepEvents &E : Events) {
     const core::BlindStepEvents BlindEvents =
-        core::toBlindStepEvents(E, InitialCash, Scales);
+        core::toBlindStepEvents(E, InitialCash, Scales, Ledger.upTo(E.Step));
     pb::BlindStepEvents *Ev = Out->add_events();
     Ev->set_step(BlindEvents.Step);
     for (const core::BlindBar &B : BlindEvents.Bars)
@@ -154,9 +175,9 @@ void fillBlindView(const core::Timeline &Timeline,
     }
   }
 
-  blindPortfolioToProto(
-      core::toBlindPortfolio(Engine.snapshot(), InitialCash, Scales),
-      Out->mutable_portfolio());
+  blindPortfolioToProto(core::toBlindPortfolio(Engine.snapshot(), InitialCash,
+                                               Scales, Ledger.upTo(LastStep)),
+                        Out->mutable_portfolio());
 
   for (const core::Order &O : Engine.orders()) {
     if (O.Spec.Instrument < 0 ||

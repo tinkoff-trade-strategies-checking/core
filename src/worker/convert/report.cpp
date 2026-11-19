@@ -14,6 +14,7 @@ void metricsToProto(const core::Metrics &M, pb::Metrics *Out) {
     Out->set_cagr(*M.Cagr);
   Out->set_max_drawdown(M.MaxDrawdown);
   Out->set_max_drawdown_steps(M.MaxDrawdownSteps);
+  Out->set_max_drawdown_days(M.MaxDrawdownDays);
   if (M.Volatility)
     Out->set_volatility(*M.Volatility);
   if (M.Sharpe)
@@ -55,6 +56,12 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
   core::toProto(Report.Costs.Fee, Costs->mutable_exchange_fee());
   core::toProto(Report.Costs.Spread, Costs->mutable_spread());
   core::toProto(Report.Costs.Slippage, Costs->mutable_slippage());
+  core::toProto(Report.Costs.Total, Costs->mutable_total());
+  for (const core::UnderwaterPoint &P : Report.Underwater) {
+    pb::UnderwaterPoint *Point = Out->add_underwater();
+    Point->set_step(P.Step);
+    core::toProto(P.DrawdownPct, Point->mutable_drawdown_pct());
+  }
   for (const core::EquityPoint &P : Report.Equity) {
     pb::EquityPoint *Point = Out->add_equity();
     Point->set_step(P.Step);
@@ -66,8 +73,10 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
     Point->set_step(P.Step);
     core::toProto(P.Equity, Point->mutable_equity());
   }
+  std::int64_t TripSeq = 0;
   for (const core::RoundTrip &T : Report.RoundTrips) {
     pb::RoundTrip *Trip = Out->add_round_trips();
+    Trip->set_seq(TripSeq++);
     Trip->set_instrument_key(Timeline.instrumentKey(T.Instrument));
     Trip->set_entry_step(T.EntryStep);
     Trip->set_exit_step(T.ExitStep);

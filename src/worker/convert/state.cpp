@@ -7,7 +7,9 @@
 #include <variant>
 
 #include "convert/market.hpp"
+#include "core/blind/blind.hpp"
 #include "core/money/proto_conv.hpp"
+#include "core/report/derived.hpp"
 
 namespace worker {
 
@@ -196,7 +198,7 @@ void toProto(const core::Order &Order, const core::Timeline &Timeline,
 }
 
 void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
-             pb::Fill *Out) {
+             const core::Decimal &InitialCash, pb::Fill *Out) {
   Out->set_order_id(Fill.OrderId);
   Out->set_step(Fill.Step);
   Out->set_instrument_key(keyOf(Timeline, Fill.Instrument));
@@ -210,12 +212,29 @@ void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
   Out->set_stop_and_take_same_bar(Fill.StopAndTakeSameBar);
   core::toProto(Fill.SpreadCost, Out->mutable_spread_cost());
   core::toProto(Fill.SlippageCost, Out->mutable_slippage_cost());
+  Out->set_seq(Fill.Seq);
+  core::toProto(Fill.cost(), Out->mutable_cost());
+  core::toProto(core::toPercentOfCapital(Fill.cost(), InitialCash),
+                Out->mutable_cost_pct());
+  core::toProto(core::toPercentOfCapital(Fill.Value, InitialCash),
+                Out->mutable_amount_pct());
 }
 
 void toProto(const core::PortfolioSnapshot &Snapshot,
-             const core::Timeline &Timeline, pb::Portfolio *Out) {
+             const core::Timeline &Timeline, const core::Decimal &InitialCash,
+             const core::Decimal &CumulativeCosts, pb::Portfolio *Out) {
   core::toProto(Snapshot.Cash, Out->mutable_cash());
   core::toProto(Snapshot.Equity, Out->mutable_equity());
+  const core::PortfolioPcts Pcts =
+      core::portfolioPcts(Snapshot, InitialCash, CumulativeCosts);
+  core::toProto(Pcts.InvestedPct, Out->mutable_invested_pct());
+  core::toProto(Pcts.CostsPct, Out->mutable_costs_pct());
+  core::toProto(Pcts.PnlPct, Out->mutable_pnl_pct());
+  core::toProto(Pcts.EquityPct, Out->mutable_equity_pct());
+  core::toProto(Pcts.CashPct, Out->mutable_cash_pct());
+  core::toProto(Pcts.Invested, Out->mutable_invested());
+  core::toProto(Pcts.Pnl, Out->mutable_pnl());
+  core::toProto(Pcts.Costs, Out->mutable_costs());
   for (std::size_t I = 0; I < Snapshot.Lots.size(); ++I) {
     if (Snapshot.Lots[I] == 0)
       continue;
@@ -224,6 +243,11 @@ void toProto(const core::PortfolioSnapshot &Snapshot,
     P->set_lots(Snapshot.Lots[I]);
     core::toProto(Snapshot.AvgPrice[I], P->mutable_avg_price());
     core::toProto(Snapshot.MarketValue[I], P->mutable_market_value());
+    core::toProto(core::positionValuePct(Snapshot.MarketValue[I], InitialCash),
+                  P->mutable_value_pct());
+    core::toProto(core::positionPnlPct(Snapshot.MarketValue[I],
+                                       Snapshot.CostBasis[I], InitialCash),
+                  P->mutable_pnl_pct());
   }
 }
 
@@ -237,15 +261,17 @@ void toProto(const core::CommandResult &Result, pb::CommandResult *Out) {
 }
 
 void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
+             const core::Decimal &InitialCash, const core::CostLedger &Costs,
              pb::StepEvents *Out) {
   Out->set_step(Events.Step);
   for (const core::StepBar &B : Events.Bars)
     toProto(B, Timeline, Out->add_bars());
   for (const core::Fill &F : Events.Fills)
-    toProto(F, Timeline, Out->add_fills());
+    toProto(F, Timeline, InitialCash, Out->add_fills());
   for (const core::Order &O : Events.ChangedOrders)
     toProto(O, Timeline, Out->add_changed_orders());
-  toProto(Events.Portfolio, Timeline, Out->mutable_portfolio());
+  toProto(Events.Portfolio, Timeline, InitialCash, Costs.upTo(Events.Step),
+          Out->mutable_portfolio());
 }
 
 pb::SessionStatus toProto(core::SessionStatus Status) {

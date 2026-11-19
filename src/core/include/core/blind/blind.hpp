@@ -52,12 +52,15 @@ struct BlindPosition {
   std::int64_t Lots = 0;
   Decimal AvgPrice;
   Decimal MarketValuePct;
+  Decimal PnlPct; // нереализованный P&L, % начального капитала (core#54)
 };
 
 struct BlindPortfolio {
   Decimal CashPct;
   Decimal EquityPct;
   Decimal PnlPct;
+  Decimal InvestedPct; // стоимость позиций / equity, 2 знака HALF_UP
+  Decimal CostsPct; // накопленные издержки / начальный капитал
   std::vector<BlindPosition> Positions;
 };
 
@@ -83,6 +86,8 @@ struct BlindFill {
   Decimal SpreadCostPct;
   Decimal SlippageCostPct;
   bool StopAndTakeSameBar = false;
+  Decimal CostPct; // итоговые издержки сделки одним числом, 2 знака HALF_UP
+  std::int64_t Seq = 0;
 };
 
 struct BlindStepEvents {
@@ -98,6 +103,7 @@ struct BlindCostTotals {
   Decimal FeePct;
   Decimal SpreadPct;
   Decimal SlippagePct;
+  Decimal TotalPct;
 };
 
 struct BlindEquityPoint {
@@ -124,6 +130,7 @@ struct BlindReport {
   Decimal PnlPct;
   std::vector<BlindEquityPoint> BenchmarkEquity;
   std::vector<BlindRoundTrip> RoundTrips;
+  std::vector<UnderwaterPoint> Underwater; // просадка в % от пика, не рубли
 };
 
 // Вычисляет P0 (open шага 0 или первого бара в [0; LastStep]) для бумаги,
@@ -166,9 +173,12 @@ Decimal toPercentOfCapital(const Decimal &Amount, const Decimal &InitialCash);
 
 BlindBar toBlindBar(const StepBar &Bar, const BlindScale &Scale);
 
+// CumulativeCosts - сумма издержек сделок до шага снимка включительно
+// (CostLedger::upTo), для CostsPct.
 BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
                                 const Decimal &InitialCash,
-                                const std::vector<BlindScale> &Scales);
+                                const std::vector<BlindScale> &Scales,
+                                const Decimal &CumulativeCosts);
 
 BlindOrder toBlindOrder(const Order &Order, const BlindScale &Scale);
 
@@ -177,7 +187,8 @@ BlindFill toBlindFill(const Fill &Fill, const Decimal &InitialCash,
 
 BlindStepEvents toBlindStepEvents(const StepEvents &Events,
                                   const Decimal &InitialCash,
-                                  const std::vector<BlindScale> &Scales);
+                                  const std::vector<BlindScale> &Scales,
+                                  const Decimal &CumulativeCosts);
 
 BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
                           const std::vector<BlindScale> &Scales);

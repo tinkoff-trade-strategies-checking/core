@@ -237,6 +237,13 @@ message Order {
   int64 closed_step = 12;         // -1 — заявка ещё открыта
 }
 
+// Изменение цены бумаги на курсоре, % (×100, 2 знака HALF_UP), только по барам <= курсора (INV-1).
+message InstrumentChange {
+  string instrument_key = 1;
+  optional Decimal step_pct = 2;    // close бара на курсоре к close предыдущего (нет предыдущего — к open); не задано, если на курсоре у бумаги нет бара
+  optional Decimal period_pct = 3;  // close последнего бара к open первого бара сессии
+}
+
 message Fill {
   int64 order_id = 1;
   int64 step = 2;
@@ -251,6 +258,11 @@ message Fill {
   bool stop_and_take_same_bar = 11;   // стоп и тейк в одной свече: сработал стоп, сделка помечена
   Decimal spread_cost = 12;
   Decimal slippage_cost = 13;
+  // Производные величины (core#54), считает core, backend не складывает.
+  int64 seq = 14;          // порядковый номер сделки в журнале сессии, с 0; стабилен между перепроигрываниями (id v5 у backend)
+  Decimal cost = 15;       // издержки сделки: commission + exchange_fee + spread_cost + slippage_cost, ₽
+  Decimal cost_pct = 16;   // cost в % начального капитала, 2 знака HALF_UP (от рублёвой суммы, не от округлённых процентов)
+  Decimal amount_pct = 17; // value в % начального капитала, 2 знака HALF_UP
 }
 
 message Position {
@@ -258,12 +270,27 @@ message Position {
   int64 lots = 2;
   Decimal avg_price = 3;
   Decimal market_value = 4;
+  // Проценты (core#54), ×100, 2 знака HALF_UP; база — начальный капитал (как BlindPosition).
+  Decimal value_pct = 5;   // market_value / initial_cash
+  Decimal pnl_pct = 6;     // нереализованный P&L: (market_value - себестоимость) / initial_cash; себестоимость — точная сумма покупок открытых лотов (FIFO), без комиссии и сбора
 }
 
 message Portfolio {
   Decimal cash = 1;
   Decimal equity = 2;
   repeated Position positions = 3;
+  // Проценты (core#54), уже ×100, 2 знака HALF_UP; база всех — начальный капитал (initial_cash).
+  // cash_pct + invested_pct = equity_pct ровно: equity_pct и cash_pct округляются один раз от точных значений,
+  // invested_pct = equity_pct - cash_pct (может отличаться на 0,01 от прямого округления invested / initial_cash).
+  Decimal invested_pct = 4;  // доля вложенного в позиции: equity_pct - cash_pct
+  Decimal costs_pct = 5;     // накопленные издержки сделок до этого шага включительно / initial_cash
+  Decimal pnl_pct = 6;       // (equity - initial_cash) / initial_cash
+  Decimal equity_pct = 7;    // equity / initial_cash
+  Decimal cash_pct = 8;      // cash / initial_cash
+  // Те же величины в рублях (точные суммы):
+  Decimal invested = 9;      // сумма стоимости позиций
+  Decimal pnl = 10;          // equity - initial_cash
+  Decimal costs = 11;        // накопленные издержки сделок до этого шага включительно
 }
 
 message CommandResult {
@@ -305,6 +332,7 @@ message Metrics {
   double max_position_share = 16;
   optional double benchmark_return = 17;
   int32 trading_days = 18;
+  int64 max_drawdown_days = 20;    // число разных торговых дней, на которые пришлась самая длинная серия шагов ниже пика (без деления и округления), core#54
   int64 stop_take_same_bar = 19;   // сделок, где стоп и тейк задеты одной свечой (исполнен стоп, INV-3)
 }
 
@@ -313,6 +341,7 @@ message CostTotals {
   Decimal exchange_fee = 2;
   Decimal spread = 3;
   Decimal slippage = 4;
+  Decimal total = 5;   // сумма четырёх видов, ₽ (core#54)
 }
 
 message EquityPoint {
@@ -331,6 +360,7 @@ message RoundTrip {
   Decimal gross_pnl = 7;     // до издержек: сумма продажи - сумма покупки
   Decimal costs = 8;         // комиссия и сбор обеих сторон (пропорционально лотам пары)
   Decimal net_pnl = 9;       // после издержек
+  int64 seq = 10;            // индекс пары в Report.round_trips (с 0; порядок продаж, внутри — покупок), core#54
 }
 
 message Report {
@@ -345,6 +375,15 @@ message Report {
   repeated EquityPoint benchmark_equity = 7;
   // Пары FIFO в порядке продаж, внутри продажи — в порядке покупок (ФТ-20, лист «Сделки» выгрузки).
   repeated RoundTrip round_trips = 8;
+  // Кривая просадки (underwater, core#54): по точке на каждую точку `equity`.
+  repeated UnderwaterPoint underwater = 9;
+}
+
+// Глубина просадки от пика, в процентах (уже ×100): (пик - equity) / пик * 100, >= 0, 2 знака HALF_UP; 0 в пике.
+// Пик стартует с initial_cash (как Metrics.max_drawdown). При отрицательном equity значение может превысить 100.
+message UnderwaterPoint {
+  int64 step = 1;
+  Decimal drawdown_pct = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +398,9 @@ message BlindInstrument {
   // (шаг <= курсора), 2 знака HALF_UP; не задано до первой свечи.
   // До появления P0 бумага отсутствует в history/events слепого вида целиком.
   optional Decimal lot_value_at_start = 2;
+  // Изменение цены на курсоре, % (2 знака HALF_UP, ×100), по барам <= курсора; не задано, пока баров нет (core#54).
+  optional Decimal change_step_pct = 3;    // close бара на курсоре к close предыдущего (нет предыдущего — к open); не задано, если на курсоре у бумаги нет бара
+  optional Decimal change_period_pct = 4;  // close последнего бара к open первого бара сессии
 }
 
 message BlindBar {
@@ -380,6 +422,7 @@ message BlindPosition {
   int64 lots = 2;
   Decimal avg_price = 3;         // x * 100 / P0, 2 знака HALF_UP
   Decimal market_value_pct = 4;  // % от начального капитала, 2 знака HALF_UP
+  Decimal pnl_pct = 5;           // нереализованный P&L, % начального капитала, 2 знака HALF_UP (core#54)
 }
 
 message BlindPortfolio {
@@ -387,6 +430,8 @@ message BlindPortfolio {
   Decimal equity_pct = 2;
   Decimal pnl_pct = 3;
   repeated BlindPosition positions = 4;
+  Decimal invested_pct = 5;  // как Portfolio.invested_pct (% начального капитала)
+  Decimal costs_pct = 6;     // как Portfolio.costs_pct
 }
 
 // Заявка в слепом виде: содержит только поля, требующие маскировки (id,
@@ -415,6 +460,8 @@ message BlindFill {
   Decimal spread_cost_pct = 11;
   Decimal slippage_cost_pct = 12;
   bool stop_and_take_same_bar = 13;
+  Decimal cost_pct = 14;      // итоговые издержки сделки, % начального капитала, 2 знака HALF_UP (от рублёвой суммы), core#54
+  int64 seq = 15;             // как Fill.seq
 }
 
 message BlindStepEvents {
@@ -430,6 +477,7 @@ message BlindCostTotals {
   Decimal exchange_fee_pct = 2;
   Decimal spread_pct = 3;
   Decimal slippage_pct = 4;
+  Decimal total_pct = 5;   // % начального капитала от рублёвой суммы издержек, 2 знака HALF_UP (core#54)
 }
 
 message BlindEquityPoint {
@@ -447,6 +495,7 @@ message BlindRoundTrip {
   Decimal gross_pnl_pct = 7;
   Decimal costs_pct = 8;
   Decimal net_pnl_pct = 9;
+  int64 seq = 10;            // как RoundTrip.seq
 }
 
 message BlindReport {
@@ -456,6 +505,7 @@ message BlindReport {
   Decimal pnl_pct = 4;
   repeated BlindEquityPoint benchmark_equity = 5;
   repeated BlindRoundTrip round_trips = 6;
+  repeated UnderwaterPoint underwater = 7;   // проценты от пика, не рубли: слепой вид их не скрывает
 }
 
 message BlindSessionView {
@@ -497,6 +547,11 @@ message ReplaySessionResponse {
   Report report = 10;
   int64 warmup_steps = 11;       // шагов прогрева; при include_history бары прогрева идут в history первыми
   BlindSessionView blind_view = 12;
+  // Номер торгового дня шага last_step (с 1, как Bar.trading_day), без include_history и include_report (core#54).
+  // 0 — шкала пуста. Metrics.trading_days — число дней с точками капитала, то же значение, но только при include_report.
+  int32 current_day = 13;
+  // Изменение цены бумаг на курсоре для карточек (core#54): по одной записи на бумагу сессии.
+  repeated InstrumentChange instrument_changes = 14;
 }
 
 message GetBarsRequest {

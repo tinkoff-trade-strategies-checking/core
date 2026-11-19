@@ -7,9 +7,12 @@
 #include <vector>
 
 #include "convert/market.hpp"
+#include "core/blind/blind.hpp"
 #include "core/market/bar.hpp"
 #include "core/market/bar_source.hpp"
 #include "core/market/ruonia_source.hpp"
+#include "core/money/proto_conv.hpp"
+#include "core/report/derived.hpp"
 #include "worker_test_support.hpp"
 
 namespace {
@@ -794,4 +797,236 @@ TEST_F(ReplaySession, BlindEstimateThenReplayWithP0Not100BuySellOcoAndReplace) {
             core::Decimal::parse("188.00"));
   EXPECT_EQ(core::fromProto(R1.orders(4).spec().limit_price()),
             core::Decimal::parse("212.00"));
+}
+
+// core#54: производные величины в ответе.
+TEST_F(ReplaySession, DerivedFillCostsAndSeq) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5),
+             marketOrder(1, 4, "A", pb::SELL, 5)};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(9, 0, &Response, false, true).ok());
+  ASSERT_EQ(Response.fills_size(), 2);
+  const core::Decimal Cash = core::fromProto(Market.initial_cash());
+  for (int I = 0; I < 2; ++I) {
+    const pb::Fill &F = Response.fills(I);
+    EXPECT_EQ(F.seq(), I);
+    const core::Decimal Cost =
+        core::fromProto(F.commission()) + core::fromProto(F.exchange_fee()) +
+        core::fromProto(F.spread_cost()) + core::fromProto(F.slippage_cost());
+    EXPECT_EQ(core::fromProto(F.cost()), Cost);
+    EXPECT_EQ(core::fromProto(F.cost_pct()),
+              core::toPercentOfCapital(Cost, Cash));
+    EXPECT_EQ(core::fromProto(F.amount_pct()),
+              core::toPercentOfCapital(core::fromProto(F.value()), Cash));
+  }
+  // seq в событиях совпадает с seq в общем списке
+  int Seen = 0;
+  for (const pb::StepEvents &E : Response.events())
+    for (const pb::Fill &F : E.fills())
+      EXPECT_EQ(F.seq(), Seen++);
+  EXPECT_EQ(Seen, 2);
+
+  const pb::Report &R = Response.report();
+  EXPECT_EQ(core::fromProto(R.costs().total()),
+            core::fromProto(R.costs().commission()) +
+                core::fromProto(R.costs().exchange_fee()) +
+                core::fromProto(R.costs().spread()) +
+                core::fromProto(R.costs().slippage()));
+  ASSERT_EQ(R.round_trips_size(), 1);
+  EXPECT_EQ(R.round_trips(0).seq(), 0);
+  // кривая просадки - по точке на точку кривой капитала
+  ASSERT_EQ(R.underwater_size(), R.equity_size());
+  for (int I = 0; I < R.equity_size(); ++I) {
+    EXPECT_EQ(R.underwater(I).step(), R.equity(I).step());
+    EXPECT_GE(core::fromProto(R.underwater(I).drawdown_pct()),
+              core::Decimal::zero());
+  }
+}
+
+// Нет сделок: нули, а не отсутствие полей.
+TEST_F(ReplaySession, DerivedNoTrades) {
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(5, -1, &Response, false, true).ok());
+  EXPECT_EQ(Response.fills_size(), 0);
+  EXPECT_EQ(core::fromProto(Response.report().costs().total()),
+            core::Decimal::zero());
+  EXPECT_EQ(Response.report().underwater_size(),
+            Response.report().equity_size());
+}
+
+// Номер дня курсора отдаётся без истории и отчёта и совпадает с trading_day
+// бара на курсоре и с Metrics.trading_days.
+TEST_F(ReplaySession, CurrentDayWithoutHistoryAndReport) {
+  pb::ReplaySessionResponse Full;
+  ASSERT_TRUE(replay(7, -1, &Full, true, true).ok());
+  pb::ReplaySessionResponse Bare;
+  ASSERT_TRUE(replay(7, -1, &Bare, false, false).ok());
+  EXPECT_GE(Bare.current_day(), 1);
+  std::int32_t LastDay = 0;
+  for (const pb::Bar &B : Full.history())
+    if (B.step() == Full.last_step())
+      LastDay = B.trading_day();
+  EXPECT_EQ(Bare.current_day(), LastDay);
+  EXPECT_EQ(Bare.current_day(), Full.report().metrics().trading_days());
+}
+
+// Слепой вид: cost_pct от рублёвой суммы, total_pct, underwater, seq.
+TEST_F(ReplaySession, DerivedBlindView) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5),
+             marketOrder(1, 4, "A", pb::SELL, 5)};
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  pb::ReplaySessionRequest Request;
+  *Request.mutable_market() = Market;
+  for (const pb::JournalEntry &E : Journal)
+    *Request.add_journal() = E;
+  Request.set_up_to_step(9);
+  Request.set_events_from_step(-1);
+  Request.set_include_report(true);
+  Request.set_blind(true);
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(worker::handleReplaySession(Context, Request, &Response).ok());
+  const core::Decimal Cash = core::fromProto(Market.initial_cash());
+  const pb::BlindSessionView &Bv = Response.blind_view();
+  ASSERT_EQ(Bv.fills_size(), Response.fills_size());
+  for (int I = 0; I < Bv.fills_size(); ++I) {
+    EXPECT_EQ(Bv.fills(I).seq(), Response.fills(I).seq());
+    EXPECT_EQ(core::fromProto(Bv.fills(I).cost_pct()),
+              core::toPercentOfCapital(
+                  core::fromProto(Response.fills(I).cost()), Cash));
+  }
+  EXPECT_EQ(core::fromProto(Bv.report().costs().total_pct()),
+            core::toPercentOfCapital(
+                core::fromProto(Response.report().costs().total()), Cash));
+  EXPECT_EQ(Bv.report().underwater_size(), Response.report().underwater_size());
+  ASSERT_EQ(Bv.report().round_trips_size(), 1);
+  EXPECT_EQ(Bv.report().round_trips(0).seq(), 0);
+}
+
+// core#54: проценты портфеля, позиций, изменение цены, просадка в днях.
+// База всех процентов - начальный капитал.
+TEST_F(ReplaySession, DerivedPortfolioAndPositionPcts) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5)};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(4, 0, &Response, false, true).ok());
+  const core::Decimal Cash = core::fromProto(Market.initial_cash());
+  const pb::Portfolio &P = Response.portfolio();
+  const core::Decimal Equity = core::fromProto(P.equity());
+  const core::Decimal Cost = core::fromProto(Response.fills(0).cost());
+  EXPECT_EQ(core::fromProto(P.costs_pct()),
+            core::toPercentOfCapital(Cost, Cash));
+  EXPECT_EQ(core::fromProto(P.costs()), Cost);
+  EXPECT_EQ(core::fromProto(P.pnl_pct()),
+            core::toPercentOfCapital(Equity - Cash, Cash));
+  EXPECT_EQ(core::fromProto(P.pnl()), Equity - Cash);
+  EXPECT_EQ(core::fromProto(P.equity_pct()),
+            core::toPercentOfCapital(Equity, Cash));
+  EXPECT_EQ(core::fromProto(P.cash_pct()),
+            core::toPercentOfCapital(core::fromProto(P.cash()), Cash));
+  ASSERT_EQ(P.positions_size(), 1);
+  const pb::Position &Pos = P.positions(0);
+  const core::Decimal Value = core::fromProto(Pos.market_value());
+  EXPECT_EQ(core::fromProto(P.invested()), Value);
+  EXPECT_EQ(core::fromProto(P.invested_pct()),
+            core::fromProto(P.equity_pct()) - core::fromProto(P.cash_pct()));
+  EXPECT_EQ(core::fromProto(Pos.value_pct()),
+            core::fromProto(P.invested_pct()));
+  // cash_pct + invested_pct = equity_pct точно
+  const core::Decimal Diff =
+      core::fromProto(P.equity_pct()) -
+      (core::fromProto(P.cash_pct()) + core::fromProto(P.invested_pct()));
+  EXPECT_EQ(Diff, core::Decimal::zero());
+  // себестоимость - точная сумма покупки (value сделки)
+  EXPECT_EQ(core::fromProto(Pos.pnl_pct()),
+            core::toPercentOfCapital(
+                Value - core::fromProto(Response.fills(0).value()), Cash));
+  // портфель в событии шага 4 - тот же; покупка исполнена на шаге 1
+  EXPECT_EQ(core::fromProto(Response.events(3).portfolio().costs_pct()),
+            core::fromProto(P.costs_pct()));
+  EXPECT_EQ(core::fromProto(Response.events(0).portfolio().costs_pct()),
+            core::toPercentOfCapital(Cost, Cash));
+  // пустой портфель: нули, equity 100%
+  Journal.clear();
+  pb::ReplaySessionResponse Empty;
+  ASSERT_TRUE(replay(4, -1, &Empty, false, true).ok());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().invested_pct()),
+            core::Decimal::zero());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().costs_pct()),
+            core::Decimal::zero());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().pnl_pct()),
+            core::Decimal::zero());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().equity_pct()),
+            core::Decimal::parse("100.00"));
+  EXPECT_EQ(core::fromProto(Empty.portfolio().invested()),
+            core::Decimal::zero());
+}
+
+// seq сделок не зависит от курсора: префикс совпадает (UUID v5 у backend).
+TEST_F(ReplaySession, DerivedSeqStableAcrossCursor) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5),
+             marketOrder(1, 4, "A", pb::SELL, 5)};
+  pb::ReplaySessionResponse Early, Late;
+  ASSERT_TRUE(replay(9, -1, &Late, false, false).ok());
+  Journal.pop_back(); // команды позже курсора журнал не допускает
+  ASSERT_TRUE(replay(2, -1, &Early, false, false).ok());
+  ASSERT_EQ(Early.fills_size(), 1);
+  ASSERT_EQ(Late.fills_size(), 2);
+  EXPECT_EQ(Early.fills(0).seq(), Late.fills(0).seq());
+  EXPECT_EQ(Late.fills(1).seq(), 1);
+}
+
+TEST_F(ReplaySession, DerivedInstrumentChanges) {
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(3, -1, &Response, false, false).ok());
+  ASSERT_EQ(Response.instrument_changes_size(), 2);
+  const pb::InstrumentChange &A = Response.instrument_changes(0);
+  EXPECT_EQ(A.instrument_key(), "A");
+  ASSERT_TRUE(A.has_step_pct());
+  EXPECT_EQ(core::fromProto(A.step_pct()), core::Decimal::parse("2.91"));
+  EXPECT_EQ(core::fromProto(A.period_pct()), core::Decimal::parse("6.00"));
+  // у B на шаге 3 нет бара: за шаг не задано, за период по последнему бару
+  const pb::InstrumentChange &B = Response.instrument_changes(1);
+  EXPECT_FALSE(B.has_step_pct());
+  EXPECT_TRUE(B.has_period_pct());
+}
+
+TEST_F(ReplaySession, DerivedMaxDrawdownDays) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 50),
+             marketOrder(1, 4, "A", pb::SELL, 50)};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(9, -1, &Response, false, true).ok());
+  const pb::Metrics &M = Response.report().metrics();
+  // шаг шкалы фикстуры - день, дни равны шагам
+  EXPECT_EQ(M.max_drawdown_days(), M.max_drawdown_steps());
+}
+
+TEST_F(ReplaySession, DerivedBlindPortfolioAndChange) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5)};
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  pb::ReplaySessionRequest Request;
+  *Request.mutable_market() = Market;
+  *Request.add_journal() = Journal[0];
+  Request.set_up_to_step(3);
+  Request.set_events_from_step(0);
+  Request.set_include_report(true);
+  Request.set_blind(true);
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(worker::handleReplaySession(Context, Request, &Response).ok());
+  const pb::BlindSessionView &Bv = Response.blind_view();
+  EXPECT_EQ(core::fromProto(Bv.portfolio().invested_pct()),
+            core::fromProto(Response.portfolio().invested_pct()));
+  EXPECT_EQ(core::fromProto(Bv.portfolio().equity_pct()),
+            core::fromProto(Response.portfolio().equity_pct()));
+  ASSERT_EQ(Bv.portfolio().positions_size(), 1);
+  EXPECT_EQ(core::fromProto(Bv.portfolio().positions(0).pnl_pct()),
+            core::fromProto(Response.portfolio().positions(0).pnl_pct()));
+  EXPECT_EQ(core::fromProto(Bv.portfolio().costs_pct()),
+            core::fromProto(Response.portfolio().costs_pct()));
+  ASSERT_EQ(Bv.events_size(), 3);
+  EXPECT_EQ(core::fromProto(Bv.events(2).portfolio().costs_pct()),
+            core::fromProto(Response.events(2).portfolio().costs_pct()));
+  ASSERT_EQ(Bv.instruments_size(), 2);
+  EXPECT_EQ(core::fromProto(Bv.instruments(0).change_step_pct()),
+            core::Decimal::parse("2.91"));
+  EXPECT_EQ(core::fromProto(Bv.instruments(0).change_period_pct()),
+            core::Decimal::parse("6.00"));
 }

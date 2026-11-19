@@ -27,23 +27,35 @@ double annualFactor() { return std::sqrt(kTradingDaysPerYear); }
 struct Dd {
   double MaxDrawdown = 0;
   std::int64_t MaxSteps = 0;
+  std::int64_t MaxDays = 0; // торговых дней, на которые пришлась серия MaxSteps
 };
 
 // Просадка от пика; пик стартует с начального капитала. Шаги «ниже пика»
-// считаются подряд, пока цена не вернётся на пик или выше.
-Dd drawdown(const Decimal &InitialCash,
-            const std::vector<EquityPoint> &Equity) {
+// считаются подряд, пока цена не вернётся на пик или выше. Длительность в днях
+// - число разных торговых дней самой длинной серии (при равных - первой).
+Dd drawdown(const MetricsInput &In) {
   Dd Out;
-  Decimal Peak = InitialCash;
-  std::int64_t Run = 0;
-  for (const EquityPoint &P : Equity) {
+  Decimal Peak = In.InitialCash;
+  std::int64_t Run = 0, RunDays = 0;
+  std::int32_t PrevDay = 0;
+  for (const EquityPoint &P : In.Equity) {
     if (P.Equity > Peak) {
       Peak = P.Equity;
       Run = 0;
     } else if (P.Equity < Peak) {
       Out.MaxDrawdown = std::max(Out.MaxDrawdown,
                                  1.0 - P.Equity.toDouble() / Peak.toDouble());
-      Out.MaxSteps = std::max(Out.MaxSteps, ++Run);
+      const std::int32_t Day =
+          In.TradingDayOfStep[static_cast<std::size_t>(P.Step)];
+      if (++Run == 1 || Day != PrevDay)
+        ++RunDays;
+      if (Run == 1)
+        RunDays = 1;
+      PrevDay = Day;
+      if (Run > Out.MaxSteps) {
+        Out.MaxSteps = Run;
+        Out.MaxDays = RunDays;
+      }
     } else {
       Run = 0;
     }
@@ -58,6 +70,24 @@ struct Daily {
   std::vector<double> Returns;
   std::vector<double> Equities; // E_d в double
 };
+
+// Кривая просадки: (пик - E) / пик * 100, пик стартует с начального капитала
+// (InitialCash > 0 проверено validate), 2 знака HALF_UP.
+std::vector<UnderwaterPoint> underwater(const MetricsInput &In) {
+  std::vector<UnderwaterPoint> Out;
+  Out.reserve(In.Equity.size());
+  Decimal Peak = In.InitialCash;
+  const Decimal Hundred = Decimal::fromUnits(100);
+  for (const EquityPoint &P : In.Equity) {
+    if (P.Equity > Peak)
+      Peak = P.Equity;
+    Decimal Pct;
+    if (P.Equity < Peak)
+      Pct = (Peak - P.Equity).mulDiv(Hundred, Peak, 2, RoundingMode::HalfUp);
+    Out.push_back(UnderwaterPoint{P.Step, Pct});
+  }
+  return Out;
+}
 
 Daily dailySeries(const MetricsInput &In) {
   std::vector<Decimal> LastOfDay;
@@ -124,6 +154,7 @@ Report computeReport(const MetricsInput &In) {
   Report.Equity = In.Equity;
   Report.BenchmarkEquity = In.BenchmarkEquity;
   Report.RoundTrips = In.RoundTrips;
+  Report.Underwater = underwater(In);
   Report.FinalEquity =
       In.Equity.empty() ? In.InitialCash : In.Equity.back().Equity;
   Metrics &M = Report.Stats;
@@ -136,6 +167,7 @@ Report computeReport(const MetricsInput &In) {
     Report.Costs.Fee += F.Fee;
     Report.Costs.Spread += F.SpreadCost;
     Report.Costs.Slippage += F.SlippageCost;
+    Report.Costs.Total += F.cost();
     TradedValue += F.Value;
     if (F.StopAndTakeSameBar)
       ++Report.Stats.StopTakeSameBar;
@@ -197,9 +229,10 @@ Report computeReport(const MetricsInput &In) {
       M.Sortino = MuE / DownsideDev * annualFactor();
   }
 
-  const Dd Dd = drawdown(In.InitialCash, In.Equity);
+  const Dd Dd = drawdown(In);
   M.MaxDrawdown = Dd.MaxDrawdown;
   M.MaxDrawdownSteps = Dd.MaxSteps;
+  M.MaxDrawdownDays = Dd.MaxDays;
 
   M.Fills = static_cast<std::int64_t>(In.Fills.size());
   M.RoundTrips = static_cast<std::int64_t>(In.RoundTrips.size());

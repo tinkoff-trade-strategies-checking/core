@@ -53,6 +53,9 @@ struct Metrics {
   // Наибольшая серия подряд идущих точек equity ниже пика; точка equity - один
   // шаг, поэтому это шаги.
   std::int64_t MaxDrawdownSteps = 0;
+  // Та же серия в днях: число разных торговых дней, на которые она пришлась
+  // (без деления и округления; на дневной шкале равно шагам).
+  std::int64_t MaxDrawdownDays = 0;
   std::optional<double> Volatility, Sharpe,
       Sortino; // годовые; нет при менее чем двух днях и нулевом разбросе
   double Turnover = 0;
@@ -71,6 +74,15 @@ struct Metrics {
 // и округление»).
 struct CostTotals {
   Decimal Commission, Fee, Spread, Slippage;
+  Decimal Total; // сумма четырёх видов (core#54)
+};
+
+// Точка кривой просадки (underwater): глубина просадки от пика в процентах
+// (0..100, 2 знака HALF_UP), пик стартует с начального капитала, как в
+// MaxDrawdown. По одной точке на точку кривой капитала.
+struct UnderwaterPoint {
+  std::int64_t Step = 0;
+  Decimal DrawdownPct;
 };
 
 struct Report {
@@ -81,6 +93,7 @@ struct Report {
       FinalEquity; // стоимость на последнем шаге; без точек - начальный капитал
   std::vector<EquityPoint> BenchmarkEquity; // из MetricsInput::benchmarkEquity
   std::vector<RoundTrip> RoundTrips; // пары FIFO как во входе
+  std::vector<UnderwaterPoint> Underwater; // кривая просадки по шагам
 };
 
 // Считает отчёт. std::invalid_argument: initialCash <= 0, шаг точки вне

@@ -274,3 +274,132 @@ TEST(Metrics, Deterministic) {
 }
 
 } // namespace
+
+// core#54: итоговые издержки сделки и сумма по отчёту.
+TEST(MetricsDerived, FillCostIsSumOfFourParts) {
+  const Fill F = fill("271540.00", "135.77", "27.16", "100.00", "5.00");
+  EXPECT_EQ(F.cost(), d("267.93"));
+  EXPECT_EQ(Fill{}.cost(), Decimal::zero());
+}
+
+TEST(MetricsDerived, CostsTotalEqualsSumOfKinds) {
+  MetricsInput In = fiveDays();
+  In.Fills = {fill("271540.00", "135.77", "27.16", "100.00", "5.00"),
+              fill("134455.00", "67.23", "13.45", "50.00", "2.50")};
+  const core::Report R = core::computeReport(In);
+  EXPECT_EQ(R.Costs.Total, R.Costs.Commission + R.Costs.Fee + R.Costs.Spread +
+                               R.Costs.Slippage);
+  // 135.77 + 27.16 + 100 + 5 + 67.23 + 13.45 + 50 + 2.50
+  EXPECT_EQ(R.Costs.Total, d("401.11"));
+}
+
+TEST(MetricsDerived, NoTradesZeroTotal) {
+  const core::Report R = core::computeReport(fiveDays());
+  EXPECT_EQ(R.Costs.Total, Decimal::zero());
+}
+
+// Underwater: пик стартует с начального капитала, 2 знака HALF_UP, 0 в пике.
+TEST(MetricsDerived, UnderwaterCurve) {
+  const core::Report R = core::computeReport(
+      dailyInput({"990000", "980000", "985000", "1010000", "1000000"}));
+  ASSERT_EQ(R.Underwater.size(), 5u);
+  EXPECT_EQ(R.Underwater[0].Step, 0);
+  EXPECT_EQ(R.Underwater[0].DrawdownPct, d("1.00"));
+  EXPECT_EQ(R.Underwater[1].DrawdownPct, d("2.00"));
+  EXPECT_EQ(R.Underwater[2].DrawdownPct, d("1.50"));
+  EXPECT_EQ(R.Underwater[3].DrawdownPct, Decimal::zero()); // новый пик
+  // от пика 1010000: 10000 / 1010000 * 100 = 0.990099 -> 0.99
+  EXPECT_EQ(R.Underwater[4].DrawdownPct, d("0.99"));
+  // максимум кривой совпадает с Metrics.MaxDrawdown (в процентах)
+  EXPECT_NEAR(R.Stats.MaxDrawdown * 100.0, 2.0, kTol);
+}
+
+TEST(MetricsDerived, UnderwaterEdgeCases) {
+  // нет точек - кривой нет
+  EXPECT_TRUE(core::computeReport(dailyInput({})).Underwater.empty());
+  // один шаг выше капитала - в пике
+  const core::Report Up = core::computeReport(dailyInput({"1100000"}));
+  ASSERT_EQ(Up.Underwater.size(), 1u);
+  EXPECT_EQ(Up.Underwater[0].DrawdownPct, Decimal::zero());
+  // все шаги в минус без возврата к пику - глубина только растёт
+  const core::Report Loss =
+      core::computeReport(dailyInput({"900000", "800000", "500000"}));
+  ASSERT_EQ(Loss.Underwater.size(), 3u);
+  EXPECT_EQ(Loss.Underwater[0].DrawdownPct, d("10.00"));
+  EXPECT_EQ(Loss.Underwater[1].DrawdownPct, d("20.00"));
+  EXPECT_EQ(Loss.Underwater[2].DrawdownPct, d("50.00"));
+  // банкротство: капитал 0 - 100%
+  const core::Report Bust = core::computeReport(dailyInput({"0"}));
+  EXPECT_EQ(Bust.Underwater[0].DrawdownPct, d("100.00"));
+  // округление HALF_UP: 3333.33 / 1000000 = 0.333333% -> 0.33
+  const core::Report Round =
+      core::computeReport(dailyInput({"996666.67", "998333.33"}));
+  EXPECT_EQ(Round.Underwater[0].DrawdownPct, d("0.33"));
+  EXPECT_EQ(Round.Underwater[1].DrawdownPct, d("0.17"));
+}
+
+// core#54: длительность максимальной просадки в днях - число разных торговых
+// дней, на которые пришлась самая длинная серия шагов ниже пика.
+MetricsInput intraday(const std::vector<const char *> &Equity,
+                      const std::vector<std::int32_t> &Days) {
+  MetricsInput In;
+  In.InitialCash = d("1000000");
+  for (std::size_t I = 0; I < Equity.size(); ++I) {
+    In.Equity.push_back({static_cast<std::int64_t>(I), d(Equity[I])});
+    In.TradingDayOfStep.push_back(Days[I]);
+  }
+  for (std::int32_t Day = 1; Day <= Days.back(); ++Day) {
+    In.RuoniaRates.push_back(Decimal::zero());
+    In.CalendarDays.push_back(1);
+  }
+  return In;
+}
+
+TEST(MetricsDerived, MaxDrawdownDaysIntraday) {
+  // По 2 шага в дне; ниже пика шаги 1..4: дни 1, 2, 2, 3 -> 3 дня.
+  const core::Metrics M =
+      core::computeReport(intraday({"1010000", "1000000", "990000", "980000",
+                                    "985000", "1020000"},
+                                   {1, 1, 2, 2, 3, 3}))
+          .Stats;
+  EXPECT_EQ(M.MaxDrawdownSteps, 4);
+  EXPECT_EQ(M.MaxDrawdownDays, 3);
+}
+
+TEST(MetricsDerived, MaxDrawdownDaysShortDayAndInsideOneDay) {
+  // Короткий день 2 из одного шага: серия шагов 1..3 (дни 1, 2, 3) -> 3 дня,
+  // хотя шагов в дне не поровну.
+  const core::Metrics Short =
+      core::computeReport(
+          intraday({"1010000", "1000000", "990000", "985000", "1020000"},
+                   {1, 1, 2, 3, 3}))
+          .Stats;
+  EXPECT_EQ(Short.MaxDrawdownSteps, 3);
+  EXPECT_EQ(Short.MaxDrawdownDays, 3);
+  // Серия целиком внутри одного дня - 1 день.
+  const core::Metrics Inside =
+      core::computeReport(
+          intraday({"1010000", "1000000", "990000", "1020000"}, {1, 1, 1, 2}))
+          .Stats;
+  EXPECT_EQ(Inside.MaxDrawdownSteps, 2);
+  EXPECT_EQ(Inside.MaxDrawdownDays, 1);
+  // Две серии: берётся самая длинная по шагам, а не по дням.
+  const core::Metrics Two =
+      core::computeReport(intraday({"990000", "1010000", "1000000", "990000",
+                                    "1020000", "1000000"},
+                                   {1, 2, 3, 3, 4, 5}))
+          .Stats;
+  EXPECT_EQ(Two.MaxDrawdownSteps, 2);
+  EXPECT_EQ(Two.MaxDrawdownDays, 1);
+}
+
+TEST(MetricsDerived, MaxDrawdownDaysDailyAndNone) {
+  // Дневная шкала: дни равны шагам.
+  EXPECT_EQ(core::computeReport(dailyInput({"990000", "980000", "985000"}))
+                .Stats.MaxDrawdownDays,
+            3);
+  // Без просадки - 0.
+  EXPECT_EQ(core::computeReport(dailyInput({"1010000", "1020000"}))
+                .Stats.MaxDrawdownDays,
+            0);
+}

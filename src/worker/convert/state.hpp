@@ -4,6 +4,7 @@
 #include "core/engine/session_engine.hpp"
 #include "core/exec/order.hpp"
 #include "core/market/timeline.hpp"
+#include "core/report/derived.hpp"
 #include "handlers.hpp"
 
 // Конвертеры состояния сессии: журнал proto -> ядро, заявки, сделки, портфель,
@@ -31,13 +32,19 @@ void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
 // настоящая заявка).
 void toProto(const core::Order &Order, const core::Timeline &Timeline,
              pb::Order *Out);
+// InitialCash - для amount_pct и cost_pct (% начального капитала, core#54).
 void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
-             pb::Fill *Out);
+             const core::Decimal &InitialCash, pb::Fill *Out);
 // В positions - только открытые позиции (lots != 0), по порядку бумаг сессии.
+// InitialCash и CumulativeCosts (издержки сделок до шага снимка включительно,
+// CostLedger::upTo) - для процентов (core#54).
 void toProto(const core::PortfolioSnapshot &Snapshot,
-             const core::Timeline &Timeline, pb::Portfolio *Out);
+             const core::Timeline &Timeline, const core::Decimal &InitialCash,
+             const core::Decimal &CumulativeCosts, pb::Portfolio *Out);
 void toProto(const core::CommandResult &Result, pb::CommandResult *Out);
+// Costs - накопленные издержки по всем сделкам сессии (портфель шага).
 void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
+             const core::Decimal &InitialCash, const core::CostLedger &Costs,
              pb::StepEvents *Out);
 
 pb::SessionStatus toProto(core::SessionStatus Status);

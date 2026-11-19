@@ -123,6 +123,13 @@ void Portfolio::applyFill(int Instrument, Side Side, std::int64_t Lots,
     Pos.AvgPrice = Decimal::zero();
 }
 
+Decimal Portfolio::costBasis(int Instrument) const {
+  Decimal Sum;
+  for (const OpenLot &Lot : position(Instrument).Open)
+    Sum += share(Lot.Value, Lot.LotsLeft, Lot.Lots);
+  return Sum;
+}
+
 Decimal Portfolio::positionValue(std::int64_t Lots, std::int64_t LotSize,
                                  const Decimal &Close) {
   return Close.times(Lots).times(LotSize).round(kKopeckScale,

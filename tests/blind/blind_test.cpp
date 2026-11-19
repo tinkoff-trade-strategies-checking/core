@@ -373,11 +373,77 @@ TEST(BlindStepEvents, SkipsChangedOrdersWithoutP0) {
   OrderB.Spec.LimitPrice = core::Decimal::fromUnits(500);
   Ev.ChangedOrders.push_back(OrderB);
 
-  const core::BlindStepEvents Blind =
-      core::toBlindStepEvents(Ev, core::Decimal::fromUnits(100000), Scales);
+  const core::BlindStepEvents Blind = core::toBlindStepEvents(
+      Ev, core::Decimal::fromUnits(100000), Scales, core::Decimal::zero());
   ASSERT_EQ(Blind.ChangedOrders.size(), 1u);
   EXPECT_EQ(Blind.ChangedOrders[0].Id, 0);
   EXPECT_EQ(Blind.ChangedOrders[0].Instrument, 0);
   ASSERT_TRUE(Blind.ChangedOrders[0].LimitPrice.has_value());
   EXPECT_EQ(*Blind.ChangedOrders[0].LimitPrice, core::Decimal::parse("105.00"));
+}
+
+// core#54: издержки сделки в % считаются от рублёвой суммы, а не складываются
+// из округлённых процентов (0,50 / 10000 = 0,005% -> 0,01 по HALF_UP, четыре
+// части дали бы 0,04, а целое 2,00 -> 0,02).
+TEST(BlindDerived, FillCostPctFromRubleSum) {
+  core::Fill F;
+  F.Seq = 7;
+  F.Value = core::Decimal::parse("1000.00");
+  F.Commission = F.Fee = F.SpreadCost = F.SlippageCost =
+      core::Decimal::parse("0.50");
+  core::BlindScale Scale;
+  Scale.P0 = core::Decimal::fromUnits(100);
+  const core::Decimal Cash = core::Decimal::fromUnits(10000);
+  const core::BlindFill B = core::toBlindFill(F, Cash, Scale);
+  EXPECT_EQ(B.CommissionPct, core::Decimal::parse("0.01"));
+  EXPECT_EQ(B.CostPct, core::Decimal::parse("0.02"));
+  EXPECT_NE(B.CostPct,
+            B.CommissionPct + B.FeePct + B.SpreadCostPct + B.SlippageCostPct);
+  EXPECT_EQ(B.Seq, 7);
+  // нулевые издержки - нуль
+  EXPECT_EQ(core::toBlindFill(core::Fill{}, Cash, Scale).CostPct,
+            core::Decimal::zero());
+}
+
+TEST(BlindDerived, ReportTotalPctAndUnderwaterCopied) {
+  core::Report R;
+  R.Costs.Commission = core::Decimal::parse("0.50");
+  R.Costs.Total = core::Decimal::parse("2.00");
+  R.Underwater = {{0, core::Decimal::zero()},
+                  {1, core::Decimal::parse("1.25")}};
+  const core::BlindReport B =
+      core::toBlindReport(R, core::Decimal::fromUnits(10000), {});
+  EXPECT_EQ(B.Costs.TotalPct, core::Decimal::parse("0.02"));
+  ASSERT_EQ(B.Underwater.size(), 2u);
+  EXPECT_EQ(B.Underwater[1].Step, 1);
+  EXPECT_EQ(B.Underwater[1].DrawdownPct, core::Decimal::parse("1.25"));
+}
+
+// core#54: P&L слепой позиции - % начального капитала от себестоимости.
+TEST(BlindDerived, PositionPnlPctFromCostBasis) {
+  core::PortfolioSnapshot S;
+  S.Cash = core::Decimal::fromUnits(90000);
+  S.Equity = core::Decimal::fromUnits(100300);
+  S.Lots = {5};
+  S.AvgPrice = {core::Decimal::fromUnits(100)};
+  S.MarketValue = {core::Decimal::fromUnits(10300)};
+  S.CostBasis = {core::Decimal::fromUnits(10000)};
+  core::BlindScale Scale;
+  Scale.P0 = core::Decimal::fromUnits(100);
+  const core::Decimal Cash = core::Decimal::fromUnits(100000);
+  const core::BlindPortfolio P =
+      core::toBlindPortfolio(S, Cash, {Scale}, core::Decimal::zero());
+  ASSERT_EQ(P.Positions.size(), 1u);
+  EXPECT_EQ(P.Positions[0].PnlPct, core::Decimal::parse("0.30"));
+  EXPECT_EQ(P.Positions[0].MarketValuePct, core::Decimal::parse("10.30"));
+  // убыток
+  S.MarketValue = {core::Decimal::fromUnits(9000)};
+  EXPECT_EQ(core::toBlindPortfolio(S, Cash, {Scale}, core::Decimal::zero())
+                .Positions[0]
+                .PnlPct,
+            core::Decimal::parse("-1.00"));
+  // без себестоимости - явная ошибка, а не молчаливый 0
+  S.CostBasis.clear();
+  EXPECT_THROW(core::toBlindPortfolio(S, Cash, {Scale}, core::Decimal::zero()),
+               std::invalid_argument);
 }
