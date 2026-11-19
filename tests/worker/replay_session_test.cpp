@@ -927,14 +927,14 @@ TEST_F(ReplaySession, DerivedPortfolioAndPositionPcts) {
   const core::Decimal Value = core::fromProto(Pos.market_value());
   EXPECT_EQ(core::fromProto(P.invested()), Value);
   EXPECT_EQ(core::fromProto(P.invested_pct()),
-            core::toPercentOfCapital(Value, Cash));
+            core::fromProto(P.equity_pct()) - core::fromProto(P.cash_pct()));
   EXPECT_EQ(core::fromProto(Pos.value_pct()),
             core::fromProto(P.invested_pct()));
-  // cash_pct + invested_pct = equity_pct с точностью до 0,01
+  // cash_pct + invested_pct = equity_pct точно
   const core::Decimal Diff =
       core::fromProto(P.equity_pct()) -
       (core::fromProto(P.cash_pct()) + core::fromProto(P.invested_pct()));
-  EXPECT_LE(Diff.abs(), core::Decimal::parse("0.01"));
+  EXPECT_EQ(Diff, core::Decimal::zero());
   // себестоимость - точная сумма покупки (value сделки)
   EXPECT_EQ(core::fromProto(Pos.pnl_pct()),
             core::toPercentOfCapital(
@@ -983,6 +983,10 @@ TEST_F(ReplaySession, DerivedInstrumentChanges) {
   ASSERT_TRUE(A.has_step_pct());
   EXPECT_EQ(core::fromProto(A.step_pct()), core::Decimal::parse("2.91"));
   EXPECT_EQ(core::fromProto(A.period_pct()), core::Decimal::parse("6.00"));
+  // у B на шаге 3 нет бара: за шаг не задано, за период по последнему бару
+  const pb::InstrumentChange &B = Response.instrument_changes(1);
+  EXPECT_FALSE(B.has_step_pct());
+  EXPECT_TRUE(B.has_period_pct());
 }
 
 TEST_F(ReplaySession, DerivedMaxDrawdownDays) {

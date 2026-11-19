@@ -240,7 +240,7 @@ message Order {
 // Изменение цены бумаги на курсоре, % (×100, 2 знака HALF_UP), только по барам <= курсора (INV-1).
 message InstrumentChange {
   string instrument_key = 1;
-  optional Decimal step_pct = 2;    // close последнего бара к close предыдущего (нет предыдущего — к open); не задано без баров
+  optional Decimal step_pct = 2;    // close бара на курсоре к close предыдущего (нет предыдущего — к open); не задано, если на курсоре у бумаги нет бара
   optional Decimal period_pct = 3;  // close последнего бара к open первого бара сессии
 }
 
@@ -280,8 +280,9 @@ message Portfolio {
   Decimal equity = 2;
   repeated Position positions = 3;
   // Проценты (core#54), уже ×100, 2 знака HALF_UP; база всех — начальный капитал (initial_cash).
-  // cash_pct + invested_pct = equity_pct с точностью до 0,01 (округляются по отдельности).
-  Decimal invested_pct = 4;  // сумма стоимости позиций / initial_cash
+  // cash_pct + invested_pct = equity_pct ровно: equity_pct и cash_pct округляются один раз от точных значений,
+  // invested_pct = equity_pct - cash_pct (может отличаться на 0,01 от прямого округления invested / initial_cash).
+  Decimal invested_pct = 4;  // доля вложенного в позиции: equity_pct - cash_pct
   Decimal costs_pct = 5;     // накопленные издержки сделок до этого шага включительно / initial_cash
   Decimal pnl_pct = 6;       // (equity - initial_cash) / initial_cash
   Decimal equity_pct = 7;    // equity / initial_cash
@@ -398,7 +399,7 @@ message BlindInstrument {
   // До появления P0 бумага отсутствует в history/events слепого вида целиком.
   optional Decimal lot_value_at_start = 2;
   // Изменение цены на курсоре, % (2 знака HALF_UP, ×100), по барам <= курсора; не задано, пока баров нет (core#54).
-  optional Decimal change_step_pct = 3;    // close последнего бара к close предыдущего (нет предыдущего — к open)
+  optional Decimal change_step_pct = 3;    // close бара на курсоре к close предыдущего (нет предыдущего — к open); не задано, если на курсоре у бумаги нет бара
   optional Decimal change_period_pct = 4;  // close последнего бара к open первого бара сессии
 }
 

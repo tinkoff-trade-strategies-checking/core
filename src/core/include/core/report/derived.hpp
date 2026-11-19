@@ -52,9 +52,11 @@ Decimal positionPnlPct(const Decimal &MarketValue, const Decimal &CostBasis,
                        const Decimal &InitialCash);
 
 // Изменение цены бумаги на курсоре (INV-1: только бары шагов <= LastStep).
-// StepPct: close последнего бара <= LastStep к close предыдущего бара
-// (шаги 0…, затем прогрев; нет предыдущего - к open этого же бара).
-// PeriodPct: close последнего бара к open первого бара сессии (шаг >= 0).
+// StepPct: close бара на шаге LastStep к close предыдущего бара (шаги 0…, затем
+// прогрев; нет предыдущего - к open этого же бара); у бумаги без бара на
+// курсоре не задан.
+// PeriodPct: close последнего бара <= LastStep к open первого бара сессии
+// (шаг >= 0).
 // Нет баров на шагах 0…LastStep - оба nullopt.
 struct InstrumentChange {
   std::optional<Decimal> StepPct, PeriodPct;

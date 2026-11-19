@@ -4,6 +4,9 @@
 #include <stdexcept>
 #include <vector>
 
+#include "core/market/bar.hpp"
+#include "core/market/calendar_source.hpp"
+#include "core/market/instrument.hpp"
 #include "core/market/timeline.hpp"
 #include "core/money/decimal.hpp"
 #include "core/portfolio/portfolio.hpp"
@@ -66,13 +69,14 @@ TEST(Derived, PortfolioPctsBaseIsInitialCapital) {
   EXPECT_EQ(P.PnlPct, d("1.00"));
 }
 
-// Раздельные округления: сумма может разойтись с equity_pct не более чем на
-// 0,01.
-TEST(Derived, PortfolioPctsRoundingWithinOneCent) {
+// Равенство точное и при дробных долях: invested = equity - cash.
+TEST(Derived, PortfolioPctsSumIsExact) {
   const PortfolioPcts P = portfolioPcts(
       snapshot("333333.33", "666666.67", "333333.34"), d("1000000"), d("0"));
-  const Decimal Diff = P.EquityPct - (P.CashPct + P.InvestedPct);
-  EXPECT_LE(Diff.abs(), d("0.01"));
+  EXPECT_EQ(P.CashPct + P.InvestedPct, P.EquityPct);
+  EXPECT_EQ(P.EquityPct, d("66.67"));
+  EXPECT_EQ(P.CashPct, d("33.33"));
+  EXPECT_EQ(P.InvestedPct, d("33.34"));
 }
 
 TEST(Derived, PortfolioPctsEdgeCases) {
@@ -144,12 +148,47 @@ TEST(Derived, InstrumentChange) {
   const InstrumentChange A4 = instrumentChange(T, 0, 4);
   EXPECT_EQ(*A4.StepPct, d("-1.89"));
   EXPECT_EQ(*A4.PeriodPct, d("4.00"));
-  // Бумага B без бара на шаге 3: берётся последний бар <= курсора, цена
-  // постоянна.
+  // Бумага B без бара на шаге 3: за шаг изменения нет, за период - по
+  // последнему бару до курсора.
   const InstrumentChange B3 = instrumentChange(T, 1, 3);
-  ASSERT_TRUE(B3.StepPct && B3.PeriodPct);
-  EXPECT_EQ(*B3.StepPct, Decimal::zero());
+  EXPECT_FALSE(B3.StepPct.has_value());
+  ASSERT_TRUE(B3.PeriodPct.has_value());
   EXPECT_EQ(*B3.PeriodPct, Decimal::zero());
+}
+
+// Предыдущий close берётся из прогрева, если на шагах сессии бара ещё не было
+// (а не open этого же бара).
+TEST(Derived, InstrumentChangePrevCloseFromWarmup) {
+  std::vector<Instrument> Instruments = {{"A", "TKA", 10, d("0.01")}};
+  const std::vector<TradingDay> Calendar = {{20250110, true}, {20250113, true}};
+  auto MakeBar = [](std::int64_t Ts, const char *Open, const char *High,
+                    const char *Low, const char *Close) {
+    Bar B;
+    B.TsOpenMs = Ts;
+    B.AvailableAtMs = Ts + 60000;
+    B.Open = Decimal::parse(Open);
+    B.High = Decimal::parse(High);
+    B.Low = Decimal::parse(Low);
+    B.Close = Decimal::parse(Close);
+    B.Volume = 10;
+    return B;
+  };
+  const std::int64_t HistStart = 1736492400000LL; // 2025-01-10 10:00 MSK
+  const std::int64_t SessStart = 1736751600000LL; // 2025-01-13 10:00 MSK
+  const Timeline Hist = Timeline::build(
+      Instruments,
+      {{MakeBar(HistStart, "180", "195", "175", "190"),
+        MakeBar(HistStart + 60000, "190", "205", "185", "200")}},
+      Calendar);
+  const Timeline T =
+      Timeline::build(Instruments,
+                      {{MakeBar(SessStart, "210", "225", "205", "220")}},
+                      Calendar)
+          .withWarmup(Hist, 2);
+  const InstrumentChange C = instrumentChange(T, 0, 0);
+  ASSERT_TRUE(C.StepPct && C.PeriodPct);
+  EXPECT_EQ(*C.StepPct, d("10.00")); // 220 к close прогрева 200, не к open 210
+  EXPECT_EQ(*C.PeriodPct, d("4.76")); // 220 к open первого бара 210
 }
 
 // INV-1: значение на курсоре не зависит от баров позже курсора.

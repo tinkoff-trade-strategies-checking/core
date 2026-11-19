@@ -45,7 +45,9 @@ PortfolioPcts portfolioPcts(const PortfolioSnapshot &Snapshot,
   Out.Costs = CumulativeCosts;
   Out.EquityPct = pct(Snapshot.Equity, InitialCash);
   Out.CashPct = pct(Snapshot.Cash, InitialCash);
-  Out.InvestedPct = pct(Out.Invested, InitialCash);
+  // Экран должен сходиться точно: equity и cash округляются один раз от
+  // точных значений, вложенное - их разность.
+  Out.InvestedPct = Out.EquityPct - Out.CashPct;
   Out.PnlPct = pct(Out.Pnl, InitialCash);
   Out.CostsPct = pct(CumulativeCosts, InitialCash);
   return Out;
@@ -80,7 +82,8 @@ InstrumentChange instrumentChange(const Timeline &Timeline, int Instrument,
         PrevClose = B.Close; // по возрастанию шага: останется последний
   }
   const Decimal &Base = PrevClose ? *PrevClose : Last->Open;
-  if (Base > Decimal::zero())
+  // Нет бара на самом курсоре - за шаг изменения нет.
+  if (Last->Step == LastStep && Base > Decimal::zero())
     Out.StepPct = pct(Last->Close - Base, Base);
 
   for (std::int64_t Step = 0; Step <= Last->Step; ++Step) {
