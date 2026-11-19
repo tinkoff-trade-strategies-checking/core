@@ -58,6 +58,8 @@ struct BlindPortfolio {
   Decimal CashPct;
   Decimal EquityPct;
   Decimal PnlPct;
+  Decimal InvestedPct; // стоимость позиций / equity, 2 знака HALF_UP
+  Decimal CostsPct; // накопленные издержки / начальный капитал
   std::vector<BlindPosition> Positions;
 };
 
@@ -170,9 +172,12 @@ Decimal toPercentOfCapital(const Decimal &Amount, const Decimal &InitialCash);
 
 BlindBar toBlindBar(const StepBar &Bar, const BlindScale &Scale);
 
+// CumulativeCosts - сумма издержек сделок до шага снимка включительно
+// (cumulativeCosts), для CostsPct.
 BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
                                 const Decimal &InitialCash,
-                                const std::vector<BlindScale> &Scales);
+                                const std::vector<BlindScale> &Scales,
+                                const Decimal &CumulativeCosts);
 
 BlindOrder toBlindOrder(const Order &Order, const BlindScale &Scale);
 
@@ -181,7 +186,8 @@ BlindFill toBlindFill(const Fill &Fill, const Decimal &InitialCash,
 
 BlindStepEvents toBlindStepEvents(const StepEvents &Events,
                                   const Decimal &InitialCash,
-                                  const std::vector<BlindScale> &Scales);
+                                  const std::vector<BlindScale> &Scales,
+                                  const Decimal &CumulativeCosts);
 
 BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
                           const std::vector<BlindScale> &Scales);

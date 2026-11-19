@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "core/money/rounding.hpp"
+#include "core/report/derived.hpp"
 
 namespace core {
 
@@ -177,8 +178,13 @@ BlindBar toBlindBar(const StepBar &Bar, const BlindScale &Scale) {
 
 BlindPortfolio toBlindPortfolio(const PortfolioSnapshot &Snapshot,
                                 const Decimal &InitialCash,
-                                const std::vector<BlindScale> &Scales) {
+                                const std::vector<BlindScale> &Scales,
+                                const Decimal &CumulativeCosts) {
   BlindPortfolio Out;
+  const PortfolioPcts Pcts =
+      portfolioPcts(Snapshot, InitialCash, CumulativeCosts);
+  Out.InvestedPct = Pcts.InvestedPct;
+  Out.CostsPct = Pcts.CostsPct;
   Out.CashPct = toPercentOfCapital(Snapshot.Cash, InitialCash);
   Out.EquityPct = toPercentOfCapital(Snapshot.Equity, InitialCash);
   Out.PnlPct = toPercentOfCapital(Snapshot.Equity - InitialCash, InitialCash);
@@ -249,7 +255,8 @@ BlindFill toBlindFill(const Fill &Fill, const Decimal &InitialCash,
 
 BlindStepEvents toBlindStepEvents(const StepEvents &Events,
                                   const Decimal &InitialCash,
-                                  const std::vector<BlindScale> &Scales) {
+                                  const std::vector<BlindScale> &Scales,
+                                  const Decimal &CumulativeCosts) {
   BlindStepEvents Out;
   Out.Step = Events.Step;
   Out.Bars.reserve(Events.Bars.size());
@@ -274,7 +281,8 @@ BlindStepEvents toBlindStepEvents(const StepEvents &Events,
       continue;
     Out.ChangedOrders.push_back(toBlindOrder(O, Scale));
   }
-  Out.Portfolio = toBlindPortfolio(Events.Portfolio, InitialCash, Scales);
+  Out.Portfolio =
+      toBlindPortfolio(Events.Portfolio, InitialCash, Scales, CumulativeCosts);
   return Out;
 }
 

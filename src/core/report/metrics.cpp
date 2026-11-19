@@ -220,6 +220,16 @@ Report computeReport(const MetricsInput &In) {
   const Dd Dd = drawdown(In.InitialCash, In.Equity);
   M.MaxDrawdown = Dd.MaxDrawdown;
   M.MaxDrawdownSteps = Dd.MaxSteps;
+  if (Dd.MaxSteps > 0) {
+    std::int64_t StepsPerDay = 1, InDay = 0;
+    std::int32_t Day = 0;
+    for (std::size_t I = 0; I < In.TradingDayOfStep.size(); ++I) {
+      InDay = (I > 0 && In.TradingDayOfStep[I] == Day) ? InDay + 1 : 1;
+      Day = In.TradingDayOfStep[I];
+      StepsPerDay = std::max(StepsPerDay, InDay);
+    }
+    M.MaxDrawdownDays = (Dd.MaxSteps + StepsPerDay - 1) / StepsPerDay;
+  }
 
   M.Fills = static_cast<std::int64_t>(In.Fills.size());
   M.RoundTrips = static_cast<std::int64_t>(In.RoundTrips.size());

@@ -35,11 +35,16 @@ void toProto(const core::Order &Order, const core::Timeline &Timeline,
 void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
              const core::Decimal &InitialCash, pb::Fill *Out);
 // В positions - только открытые позиции (lots != 0), по порядку бумаг сессии.
+// InitialCash и CumulativeCosts (издержки сделок до шага снимка включительно,
+// core::cumulativeCosts) - для процентов (core#54).
 void toProto(const core::PortfolioSnapshot &Snapshot,
-             const core::Timeline &Timeline, pb::Portfolio *Out);
+             const core::Timeline &Timeline, const core::Decimal &InitialCash,
+             const core::Decimal &CumulativeCosts, pb::Portfolio *Out);
 void toProto(const core::CommandResult &Result, pb::CommandResult *Out);
+// AllFills - все сделки сессии (для накопленных издержек портфеля шага).
 void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
-             const core::Decimal &InitialCash, pb::StepEvents *Out);
+             const core::Decimal &InitialCash,
+             const std::vector<core::Fill> &AllFills, pb::StepEvents *Out);
 
 pb::SessionStatus toProto(core::SessionStatus Status);
 pb::Side toProto(core::Side Side);

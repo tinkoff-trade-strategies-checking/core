@@ -6,6 +6,7 @@
 
 #include "convert/state.hpp"
 #include "core/money/proto_conv.hpp"
+#include "core/report/derived.hpp"
 
 namespace worker {
 
@@ -28,6 +29,8 @@ void blindPortfolioToProto(const core::BlindPortfolio &Portfolio,
   core::toProto(Portfolio.CashPct, Out->mutable_cash_pct());
   core::toProto(Portfolio.EquityPct, Out->mutable_equity_pct());
   core::toProto(Portfolio.PnlPct, Out->mutable_pnl_pct());
+  core::toProto(Portfolio.InvestedPct, Out->mutable_invested_pct());
+  core::toProto(Portfolio.CostsPct, Out->mutable_costs_pct());
   for (const core::BlindPosition &P : Portfolio.Positions) {
     pb::BlindPosition *Pos = Out->add_positions();
     Pos->set_instrument_index(static_cast<std::int32_t>(P.Instrument));
@@ -129,11 +132,17 @@ void fillBlindView(const core::Timeline &Timeline,
       core::toProto(*Scales[Idx].LotValueAtStart,
                     Inst->mutable_lot_value_at_start());
     }
+    const core::InstrumentChange Change =
+        core::instrumentChange(Timeline, static_cast<int>(Idx), LastStep);
+    if (Change.StepPct)
+      core::toProto(*Change.StepPct, Inst->mutable_change_step_pct());
+    if (Change.PeriodPct)
+      core::toProto(*Change.PeriodPct, Inst->mutable_change_period_pct());
   }
 
   for (const core::StepEvents &E : Events) {
-    const core::BlindStepEvents BlindEvents =
-        core::toBlindStepEvents(E, InitialCash, Scales);
+    const core::BlindStepEvents BlindEvents = core::toBlindStepEvents(
+        E, InitialCash, Scales, core::cumulativeCosts(Engine.fills(), E.Step));
     pb::BlindStepEvents *Ev = Out->add_events();
     Ev->set_step(BlindEvents.Step);
     for (const core::BlindBar &B : BlindEvents.Bars)
@@ -165,7 +174,8 @@ void fillBlindView(const core::Timeline &Timeline,
   }
 
   blindPortfolioToProto(
-      core::toBlindPortfolio(Engine.snapshot(), InitialCash, Scales),
+      core::toBlindPortfolio(Engine.snapshot(), InitialCash, Scales,
+                             core::cumulativeCosts(Engine.fills(), LastStep)),
       Out->mutable_portfolio());
 
   for (const core::Order &O : Engine.orders()) {

@@ -14,6 +14,7 @@ void metricsToProto(const core::Metrics &M, pb::Metrics *Out) {
     Out->set_cagr(*M.Cagr);
   Out->set_max_drawdown(M.MaxDrawdown);
   Out->set_max_drawdown_steps(M.MaxDrawdownSteps);
+  Out->set_max_drawdown_days(M.MaxDrawdownDays);
   if (M.Volatility)
     Out->set_volatility(*M.Volatility);
   if (M.Sharpe)

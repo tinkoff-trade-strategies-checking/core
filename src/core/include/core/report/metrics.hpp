@@ -53,6 +53,9 @@ struct Metrics {
   // Наибольшая серия подряд идущих точек equity ниже пика; точка equity - один
   // шаг, поэтому это шаги.
   std::int64_t MaxDrawdownSteps = 0;
+  // Та же длительность в днях: ceil(MaxDrawdownSteps / шагов в торговом дне),
+  // шагов в дне - максимум по дням сессии (`decisions.md`, «Метрики отчёта»).
+  std::int64_t MaxDrawdownDays = 0;
   std::optional<double> Volatility, Sharpe,
       Sortino; // годовые; нет при менее чем двух днях и нулевом разбросе
   double Turnover = 0;

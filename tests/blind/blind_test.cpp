@@ -373,8 +373,8 @@ TEST(BlindStepEvents, SkipsChangedOrdersWithoutP0) {
   OrderB.Spec.LimitPrice = core::Decimal::fromUnits(500);
   Ev.ChangedOrders.push_back(OrderB);
 
-  const core::BlindStepEvents Blind =
-      core::toBlindStepEvents(Ev, core::Decimal::fromUnits(100000), Scales);
+  const core::BlindStepEvents Blind = core::toBlindStepEvents(
+      Ev, core::Decimal::fromUnits(100000), Scales, core::Decimal::zero());
   ASSERT_EQ(Blind.ChangedOrders.size(), 1u);
   EXPECT_EQ(Blind.ChangedOrders[0].Id, 0);
   EXPECT_EQ(Blind.ChangedOrders[0].Instrument, 0);

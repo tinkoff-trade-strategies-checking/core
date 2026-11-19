@@ -337,3 +337,33 @@ TEST(MetricsDerived, UnderwaterEdgeCases) {
   EXPECT_EQ(Round.Underwater[0].DrawdownPct, d("0.33"));
   EXPECT_EQ(Round.Underwater[1].DrawdownPct, d("0.17"));
 }
+
+// core#54: длительность максимальной просадки в днях.
+TEST(MetricsDerived, MaxDrawdownDays) {
+  // По 2 шага в дне, 3 шага подряд ниже пика -> ceil(3 / 2) = 2 дня.
+  MetricsInput In;
+  In.InitialCash = d("1000000");
+  const char *Eq[] = {"1010000", "1000000", "990000",
+                      "980000",  "985000",  "1020000"};
+  const std::int32_t Day[] = {1, 1, 2, 2, 3, 3};
+  for (int I = 0; I < 6; ++I) {
+    In.Equity.push_back({I, d(Eq[I])});
+    In.TradingDayOfStep.push_back(Day[I]);
+  }
+  In.RuoniaRates = {Decimal::zero(), Decimal::zero(), Decimal::zero()};
+  In.CalendarDays = {1, 1, 1};
+  const core::Metrics M = core::computeReport(In).Stats;
+  EXPECT_EQ(M.MaxDrawdownSteps, 4);
+  EXPECT_EQ(M.MaxDrawdownDays, 2);
+}
+
+TEST(MetricsDerived, MaxDrawdownDaysDailyAndNone) {
+  // Шаг = день: дни равны шагам.
+  EXPECT_EQ(core::computeReport(dailyInput({"990000", "980000", "985000"}))
+                .Stats.MaxDrawdownDays,
+            3);
+  // Без просадки - 0.
+  EXPECT_EQ(core::computeReport(dailyInput({"1010000", "1020000"}))
+                .Stats.MaxDrawdownDays,
+            0);
+}

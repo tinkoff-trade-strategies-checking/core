@@ -12,6 +12,7 @@
 #include "core/market/bar_source.hpp"
 #include "core/market/ruonia_source.hpp"
 #include "core/money/proto_conv.hpp"
+#include "core/report/derived.hpp"
 #include "worker_test_support.hpp"
 
 namespace {
@@ -899,4 +900,93 @@ TEST_F(ReplaySession, DerivedBlindView) {
   EXPECT_EQ(Bv.report().underwater_size(), Response.report().underwater_size());
   ASSERT_EQ(Bv.report().round_trips_size(), 1);
   EXPECT_EQ(Bv.report().round_trips(0).seq(), 0);
+}
+
+// core#54: проценты портфеля, позиций, изменение цены, просадка в днях.
+TEST_F(ReplaySession, DerivedPortfolioAndPositionPcts) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5)};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(4, 0, &Response, false, true).ok());
+  const core::Decimal Cash = core::fromProto(Market.initial_cash());
+  const pb::Portfolio &P = Response.portfolio();
+  const core::Decimal Equity = core::fromProto(P.equity());
+  const core::Decimal Cost = core::fromProto(Response.fills(0).cost());
+  EXPECT_EQ(core::fromProto(P.costs_pct()),
+            core::toPercentOfCapital(Cost, Cash));
+  EXPECT_EQ(core::fromProto(P.pnl_pct()),
+            core::toPercentOfCapital(Equity - Cash, Cash));
+  ASSERT_EQ(P.positions_size(), 1);
+  const pb::Position &Pos = P.positions(0);
+  const core::Decimal Value = core::fromProto(Pos.market_value());
+  EXPECT_EQ(core::fromProto(P.invested_pct()),
+            core::positionSharePct(Value, Equity));
+  EXPECT_EQ(core::fromProto(Pos.share_pct()),
+            core::fromProto(P.invested_pct()));
+  EXPECT_EQ(core::fromProto(Pos.pnl_pct()),
+            core::positionPnlPct(Value, core::fromProto(Pos.avg_price()),
+                                 Pos.lots(), 10));
+  // события шага 4 несут тот же портфель, а на шаге 0 - издержек ещё нет
+  EXPECT_EQ(core::fromProto(Response.events(3).portfolio().costs_pct()),
+            core::fromProto(P.costs_pct()));
+  EXPECT_EQ(
+      core::fromProto(Response.events(0).portfolio().costs_pct()),
+      core::toPercentOfCapital(Cost, Cash)); // покупка исполнена на шаге 1
+  // в пустом портфеле: нули
+  Journal.clear();
+  pb::ReplaySessionResponse Empty;
+  ASSERT_TRUE(replay(4, -1, &Empty, false, true).ok());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().invested_pct()),
+            core::Decimal::zero());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().costs_pct()),
+            core::Decimal::zero());
+  EXPECT_EQ(core::fromProto(Empty.portfolio().pnl_pct()),
+            core::Decimal::zero());
+}
+
+TEST_F(ReplaySession, DerivedInstrumentChanges) {
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(3, -1, &Response, false, false).ok());
+  ASSERT_EQ(Response.instrument_changes_size(), 2);
+  const pb::InstrumentChange &A = Response.instrument_changes(0);
+  EXPECT_EQ(A.instrument_key(), "A");
+  ASSERT_TRUE(A.has_step_pct());
+  EXPECT_EQ(core::fromProto(A.step_pct()), core::Decimal::parse("2.91"));
+  EXPECT_EQ(core::fromProto(A.period_pct()), core::Decimal::parse("6.00"));
+}
+
+TEST_F(ReplaySession, DerivedMaxDrawdownDays) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 50),
+             marketOrder(1, 4, "A", pb::SELL, 50)};
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(9, -1, &Response, false, true).ok());
+  const pb::Metrics &M = Response.report().metrics();
+  // шаг шкалы фикстуры - день, дни равны шагам
+  EXPECT_EQ(M.max_drawdown_days(), M.max_drawdown_steps());
+}
+
+TEST_F(ReplaySession, DerivedBlindPortfolioAndChange) {
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5)};
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+  pb::ReplaySessionRequest Request;
+  *Request.mutable_market() = Market;
+  *Request.add_journal() = Journal[0];
+  Request.set_up_to_step(3);
+  Request.set_events_from_step(0);
+  Request.set_include_report(true);
+  Request.set_blind(true);
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(worker::handleReplaySession(Context, Request, &Response).ok());
+  const pb::BlindSessionView &Bv = Response.blind_view();
+  EXPECT_EQ(core::fromProto(Bv.portfolio().invested_pct()),
+            core::fromProto(Response.portfolio().invested_pct()));
+  EXPECT_EQ(core::fromProto(Bv.portfolio().costs_pct()),
+            core::fromProto(Response.portfolio().costs_pct()));
+  ASSERT_EQ(Bv.events_size(), 3);
+  EXPECT_EQ(core::fromProto(Bv.events(2).portfolio().costs_pct()),
+            core::fromProto(Response.events(2).portfolio().costs_pct()));
+  ASSERT_EQ(Bv.instruments_size(), 2);
+  EXPECT_EQ(core::fromProto(Bv.instruments(0).change_step_pct()),
+            core::Decimal::parse("2.91"));
+  EXPECT_EQ(core::fromProto(Bv.instruments(0).change_period_pct()),
+            core::Decimal::parse("6.00"));
 }

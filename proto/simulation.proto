@@ -237,6 +237,13 @@ message Order {
   int64 closed_step = 12;         // -1 — заявка ещё открыта
 }
 
+// Изменение цены бумаги на курсоре, % (×100, 2 знака HALF_UP), только по барам <= курсора (INV-1).
+message InstrumentChange {
+  string instrument_key = 1;
+  optional Decimal step_pct = 2;    // close последнего бара к close предыдущего (нет предыдущего — к open); не задано без баров
+  optional Decimal period_pct = 3;  // close последнего бара к open первого бара сессии
+}
+
 message Fill {
   int64 order_id = 1;
   int64 step = 2;
@@ -263,12 +270,18 @@ message Position {
   int64 lots = 2;
   Decimal avg_price = 3;
   Decimal market_value = 4;
+  Decimal share_pct = 5;   // market_value / equity * 100, 2 знака HALF_UP; 0 при equity <= 0 (core#54)
+  Decimal pnl_pct = 6;     // нереализованный P&L: (market_value - avg_price * lots * lot_size) / (avg_price * lots * lot_size) * 100, 2 знака HALF_UP
 }
 
 message Portfolio {
   Decimal cash = 1;
   Decimal equity = 2;
   repeated Position positions = 3;
+  // Проценты (core#54), уже ×100, 2 знака HALF_UP:
+  Decimal invested_pct = 4;  // сумма стоимости позиций / equity; 0 при equity <= 0
+  Decimal costs_pct = 5;     // накопленные издержки сделок до этого шага включительно / initial_cash
+  Decimal pnl_pct = 6;       // (equity - initial_cash) / initial_cash
 }
 
 message CommandResult {
@@ -310,6 +323,7 @@ message Metrics {
   double max_position_share = 16;
   optional double benchmark_return = 17;
   int32 trading_days = 18;
+  int64 max_drawdown_days = 20;    // длительность макс. просадки в днях: ceil(max_drawdown_steps / шагов в дне), core#54
   int64 stop_take_same_bar = 19;   // сделок, где стоп и тейк задеты одной свечой (исполнен стоп, INV-3)
 }
 
@@ -375,6 +389,9 @@ message BlindInstrument {
   // (шаг <= курсора), 2 знака HALF_UP; не задано до первой свечи.
   // До появления P0 бумага отсутствует в history/events слепого вида целиком.
   optional Decimal lot_value_at_start = 2;
+  // Изменение цены на курсоре, % (2 знака HALF_UP, ×100), по барам <= курсора; не задано, пока баров нет (core#54).
+  optional Decimal change_step_pct = 3;    // close последнего бара к close предыдущего (нет предыдущего — к open)
+  optional Decimal change_period_pct = 4;  // close последнего бара к open первого бара сессии
 }
 
 message BlindBar {
@@ -403,6 +420,8 @@ message BlindPortfolio {
   Decimal equity_pct = 2;
   Decimal pnl_pct = 3;
   repeated BlindPosition positions = 4;
+  Decimal invested_pct = 5;  // как Portfolio.invested_pct
+  Decimal costs_pct = 6;     // как Portfolio.costs_pct
 }
 
 // Заявка в слепом виде: содержит только поля, требующие маскировки (id,
@@ -521,6 +540,8 @@ message ReplaySessionResponse {
   // Номер торгового дня шага last_step (с 1, как Bar.trading_day), без include_history и include_report (core#54).
   // 0 — шкала пуста. Metrics.trading_days — число дней с точками капитала, то же значение, но только при include_report.
   int32 current_day = 13;
+  // Изменение цены бумаг на курсоре для карточек (core#54): по одной записи на бумагу сессии.
+  repeated InstrumentChange instrument_changes = 14;
 }
 
 message GetBarsRequest {
