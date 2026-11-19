@@ -182,6 +182,25 @@ TEST(Metrics, ReturnToPeakEndsRun) {
   EXPECT_EQ(M.MaxDrawdownSteps, 2);
 }
 
+// Все рублёвые поля отчёта - до копейки (core#58): спред и проскальзывание
+// приходят с 9 знаками, округление HALF_UP один раз от точной суммы.
+TEST(Metrics, CostTotalsRoundedToKopeck) {
+  MetricsInput In = fiveDays();
+  In.Fills = {fill("1000.00", "1.00", "0.10", "0.004", "0.004"),
+              fill("1000.00", "1.00", "0.10", "0.003000001", "0.001")};
+  const core::Report R = core::computeReport(In);
+  // 0.007000001 -> 0.01; 0.005 -> 0.01 (ровно половина от нуля).
+  EXPECT_EQ(R.Costs.Spread, d("0.01"));
+  EXPECT_EQ(R.Costs.Slippage, d("0.01"));
+  EXPECT_EQ(R.Costs.Total, d("2.22"));
+  for (const Decimal &V : {R.Costs.Commission, R.Costs.Fee, R.Costs.Spread,
+                           R.Costs.Slippage, R.Costs.Total, R.FinalEquity}) {
+    EXPECT_EQ(V, V.round(2, core::RoundingMode::HalfUp)) << V.toString();
+  }
+  for (const core::EquityPoint &P : R.Equity)
+    EXPECT_EQ(P.Equity, P.Equity.round(2, core::RoundingMode::HalfUp));
+}
+
 TEST(Metrics, CostsSummed) {
   MetricsInput In = fiveDays();
   // Сделки 1-3 таблицы эталонного портфеля (задача 16).

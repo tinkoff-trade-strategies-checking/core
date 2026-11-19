@@ -167,11 +167,16 @@ Report computeReport(const MetricsInput &In) {
     Report.Costs.Fee += F.Fee;
     Report.Costs.Spread += F.SpreadCost;
     Report.Costs.Slippage += F.SlippageCost;
-    Report.Costs.Total += F.cost();
     TradedValue += F.Value;
     if (F.StopAndTakeSameBar)
       ++Report.Stats.StopTakeSameBar;
   }
+  // Спред и проскальзывание копятся с 9 знаками; в отчёте - до копейки HALF_UP,
+  // один раз от точной суммы. Всего - сумма четырёх округлённых видов.
+  Report.Costs.Spread = Report.Costs.Spread.round(2, RoundingMode::HalfUp);
+  Report.Costs.Slippage = Report.Costs.Slippage.round(2, RoundingMode::HalfUp);
+  Report.Costs.Total = Report.Costs.Commission + Report.Costs.Fee +
+                       Report.Costs.Spread + Report.Costs.Slippage;
 
   const double E0 = In.InitialCash.toDouble();
   M.TotalReturn = Report.FinalEquity.toDouble() / E0 - 1.0;

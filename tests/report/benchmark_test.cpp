@@ -63,8 +63,8 @@ TEST(Benchmark, StopsAtLastStepAndRounds) {
   BenchmarkSeries S = series();
   S.FirstOpen = d("3");
   const std::vector<EquityPoint> Curve = benchmarkEquity(S, d("1"), T, 1);
-  ASSERT_EQ(Curve.size(), 2u);                    // шаги 0 и 1
-  EXPECT_EQ(Curve[0].Equity, d("336.666666667")); // 1010 / 3, 9 знаков HALF_UP
+  ASSERT_EQ(Curve.size(), 2u);             // шаги 0 и 1
+  EXPECT_EQ(Curve[0].Equity, d("336.67")); // 1010 / 3, до копейки HALF_UP
 }
 
 TEST(Benchmark, BadInput) {
@@ -100,6 +100,30 @@ TEST(Metrics, CountsStopAndTakeOnSameBar) {
   Pessimistic.StopAndTakeSameBar = true;
   In.Fills = {Plain, Pessimistic, Pessimistic};
   EXPECT_EQ(computeReport(In).Stats.StopTakeSameBar, 2);
+}
+
+} // namespace
+} // namespace core
+
+namespace core {
+namespace {
+
+// core#58: точное значение 1000000 * 1010 / 3 = 336666666.666... - кривая до
+// копейки, округление один раз (HALF_UP).
+TEST(Benchmark, EquityRoundedToKopeckOnce) {
+  const Timeline T = fixtureTimeline();
+  BenchmarkSeries S = series();
+  S.FirstOpen = d("3");
+  const std::vector<EquityPoint> Curve = benchmarkEquity(S, d("1000000"), T, 9);
+  ASSERT_FALSE(Curve.empty());
+  EXPECT_EQ(Curve[0].Equity, d("336666666.67"));
+  EXPECT_EQ(Curve[1].Equity, d("340000000.00"));
+  for (const EquityPoint &P : Curve)
+    EXPECT_EQ(P.Equity, P.Equity.round(2, RoundingMode::HalfUp));
+  // Два шага округления (mul, затем div до 9 знаков) дали бы 9 знаков.
+  S.FirstOpen = d("7");
+  for (const EquityPoint &P : benchmarkEquity(S, d("1000001"), T, 9))
+    EXPECT_EQ(P.Equity, P.Equity.round(2, RoundingMode::HalfUp));
 }
 
 } // namespace
