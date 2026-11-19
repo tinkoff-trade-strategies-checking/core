@@ -278,14 +278,13 @@ TEST(BlindReplaySession, NoFutureDataAffectsBlindView) {
   EXPECT_EQ(R1.SerializeAsString(), R2.SerializeAsString());
 }
 
-TEST(BlindReplaySession, OrderWithBlindPriceRecordedInRublesAndReplayed) {
+TEST(BlindReplaySession, BlindOrderInJournalIsRejectedWithoutConversion) {
   core::testing::Fixture Fixture = core::testing::fixture1();
   worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
 
   pb::ReplaySessionRequest Request;
   *Request.mutable_market() = fixtureMarket();
 
-  // Добавляем лимитную заявку со слепой ценой
   pb::JournalEntry Entry;
   Entry.set_seq(0);
   Entry.set_step(0);
@@ -294,8 +293,6 @@ TEST(BlindReplaySession, OrderWithBlindPriceRecordedInRublesAndReplayed) {
   Spec->set_side(pb::BUY);
   Spec->set_type(pb::LIMIT);
   Spec->set_lots(5);
-  // В fixture-1 Open шага 0 у FIXA = 100.00
-  // Слепая цена 105.00 переводится в 105.00 ₽
   *Spec->mutable_limit_price() = dec("105.00");
   Spec->set_is_blind_price(true);
   Spec->set_time_in_force(pb::GTC);
@@ -309,17 +306,115 @@ TEST(BlindReplaySession, OrderWithBlindPriceRecordedInRublesAndReplayed) {
   pb::ReplaySessionResponse Response;
   ASSERT_TRUE(worker::handleReplaySession(Context, Request, &Response).ok());
 
-  // В рублёвых заказах сохранена рублёвая цена
-  ASSERT_EQ(Response.orders_size(), 1);
-  const pb::Order &RecordedOrder = Response.orders(0);
-  EXPECT_FALSE(RecordedOrder.spec().is_blind_price());
-  EXPECT_EQ(d(RecordedOrder.spec().limit_price()),
-            core::Decimal::parse("105.00"));
+  ASSERT_EQ(Response.command_results_size(), 1);
+  EXPECT_FALSE(Response.command_results(0).accepted());
+  EXPECT_EQ(Response.command_results(0).reason(), pb::INVALID_PARAMS);
+  EXPECT_EQ(Response.command_results(0).invalid_field(), "isBlindPrice");
 
-  // В blind_view отдан слепой вид
-  ASSERT_TRUE(Response.has_blind_view());
-  ASSERT_EQ(Response.blind_view().orders_size(), 1);
-  const pb::BlindOrder &BlindOrd = Response.blind_view().orders(0);
-  EXPECT_TRUE(BlindOrd.has_limit_price());
-  EXPECT_EQ(d(BlindOrd.limit_price()), core::Decimal::parse("105.00"));
+  ASSERT_EQ(Response.orders_size(), 1);
+  EXPECT_EQ(Response.orders(0).status(), pb::REJECTED);
+  EXPECT_TRUE(Response.orders(0).spec().is_blind_price());
+  EXPECT_EQ(Response.fills_size(), 0);
+}
+
+// I-1: заявка с ценой на бумагу без P0 на шаге 0 не роняет ReplaySession
+// с blind = true; бумага без P0 отсутствует в blind_view целиком.
+TEST(BlindReplaySession, BlindTrueWithLimitOrderOnInstrumentWithoutP0Succeeds) {
+  core::InMemoryBarSource Bars;
+  core::InMemoryCalendarSource Calendar;
+  core::InMemoryRuoniaSource Ruonia;
+
+  const std::int64_t Day1 = 1736751600000LL; // 2025-01-13 10:00 MSK (шаг 0)
+  const std::int64_t StepMs = 60000LL;
+  const std::int32_t IntervalSec = core::intervalSeconds(core::Timeframe::M1);
+
+  auto MakeBar = [](std::int64_t Ts, const char *Open) {
+    core::Bar B;
+    B.TsOpenMs = Ts;
+    B.AvailableAtMs = Ts + 60000LL;
+    B.Open = core::Decimal::parse(Open);
+    B.High = B.Open;
+    B.Low = B.Open;
+    B.Close = B.Open;
+    B.Volume = 100;
+    return B;
+  };
+
+  Bars.addSecurity("snap-gap", {"AAA", "TKA", 1, core::Decimal::parse("0.01")});
+  Bars.addSecurity("snap-gap", {"BBB", "TKB", 1, core::Decimal::parse("0.01")});
+  Bars.addSeries("snap-gap", "AAA", IntervalSec,
+                 {MakeBar(Day1, "100"), MakeBar(Day1 + StepMs, "102"),
+                  MakeBar(Day1 + 2 * StepMs, "104")});
+  // У BBB нет баров на шагах 0 и 1 — первый бар только на шаге 2.
+  Bars.addSeries("snap-gap", "BBB", IntervalSec,
+                 {MakeBar(Day1 + 2 * StepMs, "200")});
+  Calendar.add("snap-gap", {{20250113, true}});
+
+  pb::MarketSpec Market;
+  Market.set_snapshot_id("snap-gap");
+  pb::Instrument *InstA = Market.add_instruments();
+  InstA->set_key("A");
+  InstA->set_ticker("AAA");
+  InstA->set_lot_size(1);
+  *InstA->mutable_price_step() = dec("0.01");
+  pb::Instrument *InstB = Market.add_instruments();
+  InstB->set_key("B");
+  InstB->set_ticker("BBB");
+  InstB->set_lot_size(1);
+  *InstB->mutable_price_step() = dec("0.01");
+  Market.set_timeframe(pb::M1);
+  Market.set_from_date("2025-01-13");
+  Market.set_to_date("2025-01-13");
+  pb::CostConfig *Costs = Market.mutable_costs();
+  *Costs->mutable_commission_rate() = dec("0.0005");
+  *Costs->mutable_exchange_fee_rate() = dec("0.0001");
+  *Costs->mutable_spread() = dec("0.001");
+  *Costs->mutable_slippage_kappa() = dec("0.1");
+  *Costs->mutable_liquidity_share() = dec("0.10");
+  *Market.mutable_initial_cash() = dec("100000");
+
+  pb::ReplaySessionRequest Req;
+  *Req.mutable_market() = Market;
+  pb::JournalEntry *Entry0 = Req.add_journal();
+  Entry0->set_seq(0);
+  Entry0->set_step(0);
+  pb::OrderSpec *Spec0 = Entry0->mutable_place()->mutable_order();
+  Spec0->set_instrument_key("B");
+  Spec0->set_side(pb::BUY);
+  Spec0->set_type(pb::LIMIT);
+  Spec0->set_lots(1);
+  *Spec0->mutable_limit_price() = dec("195.00");
+  Spec0->set_time_in_force(pb::GTC);
+
+  Req.set_up_to_step(0);
+  Req.set_events_from_step(0);
+  Req.set_include_history(true);
+  Req.set_blind(true);
+
+  worker::Context Ctx{Bars, Calendar, Ruonia};
+  pb::ReplaySessionResponse Resp0;
+  ASSERT_TRUE(worker::handleReplaySession(Ctx, Req, &Resp0).ok());
+  ASSERT_EQ(Resp0.command_results_size(), 1);
+  EXPECT_FALSE(Resp0.command_results(0).accepted());
+  EXPECT_EQ(Resp0.command_results(0).reason(), pb::INVALID_PARAMS);
+  EXPECT_EQ(Resp0.command_results(0).invalid_field(), "instrument");
+  ASSERT_TRUE(Resp0.has_blind_view());
+  EXPECT_EQ(Resp0.blind_view().orders_size(), 0);
+
+  // На шаге 1 у B по-прежнему нет P0, но события шага 1 попадают в
+  // (events_from_step; up_to_step] -> changed_orders шага 1 также пропускает B.
+  pb::JournalEntry *Entry1 = Req.add_journal();
+  Entry1->set_seq(1);
+  Entry1->set_step(1);
+  *Entry1->mutable_place()->mutable_order() = *Spec0;
+  Req.set_up_to_step(1);
+
+  pb::ReplaySessionResponse Resp1;
+  ASSERT_TRUE(worker::handleReplaySession(Ctx, Req, &Resp1).ok());
+  ASSERT_EQ(Resp1.events_size(), 1);
+  EXPECT_EQ(Resp1.events(0).changed_orders_size(), 1);
+  ASSERT_TRUE(Resp1.has_blind_view());
+  EXPECT_EQ(Resp1.blind_view().orders_size(), 0);
+  ASSERT_EQ(Resp1.blind_view().events_size(), 1);
+  EXPECT_EQ(Resp1.blind_view().events(0).changed_orders_size(), 0);
 }

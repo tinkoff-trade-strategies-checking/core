@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -144,6 +145,9 @@ struct OrderEstimate {
   Decimal CommissionPct;
   Decimal FeePct;
   Decimal RequiredCashPct;
+  // Заполняется, если входная заявка имела IsBlindPrice = true и перевод в
+  // рубли прошёл успешно (содержит рублёвые цены и IsBlindPrice = false).
+  std::optional<OrderSpec> ResolvedOrder;
 };
 
 // Оценка заявки на шаге UpToStep по close последнего бара (шаг <= курсора)

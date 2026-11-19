@@ -340,7 +340,7 @@ core::OrderSpec orderSpecFromProto(const pb::OrderSpec &Spec,
 }
 
 void toProto(const core::OrderEstimate &Estimate,
-             pb::EstimateOrderResponse *Out) {
+             const core::Timeline &Timeline, pb::EstimateOrderResponse *Out) {
   Out->set_can_place(Estimate.Check.Ok);
   Out->set_reason(toProto(Estimate.Check.ReasonCode));
   Out->set_invalid_field(Estimate.Check.Field);
@@ -353,6 +353,9 @@ void toProto(const core::OrderEstimate &Estimate,
   core::toProto(Estimate.CommissionPct, Out->mutable_commission_pct());
   core::toProto(Estimate.FeePct, Out->mutable_exchange_fee_pct());
   core::toProto(Estimate.RequiredCashPct, Out->mutable_required_cash_pct());
+  if (Estimate.ResolvedOrder)
+    specToProto(*Estimate.ResolvedOrder, Timeline,
+                Out->mutable_resolved_order());
 }
 
 } // namespace worker

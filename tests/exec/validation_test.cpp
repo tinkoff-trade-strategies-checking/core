@@ -359,4 +359,21 @@ TEST(OcoValidation, RejectsInvalidTypes) {
   expectInvalid(core::validateOcoPair(Trailing, Take), "type");
 }
 
+TEST(Validation, RejectsBlindPricesInJournal) {
+  Fixture F;
+  OrderSpec S = spec(Side::Buy, OrderType::Limit, 1);
+  S.LimitPrice = d("100");
+  S.IsBlindPrice = true;
+  expectInvalid(F.check(S), "isBlindPrice");
+}
+
+TEST(Validation, RejectsNonPositivePriceStep) {
+  const Instrument ZeroStep{"A", "FIXA", 10, Decimal::zero()};
+  Timeline Line = Timeline::build({ZeroStep}, {{bar(0, "100")}}, {});
+  ExecutionEngine Exec({ZeroStep}, CostConfig{});
+  Portfolio Folio(d("100000"), 1);
+  OrderSpec S = spec(Side::Buy, OrderType::Market, 1);
+  expectInvalid(Exec.validate(S, Folio, Line, 0), "instrument");
+}
+
 } // namespace

@@ -159,9 +159,15 @@ void fillBlindView(const core::Timeline &Timeline,
       Out->mutable_portfolio());
 
   for (const core::Order &O : Engine.orders()) {
-    blindOrderToProto(core::toBlindOrder(O, Scales.at(static_cast<std::size_t>(
-                                                O.Spec.Instrument))),
-                      Out->add_orders());
+    if (O.Spec.Instrument < 0 ||
+        static_cast<std::size_t>(O.Spec.Instrument) >= Scales.size()) {
+      continue;
+    }
+    const core::BlindScale &Scale =
+        Scales[static_cast<std::size_t>(O.Spec.Instrument)];
+    if (!Scale.P0)
+      continue;
+    blindOrderToProto(core::toBlindOrder(O, Scale), Out->add_orders());
   }
 
   for (const core::Fill &F : Engine.fills()) {
