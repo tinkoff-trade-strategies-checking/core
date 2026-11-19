@@ -106,3 +106,8 @@ jobs:
           fetch-depth: 1
       - name: Проверка ссылок invariants.md
         run: python3 documentation/scripts/check-invariants.py --core core --frontend frontend
+
+  # Размер PR в режиме наблюдения: не падает, только предупреждение (home#29).
+  pr-size:
+    if: github.event_name == 'pull_request'
+    uses: tinkoff-trade-strategies-checking/.github/.github/workflows/pr-size.yml@main
