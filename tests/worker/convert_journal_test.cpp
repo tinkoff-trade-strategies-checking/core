@@ -35,7 +35,7 @@ bool sameSpec(const core::OrderSpec &A, const core::OrderSpec &B) {
   return A.Instrument == B.Instrument && A.OrderSide == B.OrderSide &&
          A.Type == B.Type && A.Lots == B.Lots && A.LimitPrice == B.LimitPrice &&
          A.StopPrice == B.StopPrice && A.TrailingPercent == B.TrailingPercent &&
-         A.Tif == B.Tif;
+         A.Tif == B.Tif && A.IsBlindPrice == B.IsBlindPrice;
 }
 
 core::JournalEntry roundTrip(const core::JournalEntry &E,

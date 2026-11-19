@@ -181,94 +181,75 @@ TEST(BlindScale, LotValueAtStartNullBeforeFirstCandle) {
   EXPECT_EQ(*ScalesAt1[1].P0, core::Decimal::fromUnits(500));
 }
 
-TEST(ConvertBlindOrder, BuyRoundsCeilingToPriceStep) {
+TEST(BlindOrderPrices, ResolvesBuyCeilingAndSellFloorToPriceStep) {
   std::vector<core::Instrument> Instruments = {
       {"A", "TKA", 10, core::Decimal::parse("0.05")},
   };
-  const std::int64_t DayStart = 1736751600000LL;
-  std::vector<std::vector<core::Bar>> Bars = {{
-      makeBar(DayStart, "200.00", "220.00", "190.00", "210.00", 500),
-  }};
-  auto Tl = std::make_shared<core::Timeline>(
-      core::Timeline::build(Instruments, Bars, makeCalendar()));
+  const std::int64_t SessStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {{
+          makeBar(SessStart, "200", "220", "190", "210", 10),
+          makeBar(SessStart + 60000, "210", "230", "200", "220", 10),
+      }},
+      makeCalendar()));
 
-  // P0 = 200.00, PriceStep = 0.05.
-  // Заявка на покупку со слепой ценой 100.23:
-  // P_unrounded = 100.23 * 200 / 100 = 200.46
-  // Округление не в пользу трейдера (CEILING к 0.05): 200.50
-  core::OrderSpec Spec;
-  Spec.Instrument = 0;
-  Spec.OrderSide = core::Side::Buy;
-  Spec.Type = core::OrderType::Limit;
-  Spec.Lots = 1;
-  Spec.LimitPrice = core::Decimal::parse("100.23");
-  Spec.IsBlindPrice = true;
+  EXPECT_EQ(core::blindP0(*Tl, 0, 0), core::Decimal::fromUnits(200));
 
-  const core::OrderSpec Converted =
-      core::convertBlindOrder(Spec, *Tl, Instruments, 0);
+  core::OrderSpec BuyLimit;
+  BuyLimit.Instrument = 0;
+  BuyLimit.OrderSide = core::Side::Buy;
+  BuyLimit.Type = core::OrderType::Limit;
+  BuyLimit.Lots = 1;
+  BuyLimit.LimitPrice =
+      core::Decimal::parse("100.11"); // 200.22 -> CEILING 200.25
+  BuyLimit.IsBlindPrice = true;
 
-  EXPECT_FALSE(Converted.IsBlindPrice);
-  ASSERT_TRUE(Converted.LimitPrice.has_value());
-  EXPECT_EQ(*Converted.LimitPrice, core::Decimal::parse("200.50"));
+  const core::ResolvedOrderResult ResolvedBuy =
+      core::resolveBlindOrderPrices(BuyLimit, *Tl, 0);
+  ASSERT_TRUE(ResolvedBuy.Check.Ok);
+  ASSERT_TRUE(ResolvedBuy.Order.has_value());
+  EXPECT_FALSE(ResolvedBuy.Order->IsBlindPrice);
+  ASSERT_TRUE(ResolvedBuy.Order->LimitPrice.has_value());
+  EXPECT_EQ(*ResolvedBuy.Order->LimitPrice, core::Decimal::parse("200.25"));
+
+  core::OrderSpec SellStopLimit;
+  SellStopLimit.Instrument = 0;
+  SellStopLimit.OrderSide = core::Side::Sell;
+  SellStopLimit.Type = core::OrderType::StopLimit;
+  SellStopLimit.Lots = 1;
+  SellStopLimit.StopPrice =
+      core::Decimal::parse("99.89"); // 199.78 -> FLOOR 199.75
+  SellStopLimit.LimitPrice =
+      core::Decimal::parse("99.88"); // 199.76 -> FLOOR 199.75
+  SellStopLimit.TrailingPercent = core::Decimal::parse("5.0");
+  SellStopLimit.IsBlindPrice = true;
+
+  const core::ResolvedOrderResult ResolvedSell =
+      core::resolveBlindOrderPrices(SellStopLimit, *Tl, 0);
+  ASSERT_TRUE(ResolvedSell.Check.Ok);
+  ASSERT_TRUE(ResolvedSell.Order.has_value());
+  EXPECT_FALSE(ResolvedSell.Order->IsBlindPrice);
+  ASSERT_TRUE(ResolvedSell.Order->StopPrice.has_value());
+  ASSERT_TRUE(ResolvedSell.Order->LimitPrice.has_value());
+  ASSERT_TRUE(ResolvedSell.Order->TrailingPercent.has_value());
+  EXPECT_EQ(*ResolvedSell.Order->StopPrice, core::Decimal::parse("199.75"));
+  EXPECT_EQ(*ResolvedSell.Order->LimitPrice, core::Decimal::parse("199.75"));
+  EXPECT_EQ(*ResolvedSell.Order->TrailingPercent, core::Decimal::parse("5.0"));
+
+  // Обычная рублёвая заявка не меняется.
+  core::OrderSpec RubleOrder = BuyLimit;
+  RubleOrder.IsBlindPrice = false;
+  RubleOrder.LimitPrice = core::Decimal::parse("200.22");
+  const core::ResolvedOrderResult Unchanged =
+      core::resolveBlindOrderPrices(RubleOrder, *Tl, 0);
+  ASSERT_TRUE(Unchanged.Check.Ok);
+  ASSERT_TRUE(Unchanged.Order.has_value());
+  EXPECT_FALSE(Unchanged.Order->IsBlindPrice);
+  EXPECT_EQ(*Unchanged.Order->LimitPrice, core::Decimal::parse("200.22"));
 }
 
-TEST(ConvertBlindOrder, SellRoundsFloorToPriceStep) {
-  std::vector<core::Instrument> Instruments = {
-      {"A", "TKA", 10, core::Decimal::parse("0.05")},
-  };
-  const std::int64_t DayStart = 1736751600000LL;
-  std::vector<std::vector<core::Bar>> Bars = {{
-      makeBar(DayStart, "200.00", "220.00", "190.00", "210.00", 500),
-  }};
-  auto Tl = std::make_shared<core::Timeline>(
-      core::Timeline::build(Instruments, Bars, makeCalendar()));
-
-  // P0 = 200.00, PriceStep = 0.05.
-  // Заявка на продажу со слепой ценой 100.23:
-  // P_unrounded = 100.23 * 200 / 100 = 200.46
-  // Округление не в пользу трейдера (FLOOR к 0.05): 200.45
-  core::OrderSpec Spec;
-  Spec.Instrument = 0;
-  Spec.OrderSide = core::Side::Sell;
-  Spec.Type = core::OrderType::Limit;
-  Spec.Lots = 1;
-  Spec.LimitPrice = core::Decimal::parse("100.23");
-  Spec.IsBlindPrice = true;
-
-  const core::OrderSpec Converted =
-      core::convertBlindOrder(Spec, *Tl, Instruments, 0);
-
-  EXPECT_FALSE(Converted.IsBlindPrice);
-  ASSERT_TRUE(Converted.LimitPrice.has_value());
-  EXPECT_EQ(*Converted.LimitPrice, core::Decimal::parse("200.45"));
-}
-
-TEST(ConvertBlindOrder, NonBlindOrderKeptAsIs) {
-  std::vector<core::Instrument> Instruments = {
-      {"A", "TKA", 10, core::Decimal::parse("0.05")},
-  };
-  const std::int64_t DayStart = 1736751600000LL;
-  std::vector<std::vector<core::Bar>> Bars = {{
-      makeBar(DayStart, "200.00", "220.00", "190.00", "210.00", 500),
-  }};
-  auto Tl = std::make_shared<core::Timeline>(
-      core::Timeline::build(Instruments, Bars, makeCalendar()));
-
-  core::OrderSpec Spec;
-  Spec.Instrument = 0;
-  Spec.OrderSide = core::Side::Buy;
-  Spec.Type = core::OrderType::Limit;
-  Spec.Lots = 1;
-  Spec.LimitPrice = core::Decimal::parse("195.05");
-  Spec.IsBlindPrice = false;
-
-  const core::OrderSpec Converted =
-      core::convertBlindOrder(Spec, *Tl, Instruments, 0);
-
-  EXPECT_EQ(Converted, Spec);
-}
-
-TEST(ConvertBlindOrder, Inv1NoFutureP0) {
+TEST(BlindOrderPrices, RejectsWithoutP0AndRespectsInv1) {
   std::vector<core::Instrument> Instruments = {
       {"A", "TKA", 10, core::Decimal::parse("0.01")},
       {"B", "TKB", 5, core::Decimal::parse("0.01")},
@@ -282,68 +263,121 @@ TEST(ConvertBlindOrder, Inv1NoFutureP0) {
               makeBar(SessStart + 60000, "205", "215", "200", "210", 12),
           },
           {
-              // У инструмента B первый бар только на шаге 1 (TsOpenMs =
-              // SessStart + 60000)
+              // У B нет бара на шаге 0; первый бар на шаге 1.
               makeBar(SessStart + 60000, "500", "510", "490", "505", 8),
           },
       },
       makeCalendar()));
 
-  core::OrderSpec SpecB;
-  SpecB.Instrument = 1;
-  SpecB.OrderSide = core::Side::Buy;
-  SpecB.Type = core::OrderType::Limit;
-  SpecB.Lots = 1;
-  SpecB.LimitPrice = core::Decimal::parse("105.00");
-  SpecB.IsBlindPrice = true;
+  EXPECT_FALSE(core::blindP0(*Tl, 1, 0).has_value());
+  EXPECT_EQ(core::blindP0(*Tl, 1, 1), core::Decimal::fromUnits(500));
 
-  // На шаге 0 бар B ещё не наступил: P0 недоступен без заглядывания в будущее
-  // (INV-1)
-  const core::OrderSpec AtStep0 =
-      core::convertBlindOrder(SpecB, *Tl, Instruments, 0);
-  EXPECT_TRUE(
-      AtStep0.IsBlindPrice); // Не конвертировался, остался со слепой ценой
+  core::OrderSpec BlindOnB;
+  BlindOnB.Instrument = 1;
+  BlindOnB.OrderSide = core::Side::Buy;
+  BlindOnB.Type = core::OrderType::Limit;
+  BlindOnB.Lots = 1;
+  BlindOnB.LimitPrice = core::Decimal::parse("100.00");
+  BlindOnB.IsBlindPrice = true;
 
-  // На шаге 1 бар B уже наступил: P0 = 500
-  // P_rub = 105.00 * 500 / 100 = 525.00
-  const core::OrderSpec AtStep1 =
-      core::convertBlindOrder(SpecB, *Tl, Instruments, 1);
-  EXPECT_FALSE(AtStep1.IsBlindPrice);
-  ASSERT_TRUE(AtStep1.LimitPrice.has_value());
-  EXPECT_EQ(*AtStep1.LimitPrice, core::Decimal::parse("525.00"));
+  const core::ResolvedOrderResult NoP0 =
+      core::resolveBlindOrderPrices(BlindOnB, *Tl, 0);
+  EXPECT_FALSE(NoP0.Check.Ok);
+  EXPECT_EQ(NoP0.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(NoP0.Check.Field, "instrument");
+  EXPECT_FALSE(NoP0.Order.has_value());
+
+  const core::ResolvedOrderResult AtStep1 =
+      core::resolveBlindOrderPrices(BlindOnB, *Tl, 1);
+  ASSERT_TRUE(AtStep1.Check.Ok);
+  ASSERT_TRUE(AtStep1.Order.has_value());
+  EXPECT_EQ(*AtStep1.Order->LimitPrice, core::Decimal::parse("500.00"));
 }
 
-TEST(ConvertBlindOrder, StopLimitAndTrailing) {
+TEST(BlindOrderPrices, RejectsInvalidInstrumentPriceStepAndOverflow) {
   std::vector<core::Instrument> Instruments = {
-      {"A", "TKA", 10, core::Decimal::parse("0.05")},
+      {"A", "TKA", 10, core::Decimal::parse("0.01")},
+      {"Z", "TKZ", 10, core::Decimal::zero()},
   };
-  const std::int64_t DayStart = 1736751600000LL;
-  std::vector<std::vector<core::Bar>> Bars = {{
-      makeBar(DayStart, "200.00", "220.00", "190.00", "210.00", 500),
-  }};
-  auto Tl = std::make_shared<core::Timeline>(
-      core::Timeline::build(Instruments, Bars, makeCalendar()));
+  const std::int64_t SessStart = 1736751600000LL;
+  auto Tl = std::make_shared<core::Timeline>(core::Timeline::build(
+      Instruments,
+      {
+          {makeBar(SessStart, "1000000000000000000", "1000000000000000000",
+                   "1000000000000000000", "1000000000000000000", 10)},
+          {makeBar(SessStart, "100", "105", "95", "102", 10)},
+      },
+      makeCalendar()));
 
-  core::OrderSpec Spec;
-  Spec.Instrument = 0;
-  Spec.OrderSide = core::Side::Buy;
-  Spec.Type = core::OrderType::StopLimit;
-  Spec.Lots = 2;
-  Spec.LimitPrice =
-      core::Decimal::parse("102.11"); // 102.11 * 2 = 204.22 -> CEILING 204.25
-  Spec.StopPrice =
-      core::Decimal::parse("101.53"); // 101.53 * 2 = 203.06 -> CEILING 203.10
-  Spec.TrailingPercent = core::Decimal::parse("5.0");
-  Spec.IsBlindPrice = true;
+  core::OrderSpec BadInst;
+  BadInst.Instrument = 99;
+  BadInst.OrderSide = core::Side::Buy;
+  BadInst.Type = core::OrderType::Limit;
+  BadInst.Lots = 1;
+  BadInst.LimitPrice = core::Decimal::parse("100");
+  BadInst.IsBlindPrice = true;
+  const core::ResolvedOrderResult InstRes =
+      core::resolveBlindOrderPrices(BadInst, *Tl, 0);
+  EXPECT_FALSE(InstRes.Check.Ok);
+  EXPECT_EQ(InstRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(InstRes.Check.Field, "instrument");
 
-  const core::OrderSpec Converted =
-      core::convertBlindOrder(Spec, *Tl, Instruments, 0);
+  core::OrderSpec ZeroStep = BadInst;
+  ZeroStep.Instrument = 1;
+  const core::ResolvedOrderResult StepRes =
+      core::resolveBlindOrderPrices(ZeroStep, *Tl, 0);
+  EXPECT_FALSE(StepRes.Check.Ok);
+  EXPECT_EQ(StepRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(StepRes.Check.Field, "instrument");
 
-  EXPECT_FALSE(Converted.IsBlindPrice);
-  ASSERT_TRUE(Converted.LimitPrice.has_value());
-  EXPECT_EQ(*Converted.LimitPrice, core::Decimal::parse("204.25"));
-  ASSERT_TRUE(Converted.StopPrice.has_value());
-  EXPECT_EQ(*Converted.StopPrice, core::Decimal::parse("203.10"));
-  ASSERT_TRUE(Converted.TrailingPercent.has_value());
-  EXPECT_EQ(*Converted.TrailingPercent, core::Decimal::parse("5.0"));
+  core::OrderSpec OverflowLimit = BadInst;
+  OverflowLimit.Instrument = 0;
+  OverflowLimit.LimitPrice = core::Decimal::parse("1000000000000000000");
+  const core::ResolvedOrderResult LimitRes =
+      core::resolveBlindOrderPrices(OverflowLimit, *Tl, 0);
+  EXPECT_FALSE(LimitRes.Check.Ok);
+  EXPECT_EQ(LimitRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(LimitRes.Check.Field, "limitPrice");
+
+  core::OrderSpec OverflowStop = BadInst;
+  OverflowStop.Instrument = 0;
+  OverflowStop.Type = core::OrderType::Stop;
+  OverflowStop.LimitPrice.reset();
+  OverflowStop.StopPrice = core::Decimal::parse("1000000000000000000");
+  const core::ResolvedOrderResult StopRes =
+      core::resolveBlindOrderPrices(OverflowStop, *Tl, 0);
+  EXPECT_FALSE(StopRes.Check.Ok);
+  EXPECT_EQ(StopRes.Check.ReasonCode, core::Reason::InvalidParams);
+  EXPECT_EQ(StopRes.Check.Field, "stopPrice");
+}
+
+TEST(BlindStepEvents, SkipsChangedOrdersWithoutP0) {
+  std::vector<core::BlindScale> Scales(2);
+  Scales[0].P0 = core::Decimal::fromUnits(200);
+  // Scales[1].P0 не задан (у бумаги нет бара до курсора).
+
+  core::StepEvents Ev;
+  Ev.Step = 0;
+  Ev.Portfolio.Cash = core::Decimal::fromUnits(100000);
+  Ev.Portfolio.Equity = core::Decimal::fromUnits(100000);
+
+  core::Order OrderA;
+  OrderA.Id = 0;
+  OrderA.Spec.Instrument = 0;
+  OrderA.Spec.LimitPrice = core::Decimal::fromUnits(210);
+  Ev.ChangedOrders.push_back(OrderA);
+
+  core::Order OrderB;
+  OrderB.Id = 2;
+  OrderB.Spec.Instrument = 1;
+  OrderB.Spec.LimitPrice = core::Decimal::fromUnits(500);
+  Ev.ChangedOrders.push_back(OrderB);
+
+  const core::BlindStepEvents Blind =
+      core::toBlindStepEvents(Ev, core::Decimal::fromUnits(100000), Scales);
+  ASSERT_EQ(Blind.ChangedOrders.size(), 1u);
+  EXPECT_EQ(Blind.ChangedOrders[0].Id, 0);
+  EXPECT_EQ(Blind.ChangedOrders[0].Instrument, 0);
+  ASSERT_TRUE(Blind.ChangedOrders[0].LimitPrice.has_value());
+  EXPECT_EQ(*Blind.ChangedOrders[0].LimitPrice, core::Decimal::parse("105.00"));
 }

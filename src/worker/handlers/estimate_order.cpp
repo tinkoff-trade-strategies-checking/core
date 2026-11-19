@@ -38,7 +38,7 @@ void fill(Context &Context, const pb::EstimateOrderRequest &Request,
   const core::OrderSpec Order = orderSpecFromProto(Request.order(), Spec);
   const core::OrderEstimate Estimate =
       core::estimateOrder(Spec, Timeline, Journal, Request.up_to_step(), Order);
-  toProto(Estimate, Out);
+  toProto(Estimate, *Timeline, Out);
 }
 
 } // namespace

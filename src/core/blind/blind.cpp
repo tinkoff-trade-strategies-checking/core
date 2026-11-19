@@ -43,6 +43,72 @@ Decimal toPercentOfCapital(const Decimal &Amount, const Decimal &InitialCash) {
   return Amount.mulDiv(kHundred, InitialCash, 2, RoundingMode::HalfUp);
 }
 
+std::optional<Decimal> blindP0(const Timeline &Timeline, int Instrument,
+                               std::int64_t LastStep) {
+  if (LastStep < 0 || LastStep >= Timeline.totalSteps())
+    throw std::out_of_range("LastStep вне шкалы времени");
+  if (Instrument < 0 ||
+      static_cast<std::size_t>(Instrument) >= Timeline.instruments().size()) {
+    return std::nullopt;
+  }
+  const StepBar *FirstBar = firstSessionBar(Timeline, Instrument, LastStep);
+  if (FirstBar == nullptr)
+    return std::nullopt;
+  if (FirstBar->Open <= Decimal::zero()) {
+    throw std::invalid_argument(
+        "open первой свечи для слепого режима должен быть > 0");
+  }
+  return FirstBar->Open;
+}
+
+ResolvedOrderResult resolveBlindOrderPrices(const OrderSpec &Spec,
+                                            const Timeline &Timeline,
+                                            std::int64_t Step) {
+  if (!Spec.IsBlindPrice)
+    return {Spec, Validation{}};
+  if (Spec.Instrument < 0 || static_cast<std::size_t>(Spec.Instrument) >=
+                                 Timeline.instruments().size()) {
+    return {std::nullopt,
+            Validation{false, Reason::InvalidParams, "instrument"}};
+  }
+  const Decimal &PriceStep =
+      Timeline.instruments()[static_cast<std::size_t>(Spec.Instrument)]
+          .PriceStep;
+  if (PriceStep.sign() <= 0)
+    return {std::nullopt,
+            Validation{false, Reason::InvalidParams, "instrument"}};
+  const std::optional<Decimal> P0 = blindP0(Timeline, Spec.Instrument, Step);
+  if (!P0)
+    return {std::nullopt,
+            Validation{false, Reason::InvalidParams, "instrument"}};
+
+  const RoundingMode Mode =
+      Spec.OrderSide == Side::Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
+  auto Convert = [&](const Decimal &BlindPrice) {
+    return BlindPrice.mulDiv(*P0, kHundred, Decimal::kScale, Mode)
+        .roundToStep(PriceStep, Mode);
+  };
+  OrderSpec Out = Spec;
+  if (Out.LimitPrice) {
+    try {
+      Out.LimitPrice = Convert(*Out.LimitPrice);
+    } catch (const DecimalOverflow &) {
+      return {std::nullopt,
+              Validation{false, Reason::InvalidParams, "limitPrice"}};
+    }
+  }
+  if (Out.StopPrice) {
+    try {
+      Out.StopPrice = Convert(*Out.StopPrice);
+    } catch (const DecimalOverflow &) {
+      return {std::nullopt,
+              Validation{false, Reason::InvalidParams, "stopPrice"}};
+    }
+  }
+  Out.IsBlindPrice = false;
+  return {std::move(Out), Validation{}};
+}
+
 std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,
                                            const Decimal &InitialCash,
                                            std::int64_t LastStep) {
@@ -64,18 +130,15 @@ std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,
 
   for (std::size_t Idx = 0; Idx < NumInstruments; ++Idx) {
     BlindScale &Scale = Scales[Idx];
-    const StepBar *FirstBar =
-        firstSessionBar(Timeline, static_cast<int>(Idx), LastStep);
-    if (FirstBar != nullptr) {
-      if (FirstBar->Open <= Decimal::zero()) {
-        throw std::invalid_argument(
-            "open первой свечи для слепого режима должен быть > 0");
-      }
-      Scale.P0 = FirstBar->Open;
+    const int InstIdx = static_cast<int>(Idx);
+    Scale.P0 = blindP0(Timeline, InstIdx, LastStep);
+    if (Scale.P0) {
       const Decimal OneLotCost =
-          FirstBar->Open.times(Timeline.instruments()[Idx].LotSize);
+          Scale.P0->times(Timeline.instruments()[Idx].LotSize);
       Scale.LotValueAtStart = toPercentOfCapital(OneLotCost, InitialCash);
     }
+
+    const StepBar *FirstBar = firstSessionBar(Timeline, InstIdx, LastStep);
 
     if (WarmupVolCount[Idx] > 0) {
       if (WarmupVolSum[Idx] > 0) {
@@ -197,8 +260,15 @@ BlindStepEvents toBlindStepEvents(const StepEvents &Events,
   }
   Out.ChangedOrders.reserve(Events.ChangedOrders.size());
   for (const Order &O : Events.ChangedOrders) {
-    Out.ChangedOrders.push_back(toBlindOrder(
-        O, Scales.at(static_cast<std::size_t>(O.Spec.Instrument))));
+    if (O.Spec.Instrument < 0 ||
+        static_cast<std::size_t>(O.Spec.Instrument) >= Scales.size()) {
+      continue;
+    }
+    const BlindScale &Scale =
+        Scales[static_cast<std::size_t>(O.Spec.Instrument)];
+    if (!Scale.P0)
+      continue;
+    Out.ChangedOrders.push_back(toBlindOrder(O, Scale));
   }
   Out.Portfolio = toBlindPortfolio(Events.Portfolio, InitialCash, Scales);
   return Out;
@@ -247,40 +317,6 @@ BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
     Trip.NetPnlPct = toPercentOfCapital(T.NetPnl, InitialCash);
     Out.RoundTrips.push_back(std::move(Trip));
   }
-  return Out;
-}
-
-OrderSpec convertBlindOrder(const OrderSpec &Spec, const Timeline &Timeline,
-                            const std::vector<Instrument> &Instruments,
-                            std::int64_t UpToStep) {
-  if (!Spec.IsBlindPrice)
-    return Spec;
-
-  OrderSpec Out = Spec;
-  if (Spec.Instrument < 0 ||
-      static_cast<std::size_t>(Spec.Instrument) >= Instruments.size())
-    return Out;
-
-  const StepBar *FirstBar =
-      firstSessionBar(Timeline, Spec.Instrument, UpToStep);
-  if (FirstBar == nullptr || FirstBar->Open <= Decimal::zero())
-    return Out;
-
-  const Decimal &P0 = FirstBar->Open;
-  const Decimal &PriceStep =
-      Instruments[static_cast<std::size_t>(Spec.Instrument)].PriceStep;
-  const RoundingMode Mode =
-      Spec.OrderSide == Side::Buy ? RoundingMode::CEILING : RoundingMode::FLOOR;
-
-  if (Out.LimitPrice && *Out.LimitPrice > Decimal::zero()) {
-    Out.LimitPrice = Out.LimitPrice->mulDiv(P0, kHundred, Decimal::kScale, Mode)
-                         .roundToStep(PriceStep, Mode);
-  }
-  if (Out.StopPrice && *Out.StopPrice > Decimal::zero()) {
-    Out.StopPrice = Out.StopPrice->mulDiv(P0, kHundred, Decimal::kScale, Mode)
-                        .roundToStep(PriceStep, Mode);
-  }
-  Out.IsBlindPrice = false;
   return Out;
 }
 

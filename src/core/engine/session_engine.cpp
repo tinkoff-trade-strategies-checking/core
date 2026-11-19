@@ -8,8 +8,6 @@
 #include <utility>
 #include <variant>
 
-#include "core/blind/blind.hpp"
-
 namespace core {
 
 namespace {
@@ -143,17 +141,10 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
       [&](const auto &Cmd) {
         using T = std::decay_t<decltype(Cmd)>;
         if constexpr (std::is_same_v<T, PlaceCmd>) {
-          PlaceCmd EffectiveCmd = Cmd;
-          EffectiveCmd.Order = convertBlindOrder(Cmd.Order, *TimelineRef,
-                                                 Spec.Instruments, Step);
-          if (Cmd.OcoWith) {
-            EffectiveCmd.OcoWith = convertBlindOrder(*Cmd.OcoWith, *TimelineRef,
-                                                     Spec.Instruments, Step);
-          }
-          std::vector<const OrderSpec *> Legs{&EffectiveCmd.Order};
-          if (EffectiveCmd.OcoWith)
-            Legs.push_back(&*EffectiveCmd.OcoWith);
-          createOrders(Entry, EffectiveCmd, validateLegs(Legs), Result);
+          std::vector<const OrderSpec *> Legs{&Cmd.Order};
+          if (Cmd.OcoWith)
+            Legs.push_back(&*Cmd.OcoWith);
+          createOrders(Entry, Cmd, validateLegs(Legs), Result);
         } else if constexpr (std::is_same_v<T, CancelCmd>) {
           if (!Running) {
             Result.ReasonCode = Reason::SessionNotActive;
@@ -166,17 +157,10 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
         } else {
           // Замена: сначала проверяется новая заявка; не прошла - запись
           // отклонена целиком, старая не тронута.
-          ReplaceCmd EffectiveCmd = Cmd;
-          EffectiveCmd.Replacement.Order = convertBlindOrder(
-              Cmd.Replacement.Order, *TimelineRef, Spec.Instruments, Step);
-          if (Cmd.Replacement.OcoWith) {
-            EffectiveCmd.Replacement.OcoWith = convertBlindOrder(
-                *Cmd.Replacement.OcoWith, *TimelineRef, Spec.Instruments, Step);
-          }
           Order *Old = findOrder(Cmd.OrderId);
-          std::vector<const OrderSpec *> Legs{&EffectiveCmd.Replacement.Order};
-          if (EffectiveCmd.Replacement.OcoWith)
-            Legs.push_back(&*EffectiveCmd.Replacement.OcoWith);
+          std::vector<const OrderSpec *> Legs{&Cmd.Replacement.Order};
+          if (Cmd.Replacement.OcoWith)
+            Legs.push_back(&*Cmd.Replacement.OcoWith);
           Validation Verdict = validateLegs(Legs);
           if (Verdict.Ok && (Old == nullptr || !isActive(*Old)))
             Verdict = Validation{false, Reason::OrderNotActive, ""};
@@ -184,7 +168,7 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
             cancelOrder(Orders, Old->Id, Reason::Replaced, Step,
                         Changed); // у OCO заменяется вся пара
           }
-          createOrders(Entry, EffectiveCmd.Replacement, Verdict, Result);
+          createOrders(Entry, Cmd.Replacement, Verdict, Result);
         }
       },
       Entry.Command);

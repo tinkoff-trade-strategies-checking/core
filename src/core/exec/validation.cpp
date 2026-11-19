@@ -16,7 +16,7 @@ bool positive(const std::optional<Decimal> &V) {
 
 // Цена кратна шагу цены инструмента (`decisions.md`, «Деньги и округление»).
 bool onGrid(const Decimal &Price, const Decimal &PriceStep) {
-  return PriceStep.sign() <= 0 ||
+  return PriceStep.sign() > 0 &&
          Price.roundToStep(PriceStep, RoundingMode::FLOOR) == Price;
 }
 
@@ -26,6 +26,8 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
                                      const Portfolio &Portfolio,
                                      const Timeline &Timeline,
                                      std::int64_t Step) const {
+  if (Spec.IsBlindPrice)
+    return invalid("isBlindPrice"); // журнал хранит рублёвые цены
   if (Spec.Instrument < 0 ||
       static_cast<std::size_t>(Spec.Instrument) >= Instruments.size()) {
     return invalid("instrument");
@@ -56,6 +58,8 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
 
   const Decimal &PriceStep =
       Instruments[static_cast<std::size_t>(Spec.Instrument)].PriceStep;
+  if (PriceStep.sign() <= 0)
+    return invalid("instrument");
   if (NeedsLimit && !onGrid(*Spec.LimitPrice, PriceStep))
     return invalid("limitPrice");
   if (NeedsStop && !onGrid(*Spec.StopPrice, PriceStep))

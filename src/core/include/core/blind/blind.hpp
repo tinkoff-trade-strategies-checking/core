@@ -126,6 +126,29 @@ struct BlindReport {
   std::vector<BlindRoundTrip> RoundTrips;
 };
 
+// Вычисляет P0 (open шага 0 или первого бара в [0; LastStep]) для бумаги,
+// или nullopt, если до LastStep включительно у бумаги нет баров (INV-1).
+std::optional<Decimal> blindP0(const Timeline &Timeline, int Instrument,
+                               std::int64_t LastStep);
+
+// Результат перевода слепых цен заявки в рубли. При ошибке содержимого
+// заявки (нет P0 до шага, неверный индекс бумаги, шаг цены <= 0, переполнение
+// при переводе цены) Check.Ok == false с соответствующими ReasonCode и Field,
+// Order == nullopt.
+struct ResolvedOrderResult {
+  std::optional<OrderSpec> Order;
+  Validation Check;
+};
+
+// Переводит слепые цены заявки (от 100) в рубли P_rub = P_blind * P0 / 100
+// с округлением к шагу цены не в пользу трейдера (покупка CEILING, продажа
+// FLOOR; `decisions.md`, «Деньги и округление», п. 2) и сбрасывает
+// IsBlindPrice. При проблемах содержимого заявки исключение не бросает —
+// возвращает отказ в Check.
+ResolvedOrderResult resolveBlindOrderPrices(const OrderSpec &Spec,
+                                            const Timeline &Timeline,
+                                            std::int64_t Step);
+
 // Вычисляет масштабы слепого режима для каждой бумаги по шкале времени и
 // шагам не позже LastStep (INV-1: будущее после LastStep не используется).
 std::vector<BlindScale> computeBlindScales(const Timeline &Timeline,
@@ -158,15 +181,5 @@ BlindStepEvents toBlindStepEvents(const StepEvents &Events,
 
 BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
                           const std::vector<BlindScale> &Scales);
-
-// Переводит цену заявки из слепой шкалы (от 100) обратно в рубли и округляет
-// к шагу цены не в пользу трейдера (CEILING для покупки, FLOOR для продажи)
-// согласно decisions.md («Деньги и округление», п. 2).
-// P0 берётся по шагу 0 бумаги (или первому бару <= UpToStep, если на шаге 0
-// бара нет, INV-1). Если Spec.IsBlindPrice == false, возвращает копию Spec без
-// изменений.
-OrderSpec convertBlindOrder(const OrderSpec &Spec, const Timeline &Timeline,
-                            const std::vector<Instrument> &Instruments,
-                            std::int64_t UpToStep);
 
 } // namespace core
