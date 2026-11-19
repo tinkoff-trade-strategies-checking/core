@@ -418,3 +418,32 @@ TEST(BlindDerived, ReportTotalPctAndUnderwaterCopied) {
   EXPECT_EQ(B.Underwater[1].Step, 1);
   EXPECT_EQ(B.Underwater[1].DrawdownPct, core::Decimal::parse("1.25"));
 }
+
+// core#54: P&L слепой позиции - % начального капитала от себестоимости.
+TEST(BlindDerived, PositionPnlPctFromCostBasis) {
+  core::PortfolioSnapshot S;
+  S.Cash = core::Decimal::fromUnits(90000);
+  S.Equity = core::Decimal::fromUnits(100300);
+  S.Lots = {5};
+  S.AvgPrice = {core::Decimal::fromUnits(100)};
+  S.MarketValue = {core::Decimal::fromUnits(10300)};
+  S.CostBasis = {core::Decimal::fromUnits(10000)};
+  core::BlindScale Scale;
+  Scale.P0 = core::Decimal::fromUnits(100);
+  const core::Decimal Cash = core::Decimal::fromUnits(100000);
+  const core::BlindPortfolio P =
+      core::toBlindPortfolio(S, Cash, {Scale}, core::Decimal::zero());
+  ASSERT_EQ(P.Positions.size(), 1u);
+  EXPECT_EQ(P.Positions[0].PnlPct, core::Decimal::parse("0.30"));
+  EXPECT_EQ(P.Positions[0].MarketValuePct, core::Decimal::parse("10.30"));
+  // убыток
+  S.MarketValue = {core::Decimal::fromUnits(9000)};
+  EXPECT_EQ(core::toBlindPortfolio(S, Cash, {Scale}, core::Decimal::zero())
+                .Positions[0]
+                .PnlPct,
+            core::Decimal::parse("-1.00"));
+  // без себестоимости - явная ошибка, а не молчаливый 0
+  S.CostBasis.clear();
+  EXPECT_THROW(core::toBlindPortfolio(S, Cash, {Scale}, core::Decimal::zero()),
+               std::invalid_argument);
+}
