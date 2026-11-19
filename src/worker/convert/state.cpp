@@ -7,6 +7,7 @@
 #include <variant>
 
 #include "convert/market.hpp"
+#include "core/blind/blind.hpp"
 #include "core/money/proto_conv.hpp"
 
 namespace worker {
@@ -196,7 +197,7 @@ void toProto(const core::Order &Order, const core::Timeline &Timeline,
 }
 
 void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
-             pb::Fill *Out) {
+             const core::Decimal &InitialCash, pb::Fill *Out) {
   Out->set_order_id(Fill.OrderId);
   Out->set_step(Fill.Step);
   Out->set_instrument_key(keyOf(Timeline, Fill.Instrument));
@@ -210,6 +211,12 @@ void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
   Out->set_stop_and_take_same_bar(Fill.StopAndTakeSameBar);
   core::toProto(Fill.SpreadCost, Out->mutable_spread_cost());
   core::toProto(Fill.SlippageCost, Out->mutable_slippage_cost());
+  Out->set_seq(Fill.Seq);
+  core::toProto(Fill.cost(), Out->mutable_cost());
+  core::toProto(core::toPercentOfCapital(Fill.cost(), InitialCash),
+                Out->mutable_cost_pct());
+  core::toProto(core::toPercentOfCapital(Fill.Value, InitialCash),
+                Out->mutable_amount_pct());
 }
 
 void toProto(const core::PortfolioSnapshot &Snapshot,
@@ -237,12 +244,12 @@ void toProto(const core::CommandResult &Result, pb::CommandResult *Out) {
 }
 
 void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
-             pb::StepEvents *Out) {
+             const core::Decimal &InitialCash, pb::StepEvents *Out) {
   Out->set_step(Events.Step);
   for (const core::StepBar &B : Events.Bars)
     toProto(B, Timeline, Out->add_bars());
   for (const core::Fill &F : Events.Fills)
-    toProto(F, Timeline, Out->add_fills());
+    toProto(F, Timeline, InitialCash, Out->add_fills());
   for (const core::Order &O : Events.ChangedOrders)
     toProto(O, Timeline, Out->add_changed_orders());
   toProto(Events.Portfolio, Timeline, Out->mutable_portfolio());

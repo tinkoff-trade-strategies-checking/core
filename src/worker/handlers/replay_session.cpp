@@ -73,8 +73,10 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
   Out->set_warmup_steps(Timeline->warmupSteps());
   Out->set_status(toProto(Result.Status));
   Out->set_last_step(Result.LastStep);
+  if (Result.LastStep >= 0 && Result.LastStep < Timeline->totalSteps())
+    Out->set_current_day(Timeline->tradingDayOf(Result.LastStep));
   for (const core::StepEvents &E : Result.Events)
-    toProto(E, *Timeline, Out->add_events());
+    toProto(E, *Timeline, Spec.InitialCash, Out->add_events());
   if (Request.include_history()) {
     // Прогрев и шаги до last_step, а не до up_to_step: сессия могла
     // остановиться раньше (банкротство, INV-1).
@@ -85,7 +87,7 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
   for (const core::Order &O : Engine.orders())
     toProto(O, *Timeline, Out->add_orders());
   for (const core::Fill &F : Engine.fills())
-    toProto(F, *Timeline, Out->add_fills());
+    toProto(F, *Timeline, Spec.InitialCash, Out->add_fills());
   for (const core::CommandResult &R : Result.CommandResults)
     toProto(R, Out->add_command_results());
   std::optional<core::Report> CoreReport;

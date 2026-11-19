@@ -59,6 +59,24 @@ struct Daily {
   std::vector<double> Equities; // E_d в double
 };
 
+// Кривая просадки: (пик - E) / пик * 100, пик стартует с начального капитала
+// (InitialCash > 0 проверено validate), 2 знака HALF_UP.
+std::vector<UnderwaterPoint> underwater(const MetricsInput &In) {
+  std::vector<UnderwaterPoint> Out;
+  Out.reserve(In.Equity.size());
+  Decimal Peak = In.InitialCash;
+  const Decimal Hundred = Decimal::fromUnits(100);
+  for (const EquityPoint &P : In.Equity) {
+    if (P.Equity > Peak)
+      Peak = P.Equity;
+    Decimal Pct;
+    if (P.Equity < Peak)
+      Pct = (Peak - P.Equity).mulDiv(Hundred, Peak, 2, RoundingMode::HalfUp);
+    Out.push_back(UnderwaterPoint{P.Step, Pct});
+  }
+  return Out;
+}
+
 Daily dailySeries(const MetricsInput &In) {
   std::vector<Decimal> LastOfDay;
   std::int32_t CurrentDay = 0;
@@ -124,6 +142,7 @@ Report computeReport(const MetricsInput &In) {
   Report.Equity = In.Equity;
   Report.BenchmarkEquity = In.BenchmarkEquity;
   Report.RoundTrips = In.RoundTrips;
+  Report.Underwater = underwater(In);
   Report.FinalEquity =
       In.Equity.empty() ? In.InitialCash : In.Equity.back().Equity;
   Metrics &M = Report.Stats;
@@ -136,6 +155,7 @@ Report computeReport(const MetricsInput &In) {
     Report.Costs.Fee += F.Fee;
     Report.Costs.Spread += F.SpreadCost;
     Report.Costs.Slippage += F.SlippageCost;
+    Report.Costs.Total += F.cost();
     TradedValue += F.Value;
     if (F.StopAndTakeSameBar)
       ++Report.Stats.StopTakeSameBar;

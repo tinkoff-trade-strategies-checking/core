@@ -89,6 +89,7 @@ inline Fill &recordFill(Portfolio &Portfolio, std::vector<Fill> &Fills,
   F.Fee = X.Amts.Fee;
   F.SpreadCost = Split.SpreadCost;
   F.SlippageCost = Split.SlippageCost;
+  F.Seq = static_cast<std::int64_t>(Fills.size());
   Fills.push_back(F);
   return Fills.back();
 }

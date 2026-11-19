@@ -83,6 +83,8 @@ struct BlindFill {
   Decimal SpreadCostPct;
   Decimal SlippageCostPct;
   bool StopAndTakeSameBar = false;
+  Decimal CostPct; // итоговые издержки сделки одним числом, 2 знака HALF_UP
+  std::int64_t Seq = 0;
 };
 
 struct BlindStepEvents {
@@ -98,6 +100,7 @@ struct BlindCostTotals {
   Decimal FeePct;
   Decimal SpreadPct;
   Decimal SlippagePct;
+  Decimal TotalPct;
 };
 
 struct BlindEquityPoint {
@@ -124,6 +127,7 @@ struct BlindReport {
   Decimal PnlPct;
   std::vector<BlindEquityPoint> BenchmarkEquity;
   std::vector<BlindRoundTrip> RoundTrips;
+  std::vector<UnderwaterPoint> Underwater; // просадка в % от пика, не рубли
 };
 
 // Вычисляет P0 (open шага 0 или первого бара в [0; LastStep]) для бумаги,

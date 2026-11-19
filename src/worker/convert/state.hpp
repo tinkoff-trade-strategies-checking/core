@@ -31,14 +31,15 @@ void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
 // настоящая заявка).
 void toProto(const core::Order &Order, const core::Timeline &Timeline,
              pb::Order *Out);
+// InitialCash - для amount_pct и cost_pct (% начального капитала, core#54).
 void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
-             pb::Fill *Out);
+             const core::Decimal &InitialCash, pb::Fill *Out);
 // В positions - только открытые позиции (lots != 0), по порядку бумаг сессии.
 void toProto(const core::PortfolioSnapshot &Snapshot,
              const core::Timeline &Timeline, pb::Portfolio *Out);
 void toProto(const core::CommandResult &Result, pb::CommandResult *Out);
 void toProto(const core::StepEvents &Events, const core::Timeline &Timeline,
-             pb::StepEvents *Out);
+             const core::Decimal &InitialCash, pb::StepEvents *Out);
 
 pb::SessionStatus toProto(core::SessionStatus Status);
 pb::Side toProto(core::Side Side);

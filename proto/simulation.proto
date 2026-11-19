@@ -251,6 +251,11 @@ message Fill {
   bool stop_and_take_same_bar = 11;   // стоп и тейк в одной свече: сработал стоп, сделка помечена
   Decimal spread_cost = 12;
   Decimal slippage_cost = 13;
+  // Производные величины (core#54), считает core, backend не складывает.
+  int64 seq = 14;          // порядковый номер сделки в журнале сессии, с 0; стабилен между перепроигрываниями (id v5 у backend)
+  Decimal cost = 15;       // издержки сделки: commission + exchange_fee + spread_cost + slippage_cost, ₽
+  Decimal cost_pct = 16;   // cost в % начального капитала, 2 знака HALF_UP (от рублёвой суммы, не от округлённых процентов)
+  Decimal amount_pct = 17; // value в % начального капитала, 2 знака HALF_UP
 }
 
 message Position {
@@ -313,6 +318,7 @@ message CostTotals {
   Decimal exchange_fee = 2;
   Decimal spread = 3;
   Decimal slippage = 4;
+  Decimal total = 5;   // сумма четырёх видов, ₽ (core#54)
 }
 
 message EquityPoint {
@@ -331,6 +337,7 @@ message RoundTrip {
   Decimal gross_pnl = 7;     // до издержек: сумма продажи - сумма покупки
   Decimal costs = 8;         // комиссия и сбор обеих сторон (пропорционально лотам пары)
   Decimal net_pnl = 9;       // после издержек
+  int64 seq = 10;            // индекс пары в Report.round_trips (с 0; порядок продаж, внутри — покупок), core#54
 }
 
 message Report {
@@ -345,6 +352,15 @@ message Report {
   repeated EquityPoint benchmark_equity = 7;
   // Пары FIFO в порядке продаж, внутри продажи — в порядке покупок (ФТ-20, лист «Сделки» выгрузки).
   repeated RoundTrip round_trips = 8;
+  // Кривая просадки (underwater, core#54): по точке на каждую точку `equity`.
+  repeated UnderwaterPoint underwater = 9;
+}
+
+// Глубина просадки от пика, в процентах (уже ×100): (пик - equity) / пик * 100, 0..100, 2 знака HALF_UP; 0 в пике.
+// Пик стартует с initial_cash (как Metrics.max_drawdown).
+message UnderwaterPoint {
+  int64 step = 1;
+  Decimal drawdown_pct = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -415,6 +431,8 @@ message BlindFill {
   Decimal spread_cost_pct = 11;
   Decimal slippage_cost_pct = 12;
   bool stop_and_take_same_bar = 13;
+  Decimal cost_pct = 14;      // итоговые издержки сделки, % начального капитала, 2 знака HALF_UP (от рублёвой суммы), core#54
+  int64 seq = 15;             // как Fill.seq
 }
 
 message BlindStepEvents {
@@ -430,6 +448,7 @@ message BlindCostTotals {
   Decimal exchange_fee_pct = 2;
   Decimal spread_pct = 3;
   Decimal slippage_pct = 4;
+  Decimal total_pct = 5;   // % начального капитала от рублёвой суммы издержек, 2 знака HALF_UP (core#54)
 }
 
 message BlindEquityPoint {
@@ -447,6 +466,7 @@ message BlindRoundTrip {
   Decimal gross_pnl_pct = 7;
   Decimal costs_pct = 8;
   Decimal net_pnl_pct = 9;
+  int64 seq = 10;            // как RoundTrip.seq
 }
 
 message BlindReport {
@@ -456,6 +476,7 @@ message BlindReport {
   Decimal pnl_pct = 4;
   repeated BlindEquityPoint benchmark_equity = 5;
   repeated BlindRoundTrip round_trips = 6;
+  repeated UnderwaterPoint underwater = 7;   // проценты от пика, не рубли: слепой вид их не скрывает
 }
 
 message BlindSessionView {
@@ -497,6 +518,9 @@ message ReplaySessionResponse {
   Report report = 10;
   int64 warmup_steps = 11;       // шагов прогрева; при include_history бары прогрева идут в history первыми
   BlindSessionView blind_view = 12;
+  // Номер торгового дня шага last_step (с 1, как Bar.trading_day), без include_history и include_report (core#54).
+  // 0 — шкала пуста. Metrics.trading_days — число дней с точками капитала, то же значение, но только при include_report.
+  int32 current_day = 13;
 }
 
 message GetBarsRequest {

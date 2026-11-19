@@ -240,6 +240,10 @@ BlindFill toBlindFill(const Fill &Fill, const Decimal &InitialCash,
   Out.SpreadCostPct = toPercentOfCapital(Fill.SpreadCost, InitialCash);
   Out.SlippageCostPct = toPercentOfCapital(Fill.SlippageCost, InitialCash);
   Out.StopAndTakeSameBar = Fill.StopAndTakeSameBar;
+  // Издержки в % считаются от суммы в рублях, а не складываются из
+  // округлённых процентов (сумма округлённых расходится до 0,02 п. п.).
+  Out.CostPct = toPercentOfCapital(Fill.cost(), InitialCash);
+  Out.Seq = Fill.Seq;
   return Out;
 }
 
@@ -283,6 +287,8 @@ BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
   Out.Costs.SpreadPct = toPercentOfCapital(Report.Costs.Spread, InitialCash);
   Out.Costs.SlippagePct =
       toPercentOfCapital(Report.Costs.Slippage, InitialCash);
+  Out.Costs.TotalPct = toPercentOfCapital(Report.Costs.Total, InitialCash);
+  Out.Underwater = Report.Underwater;
 
   Out.Equity.reserve(Report.Equity.size());
   for (const EquityPoint &P : Report.Equity) {

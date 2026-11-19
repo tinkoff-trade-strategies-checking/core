@@ -381,3 +381,40 @@ TEST(BlindStepEvents, SkipsChangedOrdersWithoutP0) {
   ASSERT_TRUE(Blind.ChangedOrders[0].LimitPrice.has_value());
   EXPECT_EQ(*Blind.ChangedOrders[0].LimitPrice, core::Decimal::parse("105.00"));
 }
+
+// core#54: издержки сделки в % считаются от рублёвой суммы, а не складываются
+// из округлённых процентов (0,50 / 10000 = 0,005% -> 0,01 по HALF_UP, четыре
+// части дали бы 0,04, а целое 2,00 -> 0,02).
+TEST(BlindDerived, FillCostPctFromRubleSum) {
+  core::Fill F;
+  F.Seq = 7;
+  F.Value = core::Decimal::parse("1000.00");
+  F.Commission = F.Fee = F.SpreadCost = F.SlippageCost =
+      core::Decimal::parse("0.50");
+  core::BlindScale Scale;
+  Scale.P0 = core::Decimal::fromUnits(100);
+  const core::Decimal Cash = core::Decimal::fromUnits(10000);
+  const core::BlindFill B = core::toBlindFill(F, Cash, Scale);
+  EXPECT_EQ(B.CommissionPct, core::Decimal::parse("0.01"));
+  EXPECT_EQ(B.CostPct, core::Decimal::parse("0.02"));
+  EXPECT_NE(B.CostPct,
+            B.CommissionPct + B.FeePct + B.SpreadCostPct + B.SlippageCostPct);
+  EXPECT_EQ(B.Seq, 7);
+  // нулевые издержки - нуль
+  EXPECT_EQ(core::toBlindFill(core::Fill{}, Cash, Scale).CostPct,
+            core::Decimal::zero());
+}
+
+TEST(BlindDerived, ReportTotalPctAndUnderwaterCopied) {
+  core::Report R;
+  R.Costs.Commission = core::Decimal::parse("0.50");
+  R.Costs.Total = core::Decimal::parse("2.00");
+  R.Underwater = {{0, core::Decimal::zero()},
+                  {1, core::Decimal::parse("1.25")}};
+  const core::BlindReport B =
+      core::toBlindReport(R, core::Decimal::fromUnits(10000), {});
+  EXPECT_EQ(B.Costs.TotalPct, core::Decimal::parse("0.02"));
+  ASSERT_EQ(B.Underwater.size(), 2u);
+  EXPECT_EQ(B.Underwater[1].Step, 1);
+  EXPECT_EQ(B.Underwater[1].DrawdownPct, core::Decimal::parse("1.25"));
+}

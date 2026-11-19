@@ -63,6 +63,8 @@ void blindFillToProto(const core::BlindFill &Fill, pb::BlindFill *Out) {
   core::toProto(Fill.SpreadCostPct, Out->mutable_spread_cost_pct());
   core::toProto(Fill.SlippageCostPct, Out->mutable_slippage_cost_pct());
   Out->set_stop_and_take_same_bar(Fill.StopAndTakeSameBar);
+  core::toProto(Fill.CostPct, Out->mutable_cost_pct());
+  Out->set_seq(Fill.Seq);
 }
 
 void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
@@ -71,6 +73,12 @@ void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
   core::toProto(Report.Costs.FeePct, Costs->mutable_exchange_fee_pct());
   core::toProto(Report.Costs.SpreadPct, Costs->mutable_spread_pct());
   core::toProto(Report.Costs.SlippagePct, Costs->mutable_slippage_pct());
+  core::toProto(Report.Costs.TotalPct, Costs->mutable_total_pct());
+  for (const core::UnderwaterPoint &P : Report.Underwater) {
+    pb::UnderwaterPoint *Pt = Out->add_underwater();
+    Pt->set_step(P.Step);
+    core::toProto(P.DrawdownPct, Pt->mutable_drawdown_pct());
+  }
 
   for (const core::BlindEquityPoint &P : Report.Equity) {
     pb::BlindEquityPoint *Pt = Out->add_equity();
@@ -86,8 +94,10 @@ void blindReportToProto(const core::BlindReport &Report, pb::BlindReport *Out) {
     core::toProto(P.EquityPct, Pt->mutable_equity_pct());
   }
 
+  std::int64_t TripSeq = 0;
   for (const core::BlindRoundTrip &T : Report.RoundTrips) {
     pb::BlindRoundTrip *Trip = Out->add_round_trips();
+    Trip->set_seq(TripSeq++);
     Trip->set_instrument_index(static_cast<std::int32_t>(T.Instrument));
     Trip->set_entry_step(T.EntryStep);
     Trip->set_exit_step(T.ExitStep);
