@@ -13,6 +13,7 @@
 #include "convert/state.hpp"
 #include "core/engine/session_engine.hpp"
 #include "core/report/metrics.hpp"
+#include "core/report/metrics_input.hpp"
 #include "handlers.hpp"
 
 namespace worker {
@@ -34,17 +35,13 @@ std::int64_t firstEventStep(std::int64_t EventsFromStep) {
 std::optional<core::BenchmarkSeries>
 benchmarkUpTo(Context &Context, const pb::MarketSpec &Market,
               const core::Timeline &Timeline, std::int64_t LastStep) {
-  std::int64_t Step = LastStep;
-  if (!Timeline.isLastStepOfDay(Step)) {
-    const std::int32_t Today = Timeline.yyyymmddOf(Step);
-    while (Step >= 0 && Timeline.yyyymmddOf(Step) == Today)
-      --Step;
-    if (Step < 0)
-      return std::nullopt; // ни одного полного дня
-  }
+  const std::optional<std::int32_t> CompletedDay =
+      core::lastCompletedDayYmd(Timeline, LastStep);
+  if (!CompletedDay)
+    return std::nullopt; // ни одного полного дня
   // Ряд читается (и кэшируется) за весь период сессии и обрезается по дню
   // курсора после чтения.
-  return loadBenchmark(Context, Market, Timeline.yyyymmddOf(Step));
+  return loadBenchmark(Context, Market, *CompletedDay);
 }
 
 void fill(Context &Context, const pb::ReplaySessionRequest &Request,

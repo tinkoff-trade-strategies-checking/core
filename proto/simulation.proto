@@ -6,10 +6,14 @@
 //
 // Ошибки RPC:
 //   INVALID_ARGUMENT    — неверная спецификация;
-//   FAILED_PRECONDITION — нет данных снапшота или инструмента;
+//   FAILED_PRECONDITION — нет данных снапшота или инструмента, либо параметры
+//                         инструмента (lot_size/price_step) не совпадают со
+//                         снапшотом (securities);
 //   NOT_FOUND           — запрошенный интервал недоступен;
 //   UNAVAILABLE         — хранилище данных недоступно;
 //   INTERNAL            — нарушение целостности движка или повреждённые данные.
+// ВНИМАНИЕ (INV-7): Status.message может содержать тикеры и даты для диагностики
+// и логов backend — в слепом режиме текст статуса клиенту не передаётся.
 //
 // Сентинелы: в полях-идентификаторах и шагах «нет» кодируется -1 (значение по умолчанию 0 — валидное: заявка с
 // id 0, шаг 0). Так в Order.oco_sibling_id и Order.closed_step; получатель считает «есть» только значение >= 0.
@@ -385,6 +389,10 @@ message BlindPortfolio {
   repeated BlindPosition positions = 4;
 }
 
+// Заявка в слепом виде: содержит только поля, требующие маскировки (id,
+// instrument_index и масштабированные цены). Сторона, тип, статус, лоты,
+// срок действия и placed_step берутся из рублёвого Order
+// (ReplaySessionResponse.orders) склейкой по полю id на стороне backend.
 message BlindOrder {
   int64 id = 1;
   int32 instrument_index = 2;
@@ -540,11 +548,16 @@ enum PeriodCategory {
   STRESS = 3;
 }
 
+// Окно исторического периода для подбора сценариев на стороне backend.
+// ВНИМАНИЕ (INV-1, INV-7): клиенту до конца сессии разрешена только категория
+// (category). Поля sigma, mdd, start_date и end_date — служебные данные backend
+// и не должны передаваться клиенту до завершения сессии (в слепом режиме даты
+// окна дополнительно запрещены по INV-7).
 message PeriodWindow {
-  string start_date = 1;     // ISO yyyy-mm-dd
-  string end_date = 2;       // ISO yyyy-mm-dd
-  double sigma = 3;          // годовая реализованная волатильность
-  double mdd = 4;            // максимальная просадка (доля 0..1)
+  string start_date = 1;     // ISO yyyy-mm-dd (не передавать клиенту до конца сессии, INV-1/INV-7)
+  string end_date = 2;       // ISO yyyy-mm-dd (не передавать клиенту до конца сессии, INV-1/INV-7)
+  double sigma = 3;          // годовая реализованная волатильность (только backend, INV-1)
+  double mdd = 4;            // максимальная просадка, доля 0..1 (только backend, INV-1)
   PeriodCategory category = 5;
 }
 
@@ -557,6 +570,9 @@ message ClassifyPeriodsRequest {
   string benchmark_ticker = 6;      // пусто -> "IMOEX"
 }
 
+// Ответ классификатора периодов для backend.
+// ВНИМАНИЕ (INV-1): пороги p33 и p80, как и sigma/mdd/даты окон в windows,
+// не передаются клиенту до конца сессии.
 message ClassifyPeriodsResponse {
   repeated PeriodWindow windows = 1;
   double p33 = 2;

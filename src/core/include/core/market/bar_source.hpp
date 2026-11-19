@@ -24,6 +24,12 @@ class SecurityNotFound : public MarketDataError {
 public:
   using MarketDataError::MarketDataError;
 };
+// Параметры инструмента в запросе (lot_size / price_step) не совпадают со
+// справочником снапшота (securities).
+class SecurityParamsMismatch : public MarketDataError {
+public:
+  using MarketDataError::MarketDataError;
+};
 
 // Источник рыночных данных. Реализации детерминированы (INV-4): один и тот же
 // запрос к той же (неизменяемой, INV-5) версии данных даёт тот же результат в

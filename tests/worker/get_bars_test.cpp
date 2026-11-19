@@ -236,20 +236,26 @@ TEST_F(GetBars, SecurityParamsCheckedAgainstSnapshot) {
     (void)worker::loadTimeline(Context, Market);
   };
 
-  // Расхождение lot_size -> MarketDataError -> INTERNAL.
+  // Расхождение lot_size -> SecurityParamsMismatch -> FAILED_PRECONDITION с
+  // понятным текстом.
   pb::MarketSpec BadLot = fixtureMarket();
   BadLot.mutable_instruments(0)->set_lot_size(20);
   pb::GetBarsResponse ErrResponse;
-  EXPECT_EQ(get(0, 1, &ErrResponse, BadLot).error_code(),
-            grpc::StatusCode::INTERNAL);
-  EXPECT_THROW(Load(BadLot), core::MarketDataError);
+  const grpc::Status BadLotStatus = get(0, 1, &ErrResponse, BadLot);
+  EXPECT_EQ(BadLotStatus.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+  EXPECT_NE(BadLotStatus.error_message().find("lot_size"), std::string::npos)
+      << BadLotStatus.error_message();
+  EXPECT_THROW(Load(BadLot), core::SecurityParamsMismatch);
 
-  // Расхождение price_step -> MarketDataError -> INTERNAL.
+  // Расхождение price_step -> SecurityParamsMismatch -> FAILED_PRECONDITION с
+  // понятным текстом.
   pb::MarketSpec BadStep = fixtureMarket();
   *BadStep.mutable_instruments(0)->mutable_price_step() = dec("0.05");
-  EXPECT_EQ(get(0, 1, &ErrResponse, BadStep).error_code(),
-            grpc::StatusCode::INTERNAL);
-  EXPECT_THROW(Load(BadStep), core::MarketDataError);
+  const grpc::Status BadStepStatus = get(0, 1, &ErrResponse, BadStep);
+  EXPECT_EQ(BadStepStatus.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+  EXPECT_NE(BadStepStatus.error_message().find("price_step"), std::string::npos)
+      << BadStepStatus.error_message();
+  EXPECT_THROW(Load(BadStep), core::SecurityParamsMismatch);
 
   // Серия баров есть, но инструмента нет в securities -> SecurityNotFound ->
   // FAILED_PRECONDITION.

@@ -34,10 +34,10 @@ inline constexpr std::int32_t kMaxWarmupBars = 5000;
 // Шкала времени сессии по снапшоту и периоду; с прогревом warmup_bars (вне
 // 0…kMaxWarmupBars - std::invalid_argument). Проверяет наличие каждого
 // инструмента в снапшоте (securities) и совпадение lot_size и price_step
-// (расхождение - core::MarketDataError -> INTERNAL). Нет версии данных, нет
-// бумаги или нет ни одного бара за период - core::SnapshotNotFound /
-// core::SecurityNotFound (statusFromCurrentException переводит в
-// FAILED_PRECONDITION).
+// (расхождение - core::SecurityParamsMismatch -> FAILED_PRECONDITION). Нет
+// версии данных, нет бумаги или нет ни одного бара за период -
+// core::SnapshotNotFound / core::SecurityNotFound (statusFromCurrentException
+// переводит в FAILED_PRECONDITION).
 std::shared_ptr<const core::Timeline>
 loadTimeline(Context &Context, const pb::MarketSpec &Market);
 
@@ -81,10 +81,11 @@ void appendBars(const core::Timeline &Timeline, std::int64_t FromStep,
 
 // Перевод исключения, пойманного в обработчике, в статус gRPC. Вызывать только
 // из catch (...): ClickHouseError -> UNAVAILABLE; SnapshotNotFound,
-// SecurityNotFound -> FAILED_PRECONDITION (контракт simulation.proto);
-// IntervalUnavailable (интервал недоступен) -> NOT_FOUND; прочее
-// MarketDataError (повреждённые данные) -> INTERNAL; std::invalid_argument ->
-// INVALID_ARGUMENT; всё остальное -> INTERNAL без внутренних деталей.
+// SecurityNotFound, SecurityParamsMismatch -> FAILED_PRECONDITION (контракт
+// simulation.proto); IntervalUnavailable (интервал недоступен) -> NOT_FOUND;
+// прочее MarketDataError (повреждённые данные) -> INTERNAL;
+// std::invalid_argument -> INVALID_ARGUMENT; всё остальное -> INTERNAL без
+// внутренних деталей.
 grpc::Status statusFromCurrentException();
 
 } // namespace worker

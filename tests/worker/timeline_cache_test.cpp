@@ -13,6 +13,7 @@
 
 #include "convert/market.hpp"
 #include "core/market/bar_source.hpp"
+#include "core/market/date_utils.hpp"
 #include "core/market/timeline.hpp"
 #include "handlers.hpp"
 #include "timeline_cache.hpp"
@@ -408,24 +409,6 @@ TEST(TimelineCache, PreviousTradingDayUsesCache) {
 
 namespace {
 
-constexpr std::int64_t kDayMs = 86'400'000;
-constexpr std::int64_t kMoscowOffsetMs = 3 * 3'600'000;
-
-// Дата (yyyymmdd) по числу дней от 1970-01-01 (алгоритм civil_from_days).
-std::int32_t ymdFromDays(std::int64_t Days) {
-  Days += 719468;
-  const std::int64_t Era = (Days >= 0 ? Days : Days - 146096) / 146097;
-  const std::int64_t Doe = Days - Era * 146097;
-  const std::int64_t Yoe =
-      (Doe - Doe / 1460 + Doe / 36524 - Doe / 146096) / 365;
-  const std::int64_t Doy = Doe - (365 * Yoe + Yoe / 4 - Yoe / 100);
-  const std::int64_t Mp = (5 * Doy + 2) / 153;
-  const std::int64_t D = Doy - (153 * Mp + 2) / 5 + 1;
-  const std::int64_t M = Mp < 10 ? Mp + 3 : Mp - 9;
-  const std::int64_t Y = Yoe + Era * 400 + (M <= 2 ? 1 : 0);
-  return static_cast<std::int32_t>(Y * 10000 + M * 100 + D);
-}
-
 // Перцентиль P по индексу ceil(P * N) - 1 в отсортированном ряду.
 double percentile(const std::vector<double> &Sorted, double P) {
   const auto Index = static_cast<std::size_t>(
@@ -452,9 +435,10 @@ TEST(TimelineCache, PlayerStepBenchmarkNft7) {
   core::testing::Fixture F;
   std::vector<core::TradingDay> Calendar;
   for (std::int64_t Day = 0; Day < kSteps; ++Day)
-    Calendar.push_back(core::TradingDay{ymdFromDays(FirstDay + Day), true});
+    Calendar.push_back(
+        core::TradingDay{core::civilFromDays(FirstDay + Day), true});
   F.Calendar.add(Snapshot, Calendar);
-  F.Ruonia.add(Snapshot, {core::DailyRate{ymdFromDays(FirstDay - 1),
+  F.Ruonia.add(Snapshot, {core::DailyRate{core::civilFromDays(FirstDay - 1),
                                           core::Decimal::parse("15.0")}});
 
   pb::MarketSpec Market;
@@ -474,12 +458,16 @@ TEST(TimelineCache, PlayerStepBenchmarkNft7) {
                                                 core::Decimal::parse("0.01")});
     std::vector<core::Bar> Bars;
     for (std::int64_t Day = 0; Day < kSteps; ++Day) {
-      const std::int64_t Open = (FirstDay + Day) * kDayMs - kMoscowOffsetMs;
+      const std::int32_t DayYmd =
+          Calendar[static_cast<std::size_t>(Day)].Yyyymmdd;
+      const std::int64_t Open = core::moscowDayStartMs(DayYmd);
+      const std::int64_t NextOpen =
+          core::moscowDayStartMs(core::civilFromDays(FirstDay + Day + 1));
       const std::int64_t Price =
           100 + (Day * 7 + 13 * static_cast<std::int64_t>(K)) % 50;
       core::Bar B;
       B.TsOpenMs = Open;
-      B.AvailableAtMs = Open + kDayMs;
+      B.AvailableAtMs = NextOpen;
       B.Open = core::Decimal::fromUnits(Price);
       B.Close = core::Decimal::fromUnits(Price + 1);
       B.High = core::Decimal::fromUnits(Price + 3);
@@ -567,4 +555,49 @@ TEST(TimelineCache, PlayerStepBenchmarkNft7) {
     EXPECT_LE(P95, 300.0);
 #endif
   }
+}
+
+TEST(TimelineCache, EvictsLruByMaxBars) {
+  const auto Tl = makeSampleTimeline();
+  const std::size_t BarsPerTl = Tl->totalBars();
+  ASSERT_GT(BarsPerTl, 0U);
+
+  // По записям влезет 10, но по барам — только 2 шкалы.
+  worker::TimelineCache Cache(10, 2 * BarsPerTl);
+  EXPECT_EQ(Cache.maxBars(), 2 * BarsPerTl);
+
+  const auto K1 = sampleKey("s1");
+  const auto K2 = sampleKey("s2");
+  const auto K3 = sampleKey("s3");
+
+  Cache.put(K1, Tl);
+  Cache.put(K2, Tl);
+  EXPECT_EQ(Cache.size(), 2U);
+  EXPECT_EQ(Cache.totalBars(), 2 * BarsPerTl);
+
+  // K1 становится MRU, K2 — LRU.
+  ASSERT_NE(Cache.get(K1), nullptr);
+
+  Cache.put(K3, Tl);
+  EXPECT_EQ(Cache.size(), 2U);
+  EXPECT_EQ(Cache.totalBars(), 2 * BarsPerTl);
+  EXPECT_EQ(Cache.get(K2), nullptr);
+  EXPECT_NE(Cache.get(K1), nullptr);
+  EXPECT_NE(Cache.get(K3), nullptr);
+
+  Cache.clear();
+  EXPECT_EQ(Cache.totalBars(), 0U);
+}
+
+TEST(TimelineCache, SkipsEntryExceedingMaxBars) {
+  const auto Tl = makeSampleTimeline();
+  const std::size_t BarsPerTl = Tl->totalBars();
+  ASSERT_GT(BarsPerTl, 1U);
+
+  worker::TimelineCache Cache(10, BarsPerTl - 1);
+  const auto K1 = sampleKey("too-big");
+  Cache.put(K1, Tl);
+  EXPECT_EQ(Cache.size(), 0U);
+  EXPECT_EQ(Cache.totalBars(), 0U);
+  EXPECT_EQ(Cache.get(K1), nullptr);
 }

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
+#include "core/market/calendar_source.hpp"
 #include "core/market/timeline.hpp"
 #include "core/money/decimal.hpp"
 
@@ -53,9 +55,9 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
                                const std::vector<std::int32_t> &DayDates,
                                std::int32_t PreviousDayYmd = 0);
 
-// Даты берутся по последнему шагу каждого полностью завершённого торгового дня
-// шкалы 0…LastStep (INV-1: день, в котором сессия остановилась посреди дня,
-// пропускается, как в benchmarkEquity).
+// Даты берутся по всем торговым дням шкалы 0…LastStep включительно, в том
+// числе неполному последнему дню (согласовано с dailySeries в metrics.cpp;
+// для каждого дня d берётся ставка предыдущего дня RUONIA_{d-1}, INV-1).
 // LastStep вне шкалы - std::invalid_argument. Предыдущий торговый день перед
 // первым днём - PreviousDayYmd (0 - его нет, фолбэк выше); вариант без него
 // берёт последний день прогрева шкалы (previousDayYmd), если он раньше первого
@@ -65,5 +67,19 @@ MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
                                std::int32_t PreviousDayYmd);
 MatchedRuonia matchRuoniaRates(const RuoniaSeries &Series,
                                const Timeline &Timeline, std::int64_t LastStep);
+
+// Последний торговый день календаря версии данных раньше FirstYmd (окно поиска
+// растёт до года: 31…366 дней); 0, если в окне торговых дней нет. INV-1: только
+// прошлое.
+std::int32_t findPreviousTradingDay(CalendarSource &Calendar,
+                                    const std::string &SnapshotId,
+                                    std::int32_t FirstYmd);
+
+// Торговый день перед первым днём шкалы: findPreviousTradingDay по календарю
+// снапшота; если не найден — последний день прогрева шкалы (previousDayYmd),
+// если он раньше первого дня; иначе 0. INV-1: только прошлое.
+std::int32_t previousTradingDay(CalendarSource &Calendar,
+                                const std::string &SnapshotId,
+                                const Timeline &Timeline);
 
 } // namespace core
