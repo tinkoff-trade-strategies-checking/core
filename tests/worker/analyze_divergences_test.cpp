@@ -57,8 +57,8 @@ protected:
     const core::Decimal Step = core::Decimal::parse("0.01");
     Fixture.Bars.addSecurity(Snapshot, core::Security{Ticker, "Тест", 1, Step});
     Fixture.Bars.addSeries(Snapshot, Ticker, 86400, Series);
-    Fixture.Bars.addSecurity(
-        Snapshot, core::Security{"IMOEX", "Индекс", 1, Step});
+    Fixture.Bars.addSecurity(Snapshot,
+                             core::Security{"IMOEX", "Индекс", 1, Step});
     Fixture.Bars.addSeries(Snapshot, "IMOEX", 86400, Bench);
     Fixture.Calendar.add(Snapshot, Cal);
     const core::Decimal Rate = core::Decimal::parse("12.0");
@@ -124,12 +124,12 @@ std::vector<core::Bar> makeBars(const std::vector<std::int32_t> &Days,
 } // namespace
 
 TEST_F(AnalyzeDivergencesRpc, DivergencesSeqCostPercentMissedAndPortfolios) {
-  const std::vector<std::int32_t> Days{
-      20240201, 20240202, 20240205, 20240206, 20240207, 20240208, 20240209};
-  const std::vector<const char *> Closes{
-      "100", "105", "110", "120", "125", "130", "135"};
-  const std::vector<const char *> BenchCloses{
-      "1000", "1010", "1020", "1030", "1040", "1050", "1060"};
+  const std::vector<std::int32_t> Days{20240201, 20240202, 20240205, 20240206,
+                                       20240207, 20240208, 20240209};
+  const std::vector<const char *> Closes{"100", "105", "110", "120",
+                                         "125", "130", "135"};
+  const std::vector<const char *> BenchCloses{"1000", "1010", "1020", "1030",
+                                              "1040", "1050", "1060"};
   std::vector<core::TradingDay> Cal;
   for (const std::int32_t D : Days) {
     Cal.push_back(core::TradingDay{D, true});

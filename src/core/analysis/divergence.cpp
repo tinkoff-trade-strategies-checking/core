@@ -133,8 +133,8 @@ Action &actionAt(ActionMap &Map, int Instrument, std::int64_t Step) {
   return Item;
 }
 
-void finalizeHumanActions(
-    ActionMap &Map, const std::map<std::int64_t, OrderType> &OrderTypes) {
+void finalizeHumanActions(ActionMap &Map,
+                          const std::map<std::int64_t, OrderType> &OrderTypes) {
   for (auto It = Map.begin(); It != Map.end();) {
     if (It->second.Lots == 0) {
       It = Map.erase(It);
@@ -179,20 +179,18 @@ using DedupKey = std::tuple<int, int, std::int64_t, std::optional<Decimal>,
                             int>; // (Side, Type, Lots, LimitPrice, Tif)
 
 DedupKey dedupKeyOf(const OrderSpec &Spec) {
-  return DedupKey{static_cast<int>(Spec.OrderSide),
-                  static_cast<int>(Spec.Type), Spec.Lots, Spec.LimitPrice,
-                  static_cast<int>(Spec.Tif)};
+  return DedupKey{static_cast<int>(Spec.OrderSide), static_cast<int>(Spec.Type),
+                  Spec.Lots, Spec.LimitPrice, static_cast<int>(Spec.Tif)};
 }
 
 std::int64_t liquidityCap(const StepBar &Bar, const CostConfig &Costs) {
   if (!Costs.LiquidityShare.has_value() || Bar.VolumeLots <= 0) {
     return 0;
   }
-  return static_cast<std::int64_t>(
-      Costs.LiquidityShare->times(Bar.VolumeLots)
-          .round(0, RoundingMode::FLOOR)
-          .raw() /
-      Decimal::kUnit);
+  return static_cast<std::int64_t>(Costs.LiquidityShare->times(Bar.VolumeLots)
+                                       .round(0, RoundingMode::FLOOR)
+                                       .raw() /
+                                   Decimal::kUnit);
 }
 
 bool humanAllowsMoreThanCap(const VirtualOrder &Ord, const StepBar &Bar,
@@ -213,8 +211,7 @@ bool humanAllowsMoreThanCap(const VirtualOrder &Ord, const StepBar &Bar,
                     Inst.PriceStep);
       Price = std::min(Price, Fill);
     }
-    const Amounts Amts =
-        amounts(Price, TargetLots, Inst.LotSize, Spec.Costs);
+    const Amounts Amts = amounts(Price, TargetLots, Inst.LotSize, Spec.Costs);
     return Amts.Value + Amts.Commission + Amts.Fee <= HumanPortfolio.cash();
   } catch (const DecimalOverflow &) {
     return false;
@@ -318,14 +315,12 @@ void processStepIntents(std::size_t InstrIdx, std::int64_t Step,
     Virtuals.push_back(
         VirtualOrder{Intent.RuleId, NewSpec, Step, NewSpec.Lots});
 
-    if (NewSpec.Type == OrderType::Market ||
-        NewSpec.Type == OrderType::Limit) {
-      Candidates.erase(
-          std::remove_if(Candidates.begin(), Candidates.end(),
-                         [&](const AlgoCandidate &C) {
-                           return C.RuleId == Intent.RuleId;
-                         }),
-          Candidates.end());
+    if (NewSpec.Type == OrderType::Market || NewSpec.Type == OrderType::Limit) {
+      Candidates.erase(std::remove_if(Candidates.begin(), Candidates.end(),
+                                      [&](const AlgoCandidate &C) {
+                                        return C.RuleId == Intent.RuleId;
+                                      }),
+                       Candidates.end());
       Candidates.push_back(
           AlgoCandidate{Intent.RuleId, NewSpec, Intent.Because});
     }
@@ -350,8 +345,7 @@ void processStepIntents(std::size_t InstrIdx, std::int64_t Step,
     return;
   }
 
-  Action &Act =
-      actionAt(OutAlgoActions, static_cast<int>(InstrIdx), Step);
+  Action &Act = actionAt(OutAlgoActions, static_cast<int>(InstrIdx), Step);
   Act.Lots = NetLots;
   bool AllMarket = true;
   bool AllLimit = true;
@@ -405,11 +399,10 @@ Decimal actionValue(const std::vector<Fill> &Fills,
 }
 
 template <class StepFn, class EntryFn>
-SessionEngine walkHuman(const SessionSpec &Spec,
-                        std::shared_ptr<const Timeline> Tl,
-                        std::span<const JournalEntry> Journal,
-                        std::int64_t LastStep, StepFn &&OnStep,
-                        EntryFn &&OnEntry) {
+SessionEngine
+walkHuman(const SessionSpec &Spec, std::shared_ptr<const Timeline> Tl,
+          std::span<const JournalEntry> Journal, std::int64_t LastStep,
+          StepFn &&OnStep, EntryFn &&OnEntry) {
   SessionEngine Engine(Spec, std::move(Tl));
   std::size_t Next = 0;
   for (;;) {
@@ -514,6 +507,7 @@ public:
     assembleIndependent(Result);
     return Result;
   }
+
 private:
   void validate() {
     if (!TimelineRef) {
@@ -609,8 +603,8 @@ private:
         if (BarPtr == nullptr) {
           continue;
         }
-        if (BarPtr->Step != K || (LastBarStep[I].has_value() &&
-                                  BarPtr->Step <= *LastBarStep[I])) {
+        if (BarPtr->Step != K ||
+            (LastBarStep[I].has_value() && BarPtr->Step <= *LastBarStep[I])) {
           throw IntegrityViolation(
               "analyzeDivergences: некорректный или невозрастающий шаг бара");
         }
@@ -665,8 +659,7 @@ private:
         return;
       }
       const std::int64_t NewId = Result.OrderIds.front();
-      Action &Act =
-          actionAt(HumanActions, Place->Order.Instrument, Entry.Step);
+      Action &Act = actionAt(HumanActions, Place->Order.Instrument, Entry.Step);
       Act.Lots += signedLots(Place->Order);
       Act.OrderIds.push_back(NewId);
       HumanOrderToAction[NewId] =
@@ -675,8 +668,8 @@ private:
       HumanOrderTypes[NewId] = Place->Order.Type;
     };
 
-    Human.emplace(walkHuman(Spec, TimelineRef, Journal, LastStep, OnStep,
-                            OnEntry));
+    Human.emplace(
+        walkHuman(Spec, TimelineRef, Journal, LastStep, OnStep, OnEntry));
     LastSession = Human->currentStep();
     finalizeHumanActions(HumanActions, HumanOrderTypes);
     for (auto It = HumanOrderToAction.begin();
@@ -789,8 +782,7 @@ private:
       }
 
       for (std::size_t H = 0; H < Hs.size(); ++H) {
-        Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].PendingIndex =
-            HPending[H];
+        Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].PendingIndex = HPending[H];
       }
     }
   }
@@ -871,10 +863,10 @@ private:
       const std::size_t At = static_cast<std::size_t>(P.PercentStep);
       const Decimal EquityAt =
           At < Equity.size() ? Equity[At].Equity : Decimal::zero();
-      D.CostPercent = EquityAt > Decimal::zero()
-                          ? ExactDiff.mulDiv(Hundred, EquityAt, 2,
-                                             RoundingMode::HalfUp)
-                          : Decimal::zero();
+      D.CostPercent =
+          EquityAt > Decimal::zero()
+              ? ExactDiff.mulDiv(Hundred, EquityAt, 2, RoundingMode::HalfUp)
+              : Decimal::zero();
     }
   }
 
@@ -924,15 +916,15 @@ private:
           Mine.push_back(PIdx);
         }
       }
-      std::stable_sort(
-          Mine.begin(), Mine.end(), [&](std::size_t XIdx, std::size_t YIdx) {
-            const Divergence &X = PendingList[XIdx].Result;
-            const Divergence &Y = PendingList[YIdx].Result;
-            return std::make_tuple(Primary(X), X.Instrument,
-                                   static_cast<int>(X.Type)) <
-                   std::make_tuple(Primary(Y), Y.Instrument,
-                                   static_cast<int>(Y.Type));
-          });
+      std::stable_sort(Mine.begin(), Mine.end(),
+                       [&](std::size_t XIdx, std::size_t YIdx) {
+                         const Divergence &X = PendingList[XIdx].Result;
+                         const Divergence &Y = PendingList[YIdx].Result;
+                         return std::make_tuple(Primary(X), X.Instrument,
+                                                static_cast<int>(X.Type)) <
+                                std::make_tuple(Primary(Y), Y.Instrument,
+                                                static_cast<int>(Y.Type));
+                       });
       for (const std::size_t PIdx : Mine) {
         Divergence Div = PendingList[PIdx].Result;
         Div.Seq = NextSeq;
@@ -944,9 +936,9 @@ private:
     return PendingToSeq;
   }
 
-  void assembleMissedTrades(
-      DivergenceResult &Result,
-      const std::vector<std::int64_t> &PendingToSeq) const {
+  void
+  assembleMissedTrades(DivergenceResult &Result,
+                       const std::vector<std::int64_t> &PendingToSeq) const {
     std::int64_t NextSeq = 0;
     for (const RoundTrip &Trip : Human->portfolio().roundTrips()) {
       if (Trip.NetPnl.sign() <= 0) {
@@ -1050,9 +1042,9 @@ private:
           Run.Engine.has_value() ? Run.Engine->currentStep() : LastSession;
       const std::optional<BenchmarkSeries> ClippedBenchmark =
           clipBenchmark(Benchmark, *TimelineRef, EndStep);
-      Report PortfolioReport = buildStrategyReport(
-          Run, Spec.InitialCash, *TimelineRef, ClippedBenchmark, Ruonia,
-          RuoniaPreviousDayYmd);
+      Report PortfolioReport =
+          buildStrategyReport(Run, Spec.InitialCash, *TimelineRef,
+                              ClippedBenchmark, Ruonia, RuoniaPreviousDayYmd);
       const std::uint64_t Digest =
           Run.Engine.has_value() ? digestOf(*Run.Engine) : 0;
       Result.Independent.push_back(AlgorithmPortfolio{
@@ -1084,13 +1076,14 @@ private:
 
 } // namespace
 
-DivergenceResult analyzeDivergences(
-    const SessionSpec &Spec, std::shared_ptr<const Timeline> TimelineRef,
-    std::span<const JournalEntry> Human, std::int64_t LastStep,
-    const std::vector<AlgorithmInput> &Algorithms,
-    const std::optional<BenchmarkSeries> &Benchmark,
-    const std::optional<RuoniaSeries> &Ruonia,
-    std::int32_t RuoniaPreviousDayYmd) {
+DivergenceResult
+analyzeDivergences(const SessionSpec &Spec,
+                   std::shared_ptr<const Timeline> TimelineRef,
+                   std::span<const JournalEntry> Human, std::int64_t LastStep,
+                   const std::vector<AlgorithmInput> &Algorithms,
+                   const std::optional<BenchmarkSeries> &Benchmark,
+                   const std::optional<RuoniaSeries> &Ruonia,
+                   std::int32_t RuoniaPreviousDayYmd) {
   Analyzer Runner(Spec, std::move(TimelineRef), Human, LastStep, Algorithms,
                   Benchmark, Ruonia, RuoniaPreviousDayYmd);
   return Runner.run();

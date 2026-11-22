@@ -453,9 +453,8 @@ rule "lim"
   then buy (close - 90) lots limit 50
   because "при close={close}"
 )dsl";
-  const DivergenceResult RepRes =
-      analyzeDivergences(makeSpec(TlVar, "1000"), TlVar, {}, 3,
-                         {{"a1", ReplaceSrc, {}}});
+  const DivergenceResult RepRes = analyzeDivergences(
+      makeSpec(TlVar, "1000"), TlVar, {}, 3, {{"a1", ReplaceSrc, {}}});
   // Шаг 0: buy 1 @ 50 -> Missed (AlgoLots=1).
   // Шаг 1: buy 30 @ 50 -> > 1000 руб -> Rejected (не действие, старая жива).
   // Шаг 2: buy 1 @ 50 -> дедуплицировано со стоящей от шага 0!
@@ -535,9 +534,8 @@ rule "s"
   const std::vector<JournalEntry> HumanHold{placeMarket(0, 0, Side::Buy, 2)};
   // На шаге 0 у человека 0 лотов (sell отклонён -> buy 2 market на шаге 0),
   // на шаге 1 у человека 2 лота -> buy 2 + sell 2 => q_a == 0 -> нет действия!
-  const DivergenceResult NetZeroRes =
-      analyzeDivergences(makeSpec(TlPos, "100000"), TlPos, HumanHold, 2,
-                         {{"a1", NetZeroSrc, {}}});
+  const DivergenceResult NetZeroRes = analyzeDivergences(
+      makeSpec(TlPos, "100000"), TlPos, HumanHold, 2, {{"a1", NetZeroSrc, {}}});
   EXPECT_TRUE(NetZeroRes.Divergences.empty());
 }
 
@@ -563,8 +561,7 @@ TEST(Divergence, MissedProfitableTradeConsensusAndSeq) {
       "rule \"s\" when position > 0 then sell 2 lots market because \"s\"\n";
 
   const DivergenceResult Res = analyzeDivergences(
-      Spec, Tl, Human, 3,
-      {{"a1", NeverSrc, {}}, {"a2", SellOnlySrc, {}}});
+      Spec, Tl, Human, 3, {{"a1", NeverSrc, {}}, {"a2", SellOnlySrc, {}}});
 
   // a1: Excess(step 0, seq=0), Excess(step 1, seq=1).
   // a2: Excess(step 0, seq=2); на шаге 1 совпадает с sell человека!
@@ -625,12 +622,10 @@ rule "buy1"
 
   // Разбор до LastStep = 2: бары шага 3 не влияют ни на расхождения, ни на
   // независимый портфель (INV-1, UpToStep = 2).
-  const DivergenceResult R1 =
-      analyzeDivergences(makeSpec(Tl1, "10000"), Tl1, Human, 2,
-                         {{"a1", AlgoSrc, {}}});
-  const DivergenceResult R2 =
-      analyzeDivergences(makeSpec(Tl2, "10000"), Tl2, Human, 2,
-                         {{"a1", AlgoSrc, {}}});
+  const DivergenceResult R1 = analyzeDivergences(
+      makeSpec(Tl1, "10000"), Tl1, Human, 2, {{"a1", AlgoSrc, {}}});
+  const DivergenceResult R2 = analyzeDivergences(
+      makeSpec(Tl2, "10000"), Tl2, Human, 2, {{"a1", AlgoSrc, {}}});
 
   EXPECT_EQ(R1.Divergences.size(), R2.Divergences.size());
   ASSERT_EQ(R1.Independent.size(), 1u);
@@ -656,9 +651,9 @@ rule "buy1"
       DailyClose{20240205, Decimal::parse("1200")},
   };
   const RuoniaSeries Ruonia = makeRuonia();
-  const DivergenceResult BenchRes = analyzeDivergences(
-      makeSpec(MultiTl, "10000"), MultiTl, {}, 1, {{"a1", AlgoSrc, {}}}, Bench,
-      Ruonia, 20240131);
+  const DivergenceResult BenchRes =
+      analyzeDivergences(makeSpec(MultiTl, "10000"), MultiTl, {}, 1,
+                         {{"a1", AlgoSrc, {}}}, Bench, Ruonia, 20240131);
   ASSERT_EQ(BenchRes.Independent.size(), 1u);
   EXPECT_TRUE(
       BenchRes.Independent[0].PortfolioReport.Stats.Sharpe.has_value() ||

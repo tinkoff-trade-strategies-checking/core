@@ -21,7 +21,7 @@ namespace worker {
 
 namespace {
 
-pb::DivergenceType toProto(core::DivergenceType Type) {
+pb::DivergenceType divergenceTypeToProto(core::DivergenceType Type) {
   switch (Type) {
   case core::DivergenceType::Excess:
     return pb::EXCESS;
@@ -36,14 +36,14 @@ pb::DivergenceType toProto(core::DivergenceType Type) {
 }
 
 pb::OrderType toOptionalOrderType(std::optional<core::OrderType> Type) {
-  return Type.has_value() ? toProto(*Type) : pb::ORDER_TYPE_UNSPECIFIED;
+  return Type.has_value() ? worker::toProto(*Type) : pb::ORDER_TYPE_UNSPECIFIED;
 }
 
 void writeDivergence(const core::Divergence &Src,
                      const core::Timeline &Timeline, pb::Divergence *Out) {
   Out->set_algorithm_id(Src.AlgorithmId);
   Out->set_instrument_key(Timeline.instrumentKey(Src.Instrument));
-  Out->set_type(toProto(Src.Type));
+  Out->set_type(divergenceTypeToProto(Src.Type));
   Out->set_human_step(Src.HumanStep);
   Out->set_algo_step(Src.AlgoStep);
   Out->set_human_lots(Src.HumanLots);
