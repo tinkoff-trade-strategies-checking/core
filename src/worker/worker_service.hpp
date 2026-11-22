@@ -30,6 +30,9 @@ public:
   grpc::Status ClassifyPeriods(grpc::ServerContext *Context,
                                const pb::ClassifyPeriodsRequest *Request,
                                pb::ClassifyPeriodsResponse *Response) override;
+  grpc::Status CheckStrategy(grpc::ServerContext *Context,
+                             const pb::CheckStrategyRequest *Request,
+                             pb::CheckStrategyResponse *Response) override;
 
 private:
   Context HandlerContext;

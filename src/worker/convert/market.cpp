@@ -277,6 +277,10 @@ grpc::Status statusFromCurrentException() {
     return grpc::Status(grpc::StatusCode::NOT_FOUND, E.what());
   } catch (const std::invalid_argument &E) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, E.what());
+  } catch (const core::IntegrityViolation &E) {
+    return grpc::Status(grpc::StatusCode::INTERNAL,
+                        std::string("E-RT01: нарушение целостности движка: ") +
+                            E.what());
   } catch (...) {
     return grpc::Status(grpc::StatusCode::INTERNAL,
                         "внутренняя ошибка воркера");

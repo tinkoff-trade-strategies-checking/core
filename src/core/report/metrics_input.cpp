@@ -64,15 +64,17 @@ MetricsInput buildMetricsInput(const SessionEngine &Engine,
   MetricsInput In;
   In.InitialCash = InitialCash;
   In.Equity = Engine.equity();
-  In.TradingDayOfStep = tradingDays(Timeline, Engine.currentStep());
+  const std::int64_t LastStep =
+      In.Equity.empty() ? Engine.currentStep() : In.Equity.back().Step;
+  In.TradingDayOfStep = tradingDays(Timeline, LastStep);
   In.Fills = Engine.fills();
   In.RoundTrips = Engine.portfolio().roundTrips();
   countOrders(Engine.orders(), &In);
   In.PositionValuesByStep = Engine.positionValues();
   setBenchmark(Benchmark, Timeline, &In);
   if (Ruonia) {
-    MatchedRuonia Matched = matchRuoniaRates(
-        *Ruonia, Timeline, Engine.currentStep(), RuoniaPreviousDayYmd);
+    MatchedRuonia Matched =
+        matchRuoniaRates(*Ruonia, Timeline, LastStep, RuoniaPreviousDayYmd);
     In.RuoniaRates = std::move(Matched.Rates);
     In.CalendarDays = std::move(Matched.CalendarDays);
   }

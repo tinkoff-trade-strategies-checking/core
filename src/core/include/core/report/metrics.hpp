@@ -85,6 +85,17 @@ struct UnderwaterPoint {
   Decimal DrawdownPct;
 };
 
+enum class CheckLevel { Ok, Warning, Error };
+
+struct Finding {
+  std::string Code;
+  CheckLevel Severity = CheckLevel::Ok;
+  std::string Message;
+  std::int64_t Step = -1;
+
+  bool operator==(const Finding &) const = default;
+};
+
 struct Report {
   Metrics Stats;
   CostTotals Costs;
@@ -94,6 +105,8 @@ struct Report {
   std::vector<EquityPoint> BenchmarkEquity; // из MetricsInput::benchmarkEquity
   std::vector<RoundTrip> RoundTrips; // пары FIFO как во входе
   std::vector<UnderwaterPoint> Underwater; // кривая просадки по шагам
+  CheckLevel ReportLevel = CheckLevel::Ok;
+  std::vector<Finding> Findings;
 };
 
 // Считает отчёт. std::invalid_argument: initialCash <= 0, шаг точки вне

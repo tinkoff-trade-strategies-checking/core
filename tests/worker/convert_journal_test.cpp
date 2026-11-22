@@ -63,11 +63,15 @@ TEST(ConvertJournal, PlaceWithOcoAndRule) {
   core::JournalEntry E;
   E.Seq = 7;
   E.Step = 3;
+  E.RuleName = "вход по SMA";
+  E.Because = "SMA(10) > SMA(50)";
   E.Command = core::PlaceCmd{Take, Stop};
 
   const core::JournalEntry Back = roundTrip(E, S);
   EXPECT_EQ(Back.Seq, 7);
   EXPECT_EQ(Back.Step, 3);
+  EXPECT_EQ(Back.RuleName, "вход по SMA");
+  EXPECT_EQ(Back.Because, "SMA(10) > SMA(50)");
   const auto &Place = std::get<core::PlaceCmd>(Back.Command);
   EXPECT_TRUE(sameSpec(Place.Order, Take));
   ASSERT_TRUE(Place.OcoWith);
@@ -120,4 +124,33 @@ TEST(ConvertJournal, EveryReasonMapsBack) {
     const auto Reason = static_cast<core::Reason>(I);
     EXPECT_EQ(worker::reasonFromProto(worker::toProto(Reason)), Reason) << I;
   }
+}
+
+TEST(ConvertJournal, OrderMapsRuleNameAndBecause) {
+  const JournalWorld S = journalWorld();
+  core::Order Order;
+  Order.Id = 4;
+  Order.Spec.Instrument = 0;
+  Order.Spec.OrderSide = core::Side::Buy;
+  Order.Spec.Type = core::OrderType::Market;
+  Order.Spec.Lots = 2;
+  Order.PlacedStep = 1;
+  Order.Status = core::OrderStatus::Filled;
+  Order.FilledLots = 2;
+  Order.ClosedStep = 2;
+  Order.RuleName = "пробой";
+  Order.Because = "close > 100";
+
+  pb::Order ProtoOrder;
+  worker::toProto(Order, S.Timeline, &ProtoOrder);
+  EXPECT_EQ(ProtoOrder.rule_name(), "пробой");
+  EXPECT_EQ(ProtoOrder.because(), "close > 100");
+
+  core::Order ManualOrder = Order;
+  ManualOrder.RuleName.clear();
+  ManualOrder.Because.clear();
+  pb::Order ManualProto;
+  worker::toProto(ManualOrder, S.Timeline, &ManualProto);
+  EXPECT_TRUE(ManualProto.rule_name().empty());
+  EXPECT_TRUE(ManualProto.because().empty());
 }

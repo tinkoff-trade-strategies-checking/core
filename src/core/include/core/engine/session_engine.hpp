@@ -31,6 +31,8 @@ struct PortfolioSnapshot {
   std::vector<Decimal>
       MarketValue; // стоимость позиции по close последнего бара, 0 без позиции
   std::vector<Decimal> CostBasis; // себестоимость открытой позиции (core#54)
+  std::vector<std::optional<std::int64_t>> BarsInPosition;
+  std::vector<bool> PositionReopenedOnBar;
 };
 
 struct StepEvents {
@@ -96,6 +98,7 @@ private:
   Order *findOrder(std::int64_t Id);
   void closeOrder(Order &Order, OrderStatus Status, Reason Reason);
   void cancelActive(Reason Reason);
+  void updatePositionBars(const std::vector<std::int64_t> &PosBefore);
   void recordStepState();
   void checkIntegrity(std::size_t FromFill) const;
 
@@ -108,6 +111,8 @@ private:
   std::vector<EquityPoint> Equity;
   std::vector<std::vector<Decimal>> PositionValues;
   std::vector<std::int64_t> Changed; // id заявок, изменившихся на текущем шаге
+  std::vector<std::optional<std::int64_t>> BarsInPosition;
+  std::vector<bool> PositionReopenedOnBar;
   std::size_t FillsBegin = 0; // начало исполнений текущего шага в fills_
   std::int64_t Step = 0;
   std::int64_t LastSeq = -1;

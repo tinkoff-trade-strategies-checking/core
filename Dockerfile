@@ -6,7 +6,7 @@ FROM ubuntu:24.04 AS build
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential g++-13 cmake ninja-build pkg-config ca-certificates \
+        build-essential g++-13 cmake ninja-build pkg-config ca-certificates git \
         libgrpc++-dev protobuf-compiler-grpc libprotobuf-dev libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 

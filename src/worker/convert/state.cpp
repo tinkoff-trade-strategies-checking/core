@@ -118,6 +118,8 @@ core::JournalEntry fromProto(const pb::JournalEntry &Entry,
   core::JournalEntry Out;
   Out.Seq = Entry.seq();
   Out.Step = Entry.step();
+  Out.RuleName = Entry.rule_name();
+  Out.Because = Entry.because();
   switch (Entry.command_case()) {
   case pb::JournalEntry::kPlace:
     Out.Command = placeFromProto(Entry.place(), Spec);
@@ -157,6 +159,8 @@ void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
              pb::JournalEntry *Out) {
   Out->set_seq(Entry.Seq);
   Out->set_step(Entry.Step);
+  Out->set_rule_name(Entry.RuleName);
+  Out->set_because(Entry.Because);
   if (const auto *Place = std::get_if<core::PlaceCmd>(&Entry.Command)) {
     placeToProto(*Place, Timeline, Out->mutable_place());
   } else if (const auto *Cancel =
@@ -192,6 +196,8 @@ void toProto(const core::Order &Order, const core::Timeline &Timeline,
   Out->set_invalid_field(Order.InvalidField);
   Out->set_filled_lots(Order.FilledLots);
   Out->set_oco_sibling_id(Order.OcoSiblingId);
+  Out->set_rule_name(Order.RuleName);
+  Out->set_because(Order.Because);
   if (Order.TrailingStopLevel)
     core::toProto(*Order.TrailingStopLevel, Out->mutable_trailing_stop_level());
   Out->set_closed_step(Order.ClosedStep);

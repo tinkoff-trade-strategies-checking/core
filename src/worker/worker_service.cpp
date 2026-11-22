@@ -13,10 +13,16 @@ grpc::Status WorkerService::Ping(grpc::ServerContext *, const pb::PingRequest *,
 }
 
 grpc::Status
-WorkerService::ReplaySession(grpc::ServerContext *,
+WorkerService::ReplaySession(grpc::ServerContext *Context,
                              const pb::ReplaySessionRequest *Request,
                              pb::ReplaySessionResponse *Response) {
-  return handleReplaySession(HandlerContext, *Request, Response);
+  if (Context != nullptr && Context->IsCancelled())
+    return grpc::Status::CANCELLED;
+  const grpc::Status Status =
+      handleReplaySession(HandlerContext, *Request, Response);
+  if (Context != nullptr && Context->IsCancelled())
+    return grpc::Status::CANCELLED;
+  return Status;
 }
 
 grpc::Status WorkerService::GetBars(grpc::ServerContext *,
@@ -37,6 +43,15 @@ WorkerService::ClassifyPeriods(grpc::ServerContext *,
                                const pb::ClassifyPeriodsRequest *Request,
                                pb::ClassifyPeriodsResponse *Response) {
   return handleClassifyPeriods(HandlerContext, *Request, Response);
+}
+
+grpc::Status
+WorkerService::CheckStrategy(grpc::ServerContext *Context,
+                             const pb::CheckStrategyRequest *Request,
+                             pb::CheckStrategyResponse *Response) {
+  if (Context != nullptr && Context->IsCancelled())
+    return grpc::Status::CANCELLED;
+  return handleCheckStrategy(*Request, Response);
 }
 
 } // namespace worker
