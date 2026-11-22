@@ -76,10 +76,7 @@ void runMarketOrders(std::int64_t Step,
       O.ReasonCode = reason;
     }
     O.ClosedStep = Step;
-    if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
-                  Changed.end(), O.Id) == Changed.end()) {
-      Changed.push_back(O.Id);
-    }
+    markChanged(Changed, ChangedFrom, O.Id);
     if (O.Spec.OrderSide == Side::Sell && q > 0 &&
         Portfolio.lots(InstrIdx) == 0) {
       cancelSellOrdersOnPositionClosed(Orders, InstrIdx, Step, Changed,

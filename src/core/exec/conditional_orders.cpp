@@ -58,10 +58,7 @@ struct Context {
       TriggeredNow; // стоп-лимит сработал на этом шаге (индекс как в orders)
 
   void markChanged(std::int64_t Id) {
-    if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
-                  Changed.end(), Id) == Changed.end()) {
-      Changed.push_back(Id);
-    }
+    core::markChanged(Changed, ChangedFrom, Id);
   }
 
   const Instrument &instrumentOf(const Order &O) const {

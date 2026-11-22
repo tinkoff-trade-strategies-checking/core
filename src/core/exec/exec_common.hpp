@@ -96,6 +96,15 @@ inline Fill &recordFill(Portfolio &Portfolio, std::vector<Fill> &Fills,
   return Fills.back();
 }
 
+// Добавляет id заявки в changed текущего шага без дублей.
+inline void markChanged(std::vector<std::int64_t> &Changed,
+                        std::size_t ChangedFrom, std::int64_t Id) {
+  if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
+                Changed.end(), Id) == Changed.end()) {
+    Changed.push_back(Id);
+  }
+}
+
 // Когда позиция по бумаге обнуляется (position == 0), немедленно внутри шага
 // снимает все оставшиеся активные заявки на продажу этой бумаги с причиной
 // PositionClosed (INV-3, `decisions.md`, «Заявки», `dsl.md` п. 6).
@@ -106,16 +115,15 @@ inline void cancelSellOrdersOnPositionClosed(std::vector<Order> &Orders,
   for (Order &O : Orders) {
     if (O.Spec.Instrument != Instrument || O.Spec.OrderSide != Side::Sell)
       continue;
+    if (O.PlacedStep >= Step)
+      continue; // INV-2: заявка, поданная на этом шаге, ещё не действует
     if (O.Status != OrderStatus::Active &&
         O.Status != OrderStatus::PartiallyFilled)
       continue;
     O.Status = OrderStatus::Cancelled;
     O.ReasonCode = Reason::PositionClosed;
     O.ClosedStep = Step;
-    if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
-                  Changed.end(), O.Id) == Changed.end()) {
-      Changed.push_back(O.Id);
-    }
+    markChanged(Changed, ChangedFrom, O.Id);
   }
 }
 

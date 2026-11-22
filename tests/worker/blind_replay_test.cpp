@@ -418,3 +418,74 @@ TEST(BlindReplaySession, BlindTrueWithLimitOrderOnInstrumentWithoutP0Succeeds) {
   ASSERT_EQ(Resp1.blind_view().events_size(), 1);
   EXPECT_EQ(Resp1.blind_view().events(0).changed_orders_size(), 0);
 }
+
+// INV-3 + INV-7: PositionClosed в слепом режиме отражается в events[] и
+// blind_view().events[].changed_orders[] без утечки тикеров и дат.
+TEST(BlindReplaySession, PositionClosedInBlindModeAndNoLeaks) {
+  core::testing::Fixture Fixture = core::testing::fixture1();
+  worker::Context Context{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia};
+
+  pb::ReplaySessionRequest Req;
+  *Req.mutable_market() = fixtureMarket();
+  *Req.add_journal() = marketOrder(0, 0, "A", pb::BUY, 5);
+
+  pb::JournalEntry *LimitSell = Req.add_journal();
+  LimitSell->set_seq(1);
+  LimitSell->set_step(1);
+  pb::OrderSpec *LimitSpec = LimitSell->mutable_place()->mutable_order();
+  LimitSpec->set_instrument_key("A");
+  LimitSpec->set_side(pb::SELL);
+  LimitSpec->set_type(pb::LIMIT);
+  LimitSpec->set_lots(5);
+  *LimitSpec->mutable_limit_price() = dec("120");
+  LimitSpec->set_time_in_force(pb::GTC);
+
+  pb::JournalEntry *StopSell = Req.add_journal();
+  StopSell->set_seq(2);
+  StopSell->set_step(1);
+  pb::OrderSpec *StopSpec = StopSell->mutable_place()->mutable_order();
+  StopSpec->set_instrument_key("A");
+  StopSpec->set_side(pb::SELL);
+  StopSpec->set_type(pb::STOP);
+  StopSpec->set_lots(5);
+  *StopSpec->mutable_stop_price() = dec("95");
+  StopSpec->set_time_in_force(pb::GTC);
+
+  *Req.add_journal() = marketOrder(3, 2, "A", pb::SELL, 5);
+
+  Req.set_up_to_step(3);
+  Req.set_events_from_step(2);
+  Req.set_include_history(false);
+  Req.set_include_report(false);
+  Req.set_blind(true);
+
+  pb::ReplaySessionResponse Resp;
+  ASSERT_TRUE(worker::handleReplaySession(Context, Req, &Resp).ok());
+  ASSERT_EQ(Resp.events_size(), 1);
+  ASSERT_EQ(Resp.events(0).changed_orders_size(), 3);
+  EXPECT_EQ(Resp.events(0).changed_orders(0).id(), 2);
+  EXPECT_EQ(Resp.events(0).changed_orders(0).reason(), pb::POSITION_CLOSED);
+  EXPECT_EQ(Resp.events(0).changed_orders(1).id(), 4);
+  EXPECT_EQ(Resp.events(0).changed_orders(1).reason(), pb::POSITION_CLOSED);
+  EXPECT_EQ(Resp.events(0).changed_orders(2).id(), 6);
+  EXPECT_EQ(Resp.events(0).changed_orders(2).status(), pb::FILLED);
+
+  ASSERT_TRUE(Resp.has_blind_view());
+  const pb::BlindSessionView &Bv = Resp.blind_view();
+  ASSERT_EQ(Bv.events_size(), 1);
+  EXPECT_EQ(Bv.events(0).step(), 3);
+  ASSERT_EQ(Bv.events(0).changed_orders_size(), 3);
+  EXPECT_EQ(Bv.events(0).changed_orders(0).id(), 2);
+  EXPECT_EQ(Bv.events(0).changed_orders(0).instrument_index(), 0);
+  EXPECT_EQ(d(Bv.events(0).changed_orders(0).limit_price()),
+            core::Decimal::parse("120.00"));
+  EXPECT_EQ(Bv.events(0).changed_orders(1).id(), 4);
+  EXPECT_EQ(Bv.events(0).changed_orders(1).instrument_index(), 0);
+  EXPECT_EQ(d(Bv.events(0).changed_orders(1).stop_price()),
+            core::Decimal::parse("95.00"));
+  EXPECT_EQ(Bv.events(0).changed_orders(2).id(), 6);
+
+  const std::string Wire = Bv.SerializeAsString();
+  EXPECT_EQ(Wire.find("FIXA"), std::string::npos);
+  EXPECT_EQ(Wire.find("FIXB"), std::string::npos);
+}
