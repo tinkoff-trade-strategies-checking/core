@@ -142,8 +142,7 @@ bool sameFill(const Fill &Left, const Fill &Right) {
 
 bool sameRoundTrip(const RoundTrip &Left, const RoundTrip &Right) {
   return Left.Instrument == Right.Instrument &&
-         Left.EntryStep == Right.EntryStep &&
-         Left.ExitStep == Right.ExitStep &&
+         Left.EntryStep == Right.EntryStep && Left.ExitStep == Right.ExitStep &&
          Left.EntryOrderId == Right.EntryOrderId && Left.Lots == Right.Lots &&
          Left.EntryPrice == Right.EntryPrice &&
          Left.ExitPrice == Right.ExitPrice &&
@@ -529,8 +528,7 @@ rule "выход"
 
   StrategyRunOptions Opts;
   Opts.Source = Source;
-  const SessionSpec Spec =
-      makeSessionSpec(Tl, "1000", CostConfig::defaults());
+  const SessionSpec Spec = makeSessionSpec(Tl, "1000", CostConfig::defaults());
   const StrategyRunResult AlgoRes = runStrategy(Spec, Tl, Opts);
   ASSERT_TRUE(AlgoRes.Compiled);
   ASSERT_TRUE(AlgoRes.Engine.has_value());
@@ -658,19 +656,18 @@ concept HasNoExternalChannel =
     !requires(T Obj) { Obj.Date; } && !requires(T Obj) { Obj.date; } &&
     !requires(T Obj) { Obj.Time; } && !requires(T Obj) { Obj.time; } &&
     !requires(T Obj) { Obj.Timestamp; } &&
-    !requires(T Obj) { Obj.timestamp; } &&
-    !requires(T Obj) { Obj.TsOpenMs; } &&
+    !requires(T Obj) { Obj.timestamp; } && !requires(T Obj) { Obj.TsOpenMs; } &&
     !requires(T Obj) { Obj.AvailableAtMs; } &&
     !requires(T Obj) { Obj.Ticker; } && !requires(T Obj) { Obj.ticker; } &&
     !requires(T Obj) { Obj.SecId; } && !requires(T Obj) { Obj.secid; } &&
     !requires(T Obj) { Obj.Sector; } && !requires(T Obj) { Obj.sector; } &&
     !requires(T Obj) { Obj.Calendar; } && !requires(T Obj) { Obj.calendar; } &&
     !requires(T Obj) { Obj.Benchmark; } &&
-    !requires(T Obj) { Obj.benchmark; } &&
-    !requires(T Obj) { Obj.Ruonia; } && !requires(T Obj) { Obj.ruonia; } &&
-    !requires(T Obj) { Obj.Http; } && !requires(T Obj) { Obj.http; } &&
-    !requires(T Obj) { Obj.Client; } && !requires(T Obj) { Obj.client; } &&
-    !requires(T Obj) { Obj.Callback; } && !requires(T Obj) { Obj.callback; };
+    !requires(T Obj) { Obj.benchmark; } && !requires(T Obj) { Obj.Ruonia; } &&
+    !requires(T Obj) { Obj.ruonia; } && !requires(T Obj) { Obj.Http; } &&
+    !requires(T Obj) { Obj.http; } && !requires(T Obj) { Obj.Client; } &&
+    !requires(T Obj) { Obj.client; } && !requires(T Obj) { Obj.Callback; } &&
+    !requires(T Obj) { Obj.callback; };
 
 TEST(StrategyInvariants, DslAndRunnerTypesHaveNoNewsOrExternalChannels) {
   static_assert(std::is_same_v<decltype(dsl::Bar::Step), std::int64_t>);
@@ -716,27 +713,21 @@ TEST(StrategyInvariants, DslAndRunnerTypesHaveNoNewsOrExternalChannels) {
   static_assert(HasNoExternalChannel<StrategyRunOptions>);
   static_assert(HasNoExternalChannel<StrategyRunResult>);
 
+  using RunStrategyFn = StrategyRunResult (*)(const SessionSpec &,
+                                              std::shared_ptr<const Timeline>,
+                                              const StrategyRunOptions &);
+  using InstanceStepFn = dsl::StepOutcome (dsl::StrategyInstance::*)(
+      std::size_t, const dsl::Bar &, const dsl::PortfolioSnapshot &, bool);
+  using ParamMap = std::map<std::string, double>;
+  using DslCheckFn = dsl::CheckResult (*)(std::string_view, const ParamMap &);
+  using DslCompileFn =
+      dsl::CompileResult (*)(std::string_view, const ParamMap &, std::size_t);
+
+  static_assert(std::is_same_v<decltype(&runStrategy), RunStrategyFn>);
   static_assert(
-      std::is_same_v<decltype(&runStrategy),
-                     StrategyRunResult (*)(const SessionSpec &,
-                                           std::shared_ptr<const Timeline>,
-                                           const StrategyRunOptions &)>);
-  static_assert(
-      std::is_same_v<decltype(&dsl::StrategyInstance::step),
-                     dsl::StepOutcome (dsl::StrategyInstance::*)(
-                         std::size_t, const dsl::Bar &,
-                         const dsl::PortfolioSnapshot &, bool)>);
-  static_assert(
-      std::is_same_v<decltype(&dsl::check),
-                     dsl::CheckResult (*)(std::string_view,
-                                          const std::map<std::string, double>
-                                              &)>);
-  static_assert(
-      std::is_same_v<decltype(&dsl::compile),
-                     dsl::CompileResult (*)(std::string_view,
-                                            const std::map<std::string, double>
-                                                &,
-                                            std::size_t)>);
+      std::is_same_v<decltype(&dsl::StrategyInstance::step), InstanceStepFn>);
+  static_assert(std::is_same_v<decltype(&dsl::check), DslCheckFn>);
+  static_assert(std::is_same_v<decltype(&dsl::compile), DslCompileFn>);
 
   EXPECT_TRUE((HasNoExternalChannel<dsl::Bar>));
   EXPECT_TRUE((HasNoExternalChannel<StrategyRunOptions>));
@@ -744,10 +735,12 @@ TEST(StrategyInvariants, DslAndRunnerTypesHaveNoNewsOrExternalChannels) {
 }
 bool hasDiagnosticCode(const std::vector<dsl::Diagnostic> &Diagnostics,
                        std::string_view Code) {
-  return std::any_of(Diagnostics.begin(), Diagnostics.end(),
-                     [Code](const dsl::Diagnostic &Diag) {
-                       return Diag.Code == Code;
-                     });
+  for (const dsl::Diagnostic &Diag : Diagnostics) {
+    if (Diag.Code == Code) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void expectRejectedWithEType(const std::string &Source,
@@ -777,34 +770,30 @@ TEST(StrategyInvariants, DslCheckCompileStepRejectsNewsAndExternalIdentifiers) {
   });
 
   constexpr const char *const kForbiddenIds[] = {
-      "news",    "headline",  "sentiment", "feed",  "date",  "time",
-      "timestamp", "ymd",     "secid",     "ticker", "sector", "imoex",
-      "benchmark", "ruonia",  "calendar",  "http",  "fetch", "env",
-      "file",    "rand",      "random",    "now",   "today",
-  };
+      "news", "headline", "sentiment", "feed", "date", "time", "timestamp",
+      "ymd", "secid", "ticker", "sector", "imoex", "benchmark", "ruonia",
+      "calendar", "http", "fetch", "env", "file", "rand", "random", "now",
+      "today"};
 
   for (const char *RawId : kForbiddenIds) {
     const std::string IdStr(RawId);
-    expectRejectedWithEType(
-        "rule \"r\" when " + IdStr +
-            " > 0 then buy 1 lots market because \"тест\"",
-        {}, Tl);
-    expectRejectedWithEType(
-        "rule \"r\" when true then buy " + IdStr +
-            " lots market because \"тест\"",
-        {}, Tl);
-    expectRejectedWithEType(
-        "rule \"r\" when true then buy 1 lots limit " + IdStr +
-            " because \"тест\"",
-        {}, Tl);
-    expectRejectedWithEType(
+    const std::string WhenSrc =
+        "rule \"r\" when " + IdStr + " > 0 then buy 1 lots market because \"x\"";
+    const std::string SizeSrc =
+        "rule \"r\" when true then buy " + IdStr + " lots market because \"x\"";
+    const std::string PriceSrc =
+        "rule \"r\" when true then buy 1 lots limit " + IdStr + " because \"x\"";
+    const std::string BecauseSrc =
         "rule \"r\" when true then buy 1 lots market because \"x={" + IdStr +
-            "}\"",
-        {}, Tl);
-    expectRejectedWithEType(
+        "}\"";
+    const std::string ParamSrc =
         "param p = 1\nrule \"r\" when close > p then buy 1 lots market "
-        "because \"тест\"",
-        {{IdStr, 1.0}}, Tl);
+        "because \"x\"";
+    expectRejectedWithEType(WhenSrc, {}, Tl);
+    expectRejectedWithEType(SizeSrc, {}, Tl);
+    expectRejectedWithEType(PriceSrc, {}, Tl);
+    expectRejectedWithEType(BecauseSrc, {}, Tl);
+    expectRejectedWithEType(ParamSrc, {{IdStr, 1.0}}, Tl);
   }
 
   const std::string ParamDefaultIdent =
@@ -909,12 +898,11 @@ rule "стоп"
 
   StrategyRunOptions Opts;
   Opts.Source = Source;
-  const StrategyRunResult ResA =
-      runStrategy(makeSessionSpec(TlA, "100000", CostConfig::defaults()), TlA,
-                  Opts);
-  const StrategyRunResult ResB =
-      runStrategy(makeSessionSpec(TlB, "100000", CostConfig::defaults()), TlB,
-                  Opts);
+  const CostConfig Defaults = CostConfig::defaults();
+  const SessionSpec SpecA = makeSessionSpec(TlA, "100000", Defaults);
+  const SessionSpec SpecB = makeSessionSpec(TlB, "100000", Defaults);
+  const StrategyRunResult ResA = runStrategy(SpecA, TlA, Opts);
+  const StrategyRunResult ResB = runStrategy(SpecB, TlB, Opts);
   ASSERT_TRUE(ResA.Compiled);
   ASSERT_TRUE(ResB.Compiled);
   ASSERT_TRUE(ResA.Engine.has_value());
@@ -928,8 +916,9 @@ rule "стоп"
   }
   ASSERT_EQ(ResA.CommandResults.size(), ResB.CommandResults.size());
   for (std::size_t I = 0; I < ResA.CommandResults.size(); ++I) {
-    EXPECT_TRUE(sameCommandResult(ResA.CommandResults[I],
-                                  ResB.CommandResults[I]));
+    const auto &CmdA = ResA.CommandResults[I];
+    const auto &CmdB = ResB.CommandResults[I];
+    EXPECT_TRUE(sameCommandResult(CmdA, CmdB));
   }
   ASSERT_EQ(ResA.Engine->fills().size(), ResB.Engine->fills().size());
   for (std::size_t I = 0; I < ResA.Engine->fills().size(); ++I) {
@@ -958,18 +947,23 @@ rule "стоп"
   EXPECT_EQ(OutA.Error, OutB.Error);
   EXPECT_EQ(OutA.Intents, OutB.Intents);
 
-  BenchmarkSeries Bench{
+  const BenchmarkSeries BenchA{
       Decimal::parse("2500"),
       {DailyClose{TlA->yyyymmddOf(0), Decimal::parse("2550")}}};
-  RuoniaSeries Ruonia{
-      {DailyRate{20200101, Decimal::parse("6.0")}}};
+  const BenchmarkSeries BenchB{
+      Decimal::parse("3000"),
+      {DailyClose{TlA->yyyymmddOf(0), Decimal::parse("3300")}}};
+  const RuoniaSeries RuoniaA{{DailyRate{20200101, Decimal::parse("6.0")}}};
+  const RuoniaSeries RuoniaB{{DailyRate{20200101, Decimal::parse("18.0")}}};
+  const Decimal Cash = Decimal::parse("100000");
   const std::uint64_t DigestBefore = digestOf(*ResA.Engine);
-  const Report RepWithExt = buildStrategyReport(
-      ResA, Decimal::parse("100000"), *TlA, Bench, Ruonia, 20200107);
-  const Report RepPlain =
-      buildStrategyReport(ResA, Decimal::parse("100000"), *TlA);
+  const Report RepA =
+      buildStrategyReport(ResA, Cash, *TlA, BenchA, RuoniaA, 20200107);
+  const Report RepB =
+      buildStrategyReport(ResA, Cash, *TlA, BenchB, RuoniaB, 20200107);
   EXPECT_EQ(digestOf(*ResA.Engine), DigestBefore);
-  EXPECT_EQ(RepWithExt.FinalEquity, RepPlain.FinalEquity);
+  EXPECT_EQ(RepA.FinalEquity, RepB.FinalEquity);
+  EXPECT_NE(RepA.Stats.BenchmarkReturn, RepB.Stats.BenchmarkReturn);
 }
 
 } // namespace
