@@ -54,4 +54,16 @@ WorkerService::CheckStrategy(grpc::ServerContext *Context,
   return handleCheckStrategy(*Request, Response);
 }
 
+grpc::Status
+WorkerService::RunStrategy(grpc::ServerContext *Context,
+                           const pb::RunStrategyRequest *Request,
+                           grpc::ServerWriter<pb::RunStrategyUpdate> *Writer) {
+  if (Context != nullptr && Context->IsCancelled())
+    return grpc::Status::CANCELLED;
+  const auto IsCancelled = [Context]() {
+    return Context != nullptr && Context->IsCancelled();
+  };
+  return handleRunStrategy(HandlerContext, *Request, Writer, IsCancelled);
+}
+
 } // namespace worker

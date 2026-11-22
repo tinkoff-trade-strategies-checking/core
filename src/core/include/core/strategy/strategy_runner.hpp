@@ -28,6 +28,9 @@ struct StrategyRunOptions {
   std::map<std::string, double> ParamOverrides;
   std::function<bool()> ShouldCancel;
   std::optional<std::chrono::steady_clock::duration> TimeBudget;
+  std::optional<std::int64_t> UpToStep;
+  std::function<void(std::int64_t DoneSteps, std::int64_t TotalSteps)>
+      OnProgress;
 };
 
 struct StrategyRunResult {

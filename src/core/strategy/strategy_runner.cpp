@@ -190,6 +190,10 @@ StrategyRunResult runStrategy(const SessionSpec &Spec,
   if (!Tl) {
     throw std::invalid_argument("runStrategy: шкала времени не задана");
   }
+  if (Opts.UpToStep.has_value() &&
+      (*Opts.UpToStep < 0 || *Opts.UpToStep >= Tl->totalSteps())) {
+    throw std::invalid_argument("runStrategy: UpToStep вне шкалы времени");
+  }
 
   StrategyRunResult Result;
   const dsl::CompileResult CompileRes =
@@ -236,8 +240,13 @@ StrategyRunResult runStrategy(const SessionSpec &Spec,
   std::vector<std::map<std::size_t, std::int64_t>> ActiveOrderIds(
       NumInstruments);
   std::int64_t NextSeq = 0;
+  constexpr std::int64_t kProgressInterval = 50;
+  const std::int64_t EndStep = Opts.UpToStep.value_or(Tl->totalSteps() - 1);
+  const std::int64_t TotalSteps = EndStep + 1;
+  std::int64_t LastReportedDone = 0;
 
-  while (Engine.status() == SessionStatus::Running) {
+  while (Engine.status() == SessionStatus::Running &&
+         Engine.currentStep() < EndStep) {
     if (checkCancelled(Instance, Opts, StartTime, Result)) {
       return Result;
     }
@@ -291,16 +300,31 @@ StrategyRunResult runStrategy(const SessionSpec &Spec,
       }
     }
 
-    if (Step < Tl->totalSteps() - 1 &&
-        Engine.status() == SessionStatus::Running) {
+    if (Step < EndStep && Engine.status() == SessionStatus::Running) {
       try {
         Engine.advance();
       } catch (const IntegrityViolation &E) {
         recordIntegrityError(Result, E.what(), Engine.currentStep());
         return Result;
       }
+      const std::int64_t DoneSteps = Engine.currentStep() + 1;
+      if (Opts.OnProgress && (DoneSteps % kProgressInterval == 0)) {
+        Opts.OnProgress(DoneSteps, TotalSteps);
+        LastReportedDone = DoneSteps;
+        if (checkCancelled(Instance, Opts, StartTime, Result)) {
+          return Result;
+        }
+      }
     } else {
       break;
+    }
+  }
+
+  const std::int64_t FinalDone = Engine.currentStep() + 1;
+  if (Opts.OnProgress && FinalDone != LastReportedDone) {
+    Opts.OnProgress(FinalDone, TotalSteps);
+    if (checkCancelled(Instance, Opts, StartTime, Result)) {
+      return Result;
     }
   }
 
