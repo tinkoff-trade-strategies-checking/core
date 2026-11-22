@@ -25,12 +25,12 @@ struct SimpleBar {
   std::int64_t Volume = 10000;
 };
 
-std::shared_ptr<const Timeline> makeTimeline(
-    const std::vector<SimpleBar> &BarsSpec,
-    const std::string &PriceStepStr = "0.01", std::int64_t LotSize = 1,
-    const std::vector<SimpleBar> &WarmupSpec = {}) {
+std::shared_ptr<const Timeline>
+makeTimeline(const std::vector<SimpleBar> &BarsSpec,
+             const std::string &StepStr = "0.01", std::int64_t LotSize = 1,
+             const std::vector<SimpleBar> &WarmupSpec = {}) {
   std::vector<Instrument> Instruments{
-      Instrument{"A", "TEST", LotSize, Decimal::parse(PriceStepStr)}};
+      Instrument{"A", "TEST", LotSize, Decimal::parse(StepStr)}};
   std::vector<Bar> Bars;
   std::vector<TradingDay> Calendar;
   const std::int64_t BaseMs = moscowDayStartMs(20240201);
@@ -63,7 +63,8 @@ std::shared_ptr<const Timeline> makeTimeline(
   Timeline MainTl = Timeline::build(Instruments, {Bars}, Calendar);
   if (!WarmupBars.empty()) {
     const Timeline Hist = Timeline::build(Instruments, {WarmupBars}, Calendar);
-    MainTl = MainTl.withWarmup(Hist, static_cast<std::int64_t>(WarmupBars.size()));
+    const auto WarmupCount = static_cast<std::int64_t>(WarmupBars.size());
+    MainTl = MainTl.withWarmup(Hist, WarmupCount);
   }
   return std::make_shared<const Timeline>(std::move(MainTl));
 }
@@ -116,7 +117,8 @@ rule "выход"
     Warmup.push_back(SimpleBar{"100", "100", "100", "100", 100000});
   }
   Warmup.push_back(SimpleBar{"100", "100", "99", "99", 100000});
-  // Торговые бары: рост на шаге 0 -> вход на открытии шага 1 -> стоп на шаге 1 -> далее рост.
+  // Торговые бары: рост на шаге 0 -> вход на открытии шага 1 -> стоп на шаге 1
+  // -> далее рост.
   std::vector<SimpleBar> Trading{
       SimpleBar{"100", "121", "100", "120", 100000},
       SimpleBar{"120", "125", "119", "124", 100000},
@@ -154,10 +156,11 @@ rule "лимит"
 )dsl";
 
   // Шаг 0: close=91 -> 1 лот @ 50 (Accepted).
-  // Шаг 1: close=120 -> 30 лотов @ 50 (> cash=1000 -> Rejected, старая Id=0 и Because сохранены).
-  // Шаг 2: close=91 -> 1 лот @ 50 == Existing->Spec -> тихая дедупликация, новых команд нет.
-  // Шаг 3: close=92 -> 2 лота @ 50 -> ReplaceCmd Accepted, новая заявка с новым Because.
-  // Шаг 4: последний шаг, намерения не вычисляются.
+  // Шаг 1: close=120 -> 30 лотов @ 50 (> cash=1000 -> Rejected, старая Id=0 и
+  // Because сохранены). Шаг 2: close=91 -> 1 лот @ 50 == Existing->Spec ->
+  // тихая дедупликация, новых команд нет. Шаг 3: close=92 -> 2 лота @ 50 ->
+  // ReplaceCmd Accepted, новая заявка с новым Because. Шаг 4: последний шаг,
+  // намерения не вычисляются.
   const auto Tl = makeTimeline({
       SimpleBar{"91", "92", "90", "91"},
       SimpleBar{"120", "121", "90", "120"},
@@ -307,7 +310,8 @@ rule "выход"
   ASSERT_TRUE(Res.Engine.has_value());
 
   // На шаге 3 у FIXA (instr=0) bars_in_position == 2 -> sell подаётся на шаге 3.
-  // У FIXB (instr=1) шаг 3 пропущен -> bars_in_position остаётся 1, sell подаётся на шаге 4.
+  // У FIXB (instr=1) шаг 3 пропущен -> bars_in_position остаётся 1, sell
+  // подаётся на шаге 4.
   bool FoundSellA = false;
   bool FoundSellB = false;
   for (const Order &Ord : Res.Engine->orders()) {
@@ -319,8 +323,9 @@ rule "выход"
         Ord.PlacedStep == 4) {
       FoundSellB = true;
     }
-    EXPECT_FALSE(Ord.Spec.OrderSide == Side::Sell &&
-                 Ord.Spec.Instrument == 1 && Ord.PlacedStep == 3);
+    const bool IsSellBOnStep3 = Ord.Spec.OrderSide == Side::Sell &&
+                                Ord.Spec.Instrument == 1 && Ord.PlacedStep == 3;
+    EXPECT_FALSE(IsSellBOnStep3);
   }
   EXPECT_TRUE(FoundSellA);
   EXPECT_TRUE(FoundSellB);
@@ -355,8 +360,7 @@ rule "покупка"
   StrategyRunOptions BudgetOpts;
   BudgetOpts.Source = Source;
   BudgetOpts.TimeBudget = std::chrono::steady_clock::duration::zero();
-  const StrategyRunResult BudgetRes =
-      runStrategy(makeSpec(Tl), Tl, BudgetOpts);
+  const StrategyRunResult BudgetRes = runStrategy(makeSpec(Tl), Tl, BudgetOpts);
   EXPECT_TRUE(BudgetRes.Compiled);
   EXPECT_TRUE(BudgetRes.Cancelled);
 }
@@ -385,13 +389,15 @@ rule "покупка"
   ASSERT_TRUE(Second.Error.has_value());
   EXPECT_EQ(Second.Error->Code, "E-RT01");
 
-  const auto Tl = makeTimeline(
-      {SimpleBar{"100", "101", "99", "100"}, SimpleBar{"100", "101", "99", "100"}});
+  const std::vector<SimpleBar> Bars{
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+  };
+  const auto Tl = makeTimeline(Bars);
   Report Rep;
-  applyRuntimeChecks(
-      Rep, CheckLevel::Ok, *Tl, {}, {},
-      {Finding{Second.Error->Code, CheckLevel::Error, Second.Error->Message,
-               B.Step}});
+  const Finding ErrFinding{Second.Error->Code, CheckLevel::Error,
+                           Second.Error->Message, B.Step};
+  applyRuntimeChecks(Rep, CheckLevel::Ok, *Tl, {}, {}, {ErrFinding});
   EXPECT_EQ(Rep.ReportLevel, CheckLevel::Error);
   ASSERT_EQ(Rep.Findings.size(), 1u);
   EXPECT_EQ(Rep.Findings[0].Code, "E-RT01");
@@ -446,8 +452,11 @@ rule "выход"
 }
 
 TEST(StrategyRunner, AlgorithmHasNoNewsOrDateAccess_INV9) {
-  const auto Tl = makeTimeline(
-      {SimpleBar{"100", "101", "99", "100"}, SimpleBar{"100", "101", "99", "100"}});
+  const std::vector<SimpleBar> Bars{
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+  };
+  const auto Tl = makeTimeline(Bars);
   for (const char *Forbidden : {"news", "date", "time", "secid"}) {
     StrategyRunOptions Opts;
     Opts.Source = std::string("rule \"запрещено\" when ") + Forbidden +

@@ -43,8 +43,7 @@ TEST(ConvertReport, ReportMapsLevelAndFindings) {
   Report.ReportLevel = core::CheckLevel::Error;
   Report.Findings = {
       core::Finding{"W-RT01", core::CheckLevel::Warning, "угаданные гэпы", 5},
-      core::Finding{"E-RT01", core::CheckLevel::Error, "нарушение порядка",
-                    -1},
+      core::Finding{"E-RT01", core::CheckLevel::Error, "сбой", -1},
   };
 
   pb::Report Proto;
@@ -59,6 +58,6 @@ TEST(ConvertReport, ReportMapsLevelAndFindings) {
 
   EXPECT_EQ(Proto.findings(1).code(), "E-RT01");
   EXPECT_EQ(Proto.findings(1).level(), pb::ERROR);
-  EXPECT_EQ(Proto.findings(1).message(), "нарушение порядка");
+  EXPECT_EQ(Proto.findings(1).message(), "сбой");
   EXPECT_EQ(Proto.findings(1).step(), -1);
 }

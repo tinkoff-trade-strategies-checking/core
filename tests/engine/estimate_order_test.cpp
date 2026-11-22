@@ -135,7 +135,7 @@ TEST(EstimateOrder, UsesJournalStateWithoutMutatingAndChecksInsufficientCash) {
   BuyCmd.Order.Type = core::OrderType::Market;
   BuyCmd.Order.Lots = 4;
   BuyCmd.Order.Tif = core::TimeInForce::Gtc;
-  const std::vector<core::JournalEntry> Journal = {{0, 0, BuyCmd}};
+  const std::vector<core::JournalEntry> Journal = {{0, 0, BuyCmd, "", ""}};
 
   // После покупки 4 лотов на шаге 1 денег осталось ~1940: ещё 3 лота не
   // хватает.

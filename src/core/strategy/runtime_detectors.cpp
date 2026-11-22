@@ -106,13 +106,11 @@ std::optional<Finding> detectGuessedGaps(const Timeline &Tl,
   }
 
   if (GuessedGaps >= 5 && GuessedGaps * 5 >= TotalGaps * 4) {
-    return Finding{
-        "W-RT01",
-        CheckLevel::Warning,
+    const std::string Msg =
         "Подозрение на подглядывание в будущее: угадано " +
-            std::to_string(GuessedGaps) + " из " + std::to_string(TotalGaps) +
-            " гэпов >= 2% рыночными заявками стратегии",
-        -1};
+        std::to_string(GuessedGaps) + " из " + std::to_string(TotalGaps) +
+        " гэпов >= 2% рыночными заявками стратегии";
+    return Finding{"W-RT01", CheckLevel::Warning, Msg, -1};
   }
   return std::nullopt;
 }
@@ -130,12 +128,10 @@ detectTooSmoothResult(const std::vector<RoundTrip> &RoundTrips) {
     }
   }
   if (Wins * 10 > Total * 9) {
-    return Finding{
-        "W-RT02",
-        CheckLevel::Warning,
+    const std::string Msg =
         "Слишком ровный результат: " + std::to_string(Wins) +
-            " прибыльных сделок из " + std::to_string(Total) + " (> 90%)",
-        -1};
+        " прибыльных сделок из " + std::to_string(Total) + " (> 90%)";
+    return Finding{"W-RT02", CheckLevel::Warning, Msg, -1};
   }
   return std::nullopt;
 }

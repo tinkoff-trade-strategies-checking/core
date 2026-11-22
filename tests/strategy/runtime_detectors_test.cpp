@@ -97,14 +97,13 @@ TEST(RuntimeDetectors, GuessedGapsThresholdAndExactTwoPercent) {
   // 5 пар: exact +2% (100 -> 102), -2% (100 -> 98), +2%, -2%, +2%;
   // и 1 пара 1.99% (100 -> 101.99) — не считается гэпом.
   const std::vector<std::pair<std::string, std::string>> Pairs{
-      {"100", "102"},   {"100", "98"}, {"100", "102"},
-      {"100", "98"},    {"100", "102"}, {"100", "101.99"},
+      {"100", "102"}, {"100", "98"}, {"100", "102"}, {"100", "98"},
+      {"100", "102"}, {"100", "101.99"},
   };
   for (std::size_t I = 0; I < Pairs.size(); ++I) {
-    Specs.push_back(BarSpec{static_cast<std::int64_t>(I * 2), "100",
-                            Pairs[I].first});
-    Specs.push_back(BarSpec{static_cast<std::int64_t>(I * 2 + 1),
-                            Pairs[I].second, "100"});
+    const auto Step = static_cast<std::int64_t>(I * 2);
+    Specs.push_back(BarSpec{Step, "100", Pairs[I].first});
+    Specs.push_back(BarSpec{Step + 1, Pairs[I].second, "100"});
   }
   const Timeline Tl = makeSingleTimeline(Specs);
 
@@ -118,7 +117,8 @@ TEST(RuntimeDetectors, GuessedGapsThresholdAndExactTwoPercent) {
   }
   EXPECT_FALSE(detectGuessedGaps(Tl, Orders, Fills).has_value());
 
-  // Добавляем 5-й угаданный гэп и 1.99% (игнорируется как не-гэп) -> 5/5 -> W-RT01.
+  // Добавляем 5-й угаданный гэп и 1.99% (игнорируется как не-гэп) -> 5/5 ->
+  // W-RT01.
   Orders.push_back(makeOrder(8, 8, Side::Buy, OrderType::Market, "r"));
   Fills.push_back(makeFill(8, 9, Side::Buy, 1));
   Orders.push_back(makeOrder(10, 10, Side::Sell, OrderType::Market, "r"));
@@ -131,7 +131,8 @@ TEST(RuntimeDetectors, GuessedGapsThresholdAndExactTwoPercent) {
 
 TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
   // 2 бумаги: у бумаги 0 пропущен шаг 1 (бар 0: close=100, бар 2: open=105),
-  // остальные бары с 3 по 16 имеют гэпы; проверяем 5/7 (71% -> нет) и 5/6 (83% -> да).
+  // остальные бары с 3 по 16 имеют гэпы; проверяем 5/7 (71% -> нет) и 5/6
+  // (83% -> да).
   std::vector<Instrument> Instruments{
       Instrument{"A", "TESTA", 1, Decimal::parse("0.01")},
       Instrument{"B", "TESTB", 1, Decimal::parse("0.01")}};
@@ -157,7 +158,8 @@ TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
     Bar Ba;
     Ba.TsOpenMs = OpenMs;
     Ba.AvailableAtMs = OpenMs + kDayMs;
-    // После пропуска (Day == 2) и на нечётных шагах >= 5 задаём open = 105 (+5%).
+    // После пропуска (Day == 2) и на нечётных шагах >= 5 задаём open = 105
+    // (+5%).
     const bool BigGap = (Day == 2) || (Day >= 5 && Day % 2 == 1);
     Ba.Open = Decimal::parse(BigGap ? "105" : "100");
     Ba.High = Decimal::parse("106");
@@ -172,8 +174,9 @@ TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
   // Шаг 0 -> 2 (пропущен шаг 1): buy 5 -> угадан (1/1).
   // Шаги 4->5, 6->7, 8->9, 10->11: buy 1 -> 4 угаданных (итого 5/5).
   // Шаги 12->13, 14->15: sell 1 -> 2 неугаданных (итого 5/7 = 71% -> нет).
-  // Шаг 16->17: net_volume == 0 (buy 3 + sell 3) -> исключён из числителя и знаменателя.
-  // Шаг 18->19: limit-заявка и заявка без RuleName -> игнорируются.
+  // Шаг 16->17: net_volume == 0 (buy 3 + sell 3) -> исключён из числителя и
+  // знаменателя. Шаг 18->19: limit-заявка и заявка без RuleName ->
+  // игнорируются.
   std::vector<Order> Orders{
       makeOrder(0, 0, Side::Buy, OrderType::Market, "r"),
       makeOrder(2, 4, Side::Buy, OrderType::Market, "r"),
@@ -188,16 +191,11 @@ TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
       makeOrder(20, 18, Side::Buy, OrderType::Market, ""),
   };
   std::vector<Fill> Fills{
-      makeFill(0, 2, Side::Buy, 5),
-      makeFill(2, 5, Side::Buy, 1),
-      makeFill(4, 7, Side::Buy, 1),
-      makeFill(6, 9, Side::Buy, 1),
-      makeFill(8, 11, Side::Buy, 1),
-      makeFill(10, 13, Side::Sell, 1),
-      makeFill(12, 15, Side::Sell, 1),
-      makeFill(14, 17, Side::Buy, 3),
-      makeFill(16, 17, Side::Sell, 3),
-      makeFill(18, 19, Side::Buy, 1),
+      makeFill(0, 2, Side::Buy, 5), makeFill(2, 5, Side::Buy, 1),
+      makeFill(4, 7, Side::Buy, 1), makeFill(6, 9, Side::Buy, 1),
+      makeFill(8, 11, Side::Buy, 1), makeFill(10, 13, Side::Sell, 1),
+      makeFill(12, 15, Side::Sell, 1), makeFill(14, 17, Side::Buy, 3),
+      makeFill(16, 17, Side::Sell, 3), makeFill(18, 19, Side::Buy, 1),
       makeFill(20, 19, Side::Buy, 1),
   };
 
@@ -223,8 +221,10 @@ TEST(RuntimeDetectors, TooSmoothResultBoundary) {
   };
 
   EXPECT_FALSE(detectTooSmoothResult(makeTrips(29, 29)).has_value());
-  EXPECT_FALSE(detectTooSmoothResult(makeTrips(30, 27)).has_value()); // 90.0%
-  const auto Res = detectTooSmoothResult(makeTrips(30, 28));         // 93.3%
+  // 90.0%
+  EXPECT_FALSE(detectTooSmoothResult(makeTrips(30, 27)).has_value());
+  // 93.3%
+  const auto Res = detectTooSmoothResult(makeTrips(30, 28));
   ASSERT_TRUE(Res.has_value());
   EXPECT_EQ(Res->Code, "W-RT02");
   EXPECT_EQ(Res->Severity, CheckLevel::Warning);

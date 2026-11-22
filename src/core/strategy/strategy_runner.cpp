@@ -335,9 +335,9 @@ Report buildStrategyReport(const StrategyRunResult &RunResult,
     return Out;
   }
 
-  const MetricsInput Input = buildMetricsInput(
-      *RunResult.Engine, InitialCash, Tl, Benchmark, Ruonia,
-      RuoniaPreviousDayYmd);
+  const MetricsInput Input =
+      buildMetricsInput(*RunResult.Engine, InitialCash, Tl, Benchmark, Ruonia,
+                        RuoniaPreviousDayYmd);
   Report Out = computeReport(Input);
   std::vector<Finding> Extra;
   for (const Finding &Item : RunResult.RuntimeFindings) {

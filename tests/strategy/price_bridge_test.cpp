@@ -42,8 +42,10 @@ TEST(PriceBridge, MoreThanNineDecimalsSingleStepHalfUp) {
   // Без двойного округления: 0.0049999999999 < 0.005 -> 0.00 (а не 0.01).
   EXPECT_EQ(roundDslPriceToStep(0.0049999999999, Step), Decimal::zero());
   EXPECT_EQ(roundDslPriceToStep(0.0050000000001, Step), Decimal::parse("0.01"));
-  EXPECT_EQ(roundDslPriceToStep(10.004999999999, Step), Decimal::parse("10.00"));
-  EXPECT_EQ(roundDslPriceToStep(10.005000000001, Step), Decimal::parse("10.01"));
+  EXPECT_EQ(roundDslPriceToStep(10.004999999999, Step),
+            Decimal::parse("10.00"));
+  EXPECT_EQ(roundDslPriceToStep(10.005000000001, Step),
+            Decimal::parse("10.01"));
 
   // Граница половины на 10-м знаке для шага 10^-9.
   const Decimal NanoStep = Decimal::fromRaw(1);

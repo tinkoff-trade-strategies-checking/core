@@ -6,10 +6,11 @@
 
 namespace core {
 
-// Преобразует конечную цену `RawPrice` in (0, 1e15] в `Decimal` через кратчайшее
-// точное десятичное представление (`std::to_chars`) и одношаговое округление
-// `HALF_UP` к `PriceStep` (> 0). При подшаговом обнулении возвращает `Decimal::zero()`,
-// чтобы валидация ядра отклонила заявку с `InvalidParams`.
+// Преобразует конечную цену `RawPrice` in (0, 1e15] в `Decimal` через
+// кратчайшее точное десятичное представление (`std::to_chars`) и одношаговое
+// округление `HALF_UP` к `PriceStep` (> 0). При подшаговом обнулении
+// возвращает `Decimal::zero()`, чтобы валидация ядра отклонила заявку с
+// `InvalidParams`.
 Decimal roundDslPriceToStep(double RawPrice, const Decimal &PriceStep);
 
 } // namespace core

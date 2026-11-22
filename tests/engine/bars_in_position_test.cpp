@@ -103,9 +103,9 @@ TEST(BarsInPositionTest, LifecycleScaleInPartialSellSkippedBarAndClose) {
   SessionEngine Engine(fixtureSpec(), fixtureTimeline());
 
   const PortfolioSnapshot S0 = Engine.snapshot();
-  EXPECT_EQ(S0.BarsInPosition,
-            (std::vector<std::optional<std::int64_t>>{std::nullopt,
-                                                      std::nullopt}));
+  const std::vector<std::optional<std::int64_t>> ExpectedEmpty{std::nullopt,
+                                                               std::nullopt};
+  EXPECT_EQ(S0.BarsInPosition, ExpectedEmpty);
   EXPECT_EQ(S0.PositionReopenedOnBar, (std::vector<bool>{false, false}));
 
   ASSERT_TRUE(Engine.apply(place(0, 0, market(Side::Buy, 5, 0))).Accepted);
@@ -199,7 +199,8 @@ TEST(BarsInPositionTest, RuleNameAndBecausePropagatedOnPlaceAndReplace) {
   EXPECT_EQ(orderById(Engine, OriginalId).RuleName, "entry_rule");
   EXPECT_EQ(orderById(Engine, OriginalId).Because, "rsi < 30");
 
-  // Отклонённая PlaceCmd тоже сохраняет RuleName и Because в отклонённой заявке.
+  // Отклонённая PlaceCmd тоже сохраняет RuleName и Because в отклонённой
+  // заявке.
   const CommandResult RejectedPlace = Engine.apply(
       place(1, 0, market(Side::Buy, 1'000'000, 0), "bad_rule", "all in"));
   ASSERT_FALSE(RejectedPlace.Accepted);
@@ -210,9 +211,9 @@ TEST(BarsInPositionTest, RuleNameAndBecausePropagatedOnPlaceAndReplace) {
   EXPECT_EQ(RejectedOrder.Because, "all in");
 
   // Отклонённая ReplaceCmd оставляет прежнюю активную заявку с её Because.
-  const CommandResult RejectedReplace =
-      Engine.apply(replace(2, 0, OriginalId, limit(Side::Buy, 1'000'000, "96", 0),
-                           "replace_fail", "too big"));
+  const OrderSpec BadLimit = limit(Side::Buy, 1'000'000, "96", 0);
+  const CommandResult RejectedReplace = Engine.apply(
+      replace(2, 0, OriginalId, BadLimit, "replace_fail", "too big"));
   ASSERT_FALSE(RejectedReplace.Accepted);
   ASSERT_EQ(RejectedReplace.OrderIds.size(), 1u);
   EXPECT_EQ(orderById(Engine, OriginalId).Status, OrderStatus::Active);

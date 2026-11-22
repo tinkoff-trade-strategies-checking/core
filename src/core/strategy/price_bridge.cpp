@@ -107,7 +107,8 @@ Decimal roundDslPriceToStep(double RawPrice, const Decimal &PriceStep) {
   // Exp10 < -9: точное значение в единицах 10^-9 равно Mantissa / 10^K.
   const int K = -Decimal::kScale - Exp10;
   if (K >= 18) {
-    // Mantissa < 10^17 и PriceStep.raw() >= 1 => 2 * Mantissa < PriceStep * 10^K.
+    // Mantissa < 10^17 и PriceStep.raw() >= 1 => 2 * Mantissa < PriceStep *
+    // 10^K.
     return Decimal::zero();
   }
 
