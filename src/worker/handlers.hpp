@@ -47,4 +47,7 @@ grpc::Status
 handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
                   grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
                   const std::function<bool()> &IsCancelled = {});
+grpc::Status handleAnalyzeDivergences(Context &Ctx,
+                                      const pb::DivergenceRequest &Request,
+                                      pb::DivergenceResponse *Response);
 } // namespace worker

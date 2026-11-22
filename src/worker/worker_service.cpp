@@ -66,4 +66,17 @@ WorkerService::RunStrategy(grpc::ServerContext *Context,
   return handleRunStrategy(HandlerContext, *Request, Writer, IsCancelled);
 }
 
+grpc::Status
+WorkerService::AnalyzeDivergences(grpc::ServerContext *Context,
+                                  const pb::DivergenceRequest *Request,
+                                  pb::DivergenceResponse *Response) {
+  if (Context != nullptr && Context->IsCancelled())
+    return grpc::Status::CANCELLED;
+  const grpc::Status Status =
+      handleAnalyzeDivergences(HandlerContext, *Request, Response);
+  if (Context != nullptr && Context->IsCancelled())
+    return grpc::Status::CANCELLED;
+  return Status;
+}
+
 } // namespace worker

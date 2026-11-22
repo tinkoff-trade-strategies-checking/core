@@ -37,6 +37,9 @@ public:
   RunStrategy(grpc::ServerContext *Context,
               const pb::RunStrategyRequest *Request,
               grpc::ServerWriter<pb::RunStrategyUpdate> *Writer) override;
+  grpc::Status AnalyzeDivergences(grpc::ServerContext *Context,
+                                  const pb::DivergenceRequest *Request,
+                                  pb::DivergenceResponse *Response) override;
 
 private:
   Context HandlerContext;
