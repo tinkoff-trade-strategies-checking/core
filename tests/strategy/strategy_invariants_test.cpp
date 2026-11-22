@@ -778,11 +778,12 @@ TEST(StrategyInvariants, DslCheckCompileStepRejectsNewsAndExternalIdentifiers) {
   for (const char *RawId : kForbiddenIds) {
     const std::string IdStr(RawId);
     const std::string WhenSrc =
-        "rule \"r\" when " + IdStr + " > 0 then buy 1 lots market because \"x\"";
+        "rule \"r\" when " + IdStr + " > 0 then cancel because \"x\"";
     const std::string SizeSrc =
         "rule \"r\" when true then buy " + IdStr + " lots market because \"x\"";
     const std::string PriceSrc =
-        "rule \"r\" when true then buy 1 lots limit " + IdStr + " because \"x\"";
+        "rule \"r\" when true then buy 1 lots limit " + IdStr +
+        " because \"x\"";
     const std::string BecauseSrc =
         "rule \"r\" when true then buy 1 lots market because \"x={" + IdStr +
         "}\"";
