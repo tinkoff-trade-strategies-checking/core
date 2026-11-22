@@ -113,12 +113,12 @@ TEST_F(RunStrategyRpc, CompletedRunWithProgressReportAndDeterministicDigest) {
 param qty = 2
 
 rule "вход"
-  when position == 0 and close >= 101
+  when position == 0 and close > open
   then buy qty lots market
   because "вход при close={close}"
 
 rule "выход"
-  when position > 0 and close >= 104
+  when position > 0 and close < open
   then sell all
   because "выход при close={close}"
 )dsl";
