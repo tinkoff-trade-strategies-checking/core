@@ -185,10 +185,8 @@ rule "entry"
   EXPECT_EQ(D0.human_lots(), 1);
   EXPECT_EQ(D0.algo_lots(), 0);
   EXPECT_EQ(D0.horizon_step(), 3);
-  EXPECT_EQ(core::fromProto<core::Decimal>(D0.cost()),
-            core::Decimal::parse("-20"));
-  EXPECT_EQ(core::fromProto<core::Decimal>(D0.cost_percent()),
-            core::Decimal::parse("-0.2"));
+  EXPECT_EQ(core::fromProto(D0.cost()), core::Decimal::parse("-20"));
+  EXPECT_EQ(core::fromProto(D0.cost_percent()), core::Decimal::parse("-0.2"));
   EXPECT_EQ(D0.human_order_type(), pb::MARKET);
   EXPECT_EQ(D0.algo_order_type(), pb::ORDER_TYPE_UNSPECIFIED);
 
@@ -215,12 +213,9 @@ rule "entry"
   EXPECT_EQ(M.entry_step(), 1);
   EXPECT_EQ(M.exit_step(), 4);
   EXPECT_EQ(M.lots(), 1);
-  EXPECT_EQ(core::fromProto<core::Decimal>(M.net_pnl()),
-            core::Decimal::parse("20"));
-  EXPECT_EQ(core::fromProto<core::Decimal>(M.entry_price()),
-            core::Decimal::parse("100"));
-  EXPECT_EQ(core::fromProto<core::Decimal>(M.exit_price()),
-            core::Decimal::parse("120"));
+  EXPECT_EQ(core::fromProto(M.net_pnl()), core::Decimal::parse("20"));
+  EXPECT_EQ(core::fromProto(M.entry_price()), core::Decimal::parse("100"));
+  EXPECT_EQ(core::fromProto(M.exit_price()), core::Decimal::parse("120"));
   EXPECT_EQ(M.seq(), 0);
   ASSERT_EQ(M.algorithm_ids_size(), 1);
   EXPECT_EQ(M.algorithm_ids(0), "alg1");
