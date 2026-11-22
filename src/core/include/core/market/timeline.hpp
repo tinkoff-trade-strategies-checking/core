@@ -42,6 +42,9 @@ public:
   // шагов не хватает, но не дальше kMaxWarmupLookbackDays календарных дней
   // (хватает на 5000 дневных баров). warmupSteps <= 0 или пустой период - как
   // load.
+  // Прогрев по умолчанию (`decisions.md`, «Запуск сессии и прогона»): 200 баров
+  // под параметр slow до 200 эталонной стратегии.
+  static constexpr std::int64_t kDefaultWarmupBars = 200;
   static constexpr std::int64_t kMaxWarmupLookbackDays = 7500;
   static Timeline loadWithWarmup(BarSource &BarSource,
                                  CalendarSource &CalendarSource,

@@ -732,8 +732,8 @@ TEST(StopBeforeTake, SameBar) {
 }
 
 TEST(StopBeforeTake, SameBarWithoutOcoTakeGetsNoPosition) {
-  // Без OCO тейк исполняется только на остаток позиции; остатка нет - снят без
-  // исполнения.
+  // Без OCO стоп закрывает позицию в 0 и немедленно снимает тейк с причиной
+  // PositionClosed до фазы лимитных заявок (INV-3).
   const Timeline T = twoBars(B{0, 1, "100", "111", "94", "100"});
   const auto Engine = engineA();
   Portfolio Pf = holding(10);
@@ -742,7 +742,7 @@ TEST(StopBeforeTake, SameBarWithoutOcoTakeGetsNoPosition) {
   ASSERT_EQ(B.Fills.size(), 1u);
   EXPECT_TRUE(B.Fills[0].StopAndTakeSameBar);
   EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
-  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::InsufficientPosition);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
   EXPECT_EQ(B.Orders[1].FilledLots, 0);
 }
 
@@ -942,6 +942,121 @@ TEST(ConditionalOrders, StopsRunBeforeLimits) {
   EXPECT_EQ(B.Fills[0].OrderId, 1);
   EXPECT_FALSE(B.Fills[0].StopAndTakeSameBar); // лимитная продажа 100.50 - не
                                                // тейк-профит и не нога OCO
+}
+
+// ---- Автоснятие заявок на продажу при обнулении позиции (INV-3, core#60)
+// --------------------------------------------------------------------------------
+
+TEST(PositionClosed, MarketSellCancelsStopAndTakeBeforeStopsPhase) {
+  // Одновременный рыночный выход и защитный стоп/тейк на одном баре: рыночная
+  // продажа обнуляет позицию и немедленно снимает стоп и тейк с причиной
+  // PositionClosed до фазы стопов и лимитных заявок (без ложного
+  // InsufficientPosition).
+  const Timeline T = twoBars(B{0, 1, "100", "115", "90", "100"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  B.Orders.push_back(makeOrder(0, Side::Sell, OrderType::Market, 10));
+  B.Orders.push_back(stopOrder(1, Side::Sell, "95", 10));
+  B.Orders.push_back(takeOrder(2, "110", 10));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(B.Fills[0].OrderId, 0);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Filled);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[1].ClosedStep, 1);
+  EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[2].ClosedStep, 1);
+}
+
+TEST(PositionClosed, MarketSellThenMarketBuyDoesNotTriggerOldStop) {
+  // Рыночная продажа (id 0) закрывает позицию в 0 и сразу снимает старый стоп
+  // (id 2); следующая на том же шаге рыночная покупка (id 1) открывает новую
+  // позицию — старый стоп её не продаёт (`dsl.md` п. 6).
+  const Timeline T = twoBars(B{0, 1, "100", "105", "90", "100"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  B.Orders.push_back(makeOrder(0, Side::Sell, OrderType::Market, 10));
+  B.Orders.push_back(makeOrder(1, Side::Buy, OrderType::Market, 5));
+  B.Orders.push_back(stopOrder(2, Side::Sell, "95", 10));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 2u);
+  EXPECT_EQ(B.Fills[0].OrderId, 0);
+  EXPECT_EQ(B.Fills[1].OrderId, 1);
+  EXPECT_EQ(Pf.lots(0), 5);
+  EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[2].ClosedStep, 1);
+}
+
+TEST(PositionClosed, LimitSellCancelsOtherSellButNotBuyOrOtherInstrument) {
+  // Лимитная продажа обнуляет позицию по A: снимается только другая продажа A;
+  // покупка A и продажа B остаются активными.
+  const Timeline T =
+      Timeline::build({kA, kB},
+                      {bars(kA, {B{0, 0, "100", "100", "100", "100"},
+                                 B{0, 1, "105", "106", "104", "105"}}),
+                       bars(kB, {B{0, 0, "100", "100", "100", "100"},
+                                 B{0, 1, "100", "101", "99", "100"}})},
+                      {});
+  const ExecutionEngine Engine({kA, kB}, CostConfig::defaults());
+  Portfolio Pf(d("1000000"), 2);
+  Pf.applyFill(0, Side::Buy, 10, d("100"), d("10000.00"), d("0"), d("0"), 0,
+               90);
+  Pf.applyFill(1, Side::Buy, 10, d("100"), d("10000.00"), d("0"), d("0"), 0,
+               91);
+  Book B;
+  B.Orders.push_back(limitOrder(0, Side::Sell, "104", 10));
+  B.Orders.push_back(limitOrder(1, Side::Sell, "110", 10));
+  B.Orders.push_back(limitOrder(2, Side::Buy, "90", 5));
+  Order SellB = limitOrder(3, Side::Sell, "110", 10);
+  SellB.Spec.Instrument = 1;
+  B.Orders.push_back(SellB);
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(Pf.lots(1), 10);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Filled);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[2].Status, OrderStatus::Active);
+  EXPECT_EQ(B.Orders[3].Status, OrderStatus::Active);
+}
+
+TEST(PositionClosed, PartialSellDoesNotCancelRemainingSells) {
+  // Частичное закрытие позиции (10 -> 6) не снимает защитный стоп.
+  const Timeline T = twoBars(B{0, 1, "100", "102", "98", "101"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  B.Orders.push_back(makeOrder(0, Side::Sell, OrderType::Market, 4));
+  B.Orders.push_back(stopOrder(1, Side::Sell, "95", 6));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(Pf.lots(0), 6);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Active);
+}
+
+TEST(PositionClosed,
+     OcoSiblingKeepsOcoReasonWhileThirdOrderGetsPositionClosed) {
+  // Стоп из OCO-пары закрывает всю позицию: вторая нога OCO получает
+  // OcoSiblingFilled, а третья независимая заявка на продажу — PositionClosed.
+  const Timeline T = twoBars(B{0, 1, "100", "111", "94", "100"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B = stopTakePair(true);
+  B.Orders.push_back(limitOrder(2, Side::Sell, "115", 5));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Filled);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::OcoSiblingFilled);
+  EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
 }
 
 } // namespace

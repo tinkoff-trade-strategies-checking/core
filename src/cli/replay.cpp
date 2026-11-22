@@ -224,6 +224,8 @@ std::string reasonToString(core::Reason ReasonCode) {
     return "LIQUIDITY_LIMIT";
   case core::Reason::OcoSiblingFilled:
     return "OCO_SIBLING_FILLED";
+  case core::Reason::PositionClosed:
+    return "POSITION_CLOSED";
   case core::Reason::Replaced:
     return "REPLACED";
   case core::Reason::SessionEnd:

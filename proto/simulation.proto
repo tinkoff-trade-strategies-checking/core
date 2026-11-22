@@ -104,11 +104,12 @@ enum Reason {
   ORDER_NOT_ACTIVE = 5;
   LIQUIDITY_LIMIT = 6;
   OCO_SIBLING_FILLED = 7;
-  reserved 8, 12;
-  reserved "POSITION_CLOSED", "RULE_REPLACED";
+  POSITION_CLOSED = 8;
   REPLACED = 9;
   SESSION_END = 10;
   CANCELLED_BY_USER = 11;
+  reserved 12;
+  reserved "RULE_REPLACED";
   DAY_EXPIRED = 13;
 }
 
