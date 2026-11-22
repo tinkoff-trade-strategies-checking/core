@@ -3,6 +3,7 @@
 #include <grpcpp/grpcpp.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -439,5 +440,45 @@ TEST_F(AnalyzeDivergencesRpc, ValidationErrorsAndCancellation) {
     EXPECT_EQ(St.error_code(), grpc::StatusCode::CANCELLED);
     EXPECT_EQ(Resp.divergences_size(), 0);
     EXPECT_EQ(Resp.algorithm_portfolios_size(), 0);
+  }
+}
+
+TEST_F(AnalyzeDivergencesRpc, TimeBudgetDeadlineExceededAndCompleted) {
+  pb::DivergenceRequest Req;
+  *Req.mutable_market() = fixtureMarket();
+  Req.set_last_step(5);
+  pb::AlgorithmRef *Alg = Req.add_algorithms();
+  Alg->set_id("a1");
+  Alg->mutable_strategy()->set_source(
+      "rule \"b\" when position == 0 then buy 1 lots market because \"b\"");
+
+  {
+    pb::DivergenceResponse Resp;
+    worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia,
+                        nullptr};
+    const grpc::Status St = worker::handleAnalyzeDivergences(
+        Ctx, Req, &Resp, {}, std::chrono::steady_clock::duration::zero());
+    EXPECT_EQ(St.error_code(), grpc::StatusCode::DEADLINE_EXCEEDED);
+    EXPECT_NE(St.error_message().find("НФТ-7"), std::string::npos);
+    EXPECT_EQ(Resp.divergences_size(), 0);
+    EXPECT_EQ(Resp.algorithm_portfolios_size(), 0);
+  }
+  {
+    pb::DivergenceResponse Resp;
+    grpc::ClientContext ClientCtx;
+    ClientCtx.set_deadline(std::chrono::system_clock::now() -
+                           std::chrono::seconds(1));
+    const grpc::Status St = Stub->AnalyzeDivergences(&ClientCtx, Req, &Resp);
+    EXPECT_EQ(St.error_code(), grpc::StatusCode::DEADLINE_EXCEEDED);
+  }
+  {
+    pb::DivergenceResponse Resp;
+    grpc::ClientContext ClientCtx;
+    ClientCtx.set_deadline(std::chrono::system_clock::now() +
+                           std::chrono::seconds(60));
+    const grpc::Status St = Stub->AnalyzeDivergences(&ClientCtx, Req, &Resp);
+    ASSERT_TRUE(St.ok()) << St.error_message();
+    ASSERT_EQ(Resp.algorithm_portfolios_size(), 1);
+    EXPECT_EQ(Resp.algorithm_portfolios(0).result().status(), pb::COMPLETED);
   }
 }

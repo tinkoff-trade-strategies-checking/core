@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -88,12 +89,53 @@ void writeConsensus(const core::ConsensusItem &Src,
   core::toProto(Src.MedianCost, Out->mutable_median_cost());
 }
 
+enum class CancelReason { None, ClientCancelled, TimeBudgetExceeded };
+
+std::optional<std::chrono::steady_clock::time_point> computeSteadyDeadline(
+    std::optional<std::chrono::steady_clock::duration> Budget) {
+  if (!Budget.has_value()) {
+    return std::nullopt;
+  }
+  const auto Now = std::chrono::steady_clock::now();
+  if (*Budget <= std::chrono::steady_clock::duration::zero()) {
+    return Now;
+  }
+  const auto MaxRemaining = std::chrono::steady_clock::time_point::max() - Now;
+  if (*Budget >= MaxRemaining) {
+    return std::chrono::steady_clock::time_point::max();
+  }
+  return Now + *Budget;
+}
+
 bool fill(Context &Ctx, const pb::DivergenceRequest &Request,
-          pb::DivergenceResponse *Out,
-          const std::function<bool()> &IsCancelled) {
+          pb::DivergenceResponse *Out, const std::function<bool()> &IsCancelled,
+          std::optional<std::chrono::steady_clock::duration> TimeBudget,
+          CancelReason &Reason) {
   if (!Request.has_market()) {
     throw std::invalid_argument("не задан market");
   }
+  const std::optional<std::chrono::steady_clock::time_point> DeadlineSteady =
+      computeSteadyDeadline(TimeBudget);
+  const std::function<bool()> CombinedCancel = [&IsCancelled, DeadlineSteady,
+                                                &Reason]() {
+    if (Reason == CancelReason::ClientCancelled) {
+      return true;
+    }
+    if (IsCancelled && IsCancelled()) {
+      Reason = CancelReason::ClientCancelled;
+      return true;
+    }
+    if (DeadlineSteady.has_value() &&
+        std::chrono::steady_clock::now() >= *DeadlineSteady) {
+      Reason = CancelReason::TimeBudgetExceeded;
+      return true;
+    }
+    return false;
+  };
+  if (CombinedCancel()) {
+    return false;
+  }
+
   const pb::MarketSpec &Market = Request.market();
   const core::SessionSpec Spec = toSessionSpec(Market);
   const std::shared_ptr<const core::Timeline> Timeline =
@@ -147,8 +189,11 @@ bool fill(Context &Ctx, const pb::DivergenceRequest &Request,
 
   const core::DivergenceResult Result = core::analyzeDivergences(
       Spec, Timeline, Journal, Request.last_step(), Algorithms, Benchmark,
-      Ruonia, PreviousDay, IsCancelled);
-  if (Result.Cancelled || (IsCancelled && IsCancelled())) {
+      Ruonia, PreviousDay, CombinedCancel);
+  if (CombinedCancel() || Result.Cancelled) {
+    if (Reason == CancelReason::None) {
+      Reason = CancelReason::ClientCancelled;
+    }
     return false;
   }
 
@@ -175,13 +220,18 @@ bool fill(Context &Ctx, const pb::DivergenceRequest &Request,
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException). Ответ
 // собирается отдельно и записывается в Response только при успехе.
-grpc::Status
-handleAnalyzeDivergences(Context &Ctx, const pb::DivergenceRequest &Request,
-                         pb::DivergenceResponse *Response,
-                         const std::function<bool()> &IsCancelled) {
+grpc::Status handleAnalyzeDivergences(
+    Context &Ctx, const pb::DivergenceRequest &Request,
+    pb::DivergenceResponse *Response, const std::function<bool()> &IsCancelled,
+    std::optional<std::chrono::steady_clock::duration> TimeBudget) {
   try {
     pb::DivergenceResponse Result;
-    if (!fill(Ctx, Request, &Result, IsCancelled)) {
+    CancelReason Reason = CancelReason::None;
+    if (!fill(Ctx, Request, &Result, IsCancelled, TimeBudget, Reason)) {
+      if (Reason == CancelReason::TimeBudgetExceeded) {
+        return grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED,
+                            kTimeBudgetExceededMessage);
+      }
       return grpc::Status::CANCELLED;
     }
     *Response = std::move(Result);

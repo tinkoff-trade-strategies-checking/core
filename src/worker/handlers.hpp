@@ -1,6 +1,8 @@
 #pragma once
 
+#include <chrono>
 #include <functional>
+#include <optional>
 
 #include <grpcpp/grpcpp.h>
 
@@ -43,12 +45,35 @@ grpc::Status handleClassifyPeriods(Context &Context,
                                    pb::ClassifyPeriodsResponse *Response);
 grpc::Status handleCheckStrategy(const pb::CheckStrategyRequest &Request,
                                  pb::CheckStrategyResponse *Response);
-grpc::Status
-handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
-                  grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
-                  const std::function<bool()> &IsCancelled = {});
-grpc::Status
-handleAnalyzeDivergences(Context &Ctx, const pb::DivergenceRequest &Request,
-                         pb::DivergenceResponse *Response,
-                         const std::function<bool()> &IsCancelled = {});
+// Максимальный бюджет времени прогона стратегии и разбора расхождений (НФТ-7).
+inline constexpr std::chrono::steady_clock::duration kMaxRunTimeBudget =
+    std::chrono::minutes(10);
+
+inline constexpr const char *kTimeBudgetExceededMessage =
+    "превышен бюджет времени прогона (НФТ-7)";
+
+// Вычисляет бюджет времени прогона из дедлайна gRPC-контекста: если дедлайн
+// задан и не равен system_clock::time_point::max(), возвращает
+// min(kMaxRunTimeBudget, max(0, Deadline - now)), иначе kMaxRunTimeBudget.
+std::chrono::steady_clock::duration
+computeTimeBudget(std::chrono::system_clock::time_point Deadline);
+
+grpc::Status handleRunStrategy(
+    Context &Ctx, const pb::RunStrategyRequest &Request,
+    grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
+    const std::function<bool()> &IsCancelled = {},
+    std::optional<std::chrono::steady_clock::duration> TimeBudget =
+        kMaxRunTimeBudget);
+grpc::Status handleRunStrategyWithSink(
+    Context &Ctx, const pb::RunStrategyRequest &Request,
+    const std::function<bool(const pb::RunStrategyUpdate &)> &WriteUpdate,
+    const std::function<bool()> &IsCancelled = {},
+    std::optional<std::chrono::steady_clock::duration> TimeBudget =
+        kMaxRunTimeBudget);
+grpc::Status handleAnalyzeDivergences(
+    Context &Ctx, const pb::DivergenceRequest &Request,
+    pb::DivergenceResponse *Response,
+    const std::function<bool()> &IsCancelled = {},
+    std::optional<std::chrono::steady_clock::duration> TimeBudget =
+        kMaxRunTimeBudget);
 } // namespace worker

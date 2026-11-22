@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -17,10 +18,11 @@
 namespace worker {
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException).
-grpc::Status
-handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
-                  grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
-                  const std::function<bool()> &IsCancelled) {
+grpc::Status handleRunStrategyWithSink(
+    Context &Ctx, const pb::RunStrategyRequest &Request,
+    const std::function<bool(const pb::RunStrategyUpdate &)> &WriteUpdate,
+    const std::function<bool()> &IsCancelled,
+    std::optional<std::chrono::steady_clock::duration> TimeBudget) {
   try {
     if (!Request.has_market()) {
       throw std::invalid_argument("не задан market");
@@ -28,8 +30,30 @@ handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
     if (!Request.has_strategy()) {
       throw std::invalid_argument("не задана strategy");
     }
-    if (Writer == nullptr) {
+    if (!WriteUpdate) {
       throw std::invalid_argument("не задан поток ответа");
+    }
+
+    const auto StartSteady = std::chrono::steady_clock::now();
+    bool ClientCancelled = false;
+    const auto CheckClientCancelled = [&IsCancelled, &ClientCancelled]() {
+      if (ClientCancelled) {
+        return true;
+      }
+      if (IsCancelled && IsCancelled()) {
+        ClientCancelled = true;
+        return true;
+      }
+      return false;
+    };
+
+    if (CheckClientCancelled()) {
+      return grpc::Status::CANCELLED;
+    }
+    if (TimeBudget.has_value() &&
+        *TimeBudget <= std::chrono::steady_clock::duration::zero()) {
+      return grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED,
+                          kTimeBudgetExceededMessage);
     }
 
     const pb::MarketSpec &Market = Request.market();
@@ -45,10 +69,18 @@ handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
     core::StrategyRunOptions Opts;
     Opts.Source = Request.strategy().source();
     Opts.ParamOverrides = std::move(Overrides);
-    Opts.ShouldCancel = [&IsCancelled, &StreamAborted]() {
-      return StreamAborted || (IsCancelled && IsCancelled());
+    Opts.ShouldCancel = [&CheckClientCancelled, &StreamAborted]() {
+      return StreamAborted || CheckClientCancelled();
     };
-    Opts.OnProgress = [Writer, &LastSentDone, &StreamAborted](
+    if (TimeBudget.has_value()) {
+      const auto Elapsed = std::chrono::steady_clock::now() - StartSteady;
+      if (Elapsed >= *TimeBudget) {
+        return grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED,
+                            kTimeBudgetExceededMessage);
+      }
+      Opts.TimeBudget = *TimeBudget - Elapsed;
+    }
+    Opts.OnProgress = [&WriteUpdate, &LastSentDone, &StreamAborted](
                           std::int64_t DoneSteps, std::int64_t TotalSteps) {
       if (StreamAborted) {
         return;
@@ -61,7 +93,7 @@ handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
       pb::RunStrategyUpdate Update;
       Update.mutable_progress()->set_done_steps(DoneSteps);
       Update.mutable_progress()->set_total_steps(TotalSteps);
-      if (!Writer->Write(Update)) {
+      if (!WriteUpdate(Update)) {
         StreamAborted = true;
         return;
       }
@@ -69,8 +101,12 @@ handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
     };
 
     const core::StrategyRunResult Run = core::runStrategy(Spec, Timeline, Opts);
-    if (Run.Cancelled || StreamAborted || (IsCancelled && IsCancelled())) {
+    if (StreamAborted || CheckClientCancelled()) {
       return grpc::Status::CANCELLED;
+    }
+    if (Run.Cancelled) {
+      return grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED,
+                          kTimeBudgetExceededMessage);
     }
 
     std::optional<core::Report> ReportOpt;
@@ -92,13 +128,30 @@ handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
     pb::RunStrategyUpdate FinalUpdate;
     toProto(Run, ReportOpt ? &*ReportOpt : nullptr, *Timeline,
             Request.include_history(), FinalUpdate.mutable_result());
-    if (!Writer->Write(FinalUpdate)) {
+    if (!WriteUpdate(FinalUpdate)) {
       return grpc::Status::CANCELLED;
     }
     return grpc::Status::OK;
   } catch (...) {
     return statusFromCurrentException();
   }
+}
+
+grpc::Status handleRunStrategy(
+    Context &Ctx, const pb::RunStrategyRequest &Request,
+    grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
+    const std::function<bool()> &IsCancelled,
+    std::optional<std::chrono::steady_clock::duration> TimeBudget) {
+  if (Writer == nullptr) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                        "не задан поток ответа");
+  }
+  return handleRunStrategyWithSink(
+      Ctx, Request,
+      [Writer](const pb::RunStrategyUpdate &Update) {
+        return Writer->Write(Update);
+      },
+      IsCancelled, TimeBudget);
 }
 
 } // namespace worker

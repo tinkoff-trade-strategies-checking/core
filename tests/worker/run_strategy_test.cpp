@@ -2,8 +2,10 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,6 +17,7 @@
 #include "core/money/decimal.hpp"
 #include "core/money/proto_conv.hpp"
 #include "core/report/ruonia.hpp"
+#include "handlers.hpp"
 #include "worker_service.hpp"
 #include "worker_test_support.hpp"
 
@@ -351,5 +354,86 @@ rule "вход"
     while (Reader->Read(&Update)) {
     }
     EXPECT_EQ(Reader->Finish().error_code(), grpc::StatusCode::CANCELLED);
+  }
+}
+
+TEST_F(RunStrategyRpc, TimeBudgetComputationAndDeadlineExceeded) {
+  EXPECT_EQ(
+      worker::computeTimeBudget(std::chrono::system_clock::time_point::max()),
+      worker::kMaxRunTimeBudget);
+  EXPECT_EQ(worker::computeTimeBudget(std::chrono::system_clock::now() -
+                                      std::chrono::seconds(5)),
+            std::chrono::steady_clock::duration::zero());
+  EXPECT_EQ(worker::computeTimeBudget(std::chrono::system_clock::now() +
+                                      std::chrono::hours(1)),
+            worker::kMaxRunTimeBudget);
+  const auto Bounded = worker::computeTimeBudget(
+      std::chrono::system_clock::now() + std::chrono::seconds(30));
+  EXPECT_GT(Bounded, std::chrono::steady_clock::duration::zero());
+  EXPECT_LE(Bounded, std::chrono::seconds(30));
+
+  pb::RunStrategyRequest Req;
+  *Req.mutable_market() = fixtureMarket();
+  Req.mutable_strategy()->set_source(
+      "rule \"r\" when position == 0 then buy 1 lots market because \"ok\"");
+
+  {
+    worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia,
+                        nullptr};
+    std::vector<pb::RunStrategyUpdate> Updates;
+    const grpc::Status St = worker::handleRunStrategyWithSink(
+        Ctx, Req,
+        [&Updates](const pb::RunStrategyUpdate &Update) {
+          Updates.push_back(Update);
+          return true;
+        },
+        {}, std::chrono::steady_clock::duration::zero());
+    EXPECT_EQ(St.error_code(), grpc::StatusCode::DEADLINE_EXCEEDED);
+    EXPECT_NE(St.error_message().find("НФТ-7"), std::string::npos);
+    EXPECT_TRUE(Updates.empty());
+  }
+  {
+    worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia,
+                        nullptr};
+    std::vector<pb::RunStrategyUpdate> Updates;
+    const grpc::Status St = worker::handleRunStrategyWithSink(
+        Ctx, Req,
+        [&Updates](const pb::RunStrategyUpdate &Update) {
+          Updates.push_back(Update);
+          return true;
+        },
+        []() { return true; }, std::chrono::steady_clock::duration::zero());
+    EXPECT_EQ(St.error_code(), grpc::StatusCode::CANCELLED);
+    EXPECT_TRUE(Updates.empty());
+  }
+  {
+    grpc::ClientContext ClientCtx;
+    ClientCtx.set_deadline(std::chrono::system_clock::now() -
+                           std::chrono::seconds(1));
+    std::unique_ptr<grpc::ClientReader<pb::RunStrategyUpdate>> Reader =
+        Stub->RunStrategy(&ClientCtx, Req);
+    pb::RunStrategyUpdate Update;
+    while (Reader->Read(&Update)) {
+    }
+    EXPECT_EQ(Reader->Finish().error_code(),
+              grpc::StatusCode::DEADLINE_EXCEEDED);
+  }
+  {
+    grpc::ClientContext ClientCtx;
+    ClientCtx.set_deadline(std::chrono::system_clock::now() +
+                           std::chrono::seconds(60));
+    std::unique_ptr<grpc::ClientReader<pb::RunStrategyUpdate>> Reader =
+        Stub->RunStrategy(&ClientCtx, Req);
+    pb::RunStrategyUpdate Update;
+    std::vector<pb::RunResult> Results;
+    while (Reader->Read(&Update)) {
+      if (Update.has_result()) {
+        Results.push_back(Update.result());
+      }
+    }
+    const grpc::Status St = Reader->Finish();
+    ASSERT_TRUE(St.ok()) << St.error_message();
+    ASSERT_EQ(Results.size(), 1u);
+    EXPECT_EQ(Results[0].status(), pb::COMPLETED);
   }
 }
