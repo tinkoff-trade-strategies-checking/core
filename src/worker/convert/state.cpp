@@ -348,6 +348,8 @@ pb::Reason toProto(core::Reason Reason) {
     return pb::LIQUIDITY_LIMIT;
   case core::Reason::OcoSiblingFilled:
     return pb::OCO_SIBLING_FILLED;
+  case core::Reason::PositionClosed:
+    return pb::POSITION_CLOSED;
   case core::Reason::Replaced:
     return pb::REPLACED;
   case core::Reason::SessionEnd:

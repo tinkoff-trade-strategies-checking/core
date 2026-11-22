@@ -4,6 +4,9 @@
 #include <stdexcept>
 #include <vector>
 
+#include "core/market/calendar_source.hpp"
+#include "core/market/date_utils.hpp"
+#include "core/market/in_memory_bar_source.hpp"
 #include "core/market/timeline.hpp"
 #include "support/fixture1.hpp"
 
@@ -130,6 +133,55 @@ TEST(TimelineWarmup, WithWarmupChecksInput) {
   const Timeline Twice = Period.withWarmup(Before, 3).withWarmup(Before, 1);
   EXPECT_EQ(Twice.warmupSteps(), 1);
   EXPECT_EQ(Twice.warmupBars().size(), 1u); // 12 января - только A
+}
+
+TEST(TimelineWarmup, DefaultWarmup200Bars) {
+  static_assert(Timeline::kDefaultWarmupBars == 200);
+  constexpr std::int64_t kDayMs = 86'400'000;
+  const Instrument Inst{"A", "WARM", 10, Decimal::parse("0.01")};
+  const Security Sec{"WARM", "Finance", 10, Decimal::parse("0.01")};
+  InMemoryBarSource Bars;
+  InMemoryCalendarSource Cal;
+  std::vector<Bar> Series;
+  std::vector<TradingDay> Days;
+  // 250 торговых дней подряд (хватает на 200 баров прогрева + 50 баров сессии).
+  const std::int64_t StartDay = daysFromCivil(2023, 1, 1);
+  std::int64_t Offset = 0;
+  std::int32_t PeriodFromYmd = 0;
+  std::int32_t PeriodToYmd = 0;
+  for (int I = 0; I < 250; ++I) {
+    // Пропускаем выходные для реалистичного календаря (5 из 7).
+    while ((StartDay + Offset + 4) % 7 >= 5)
+      ++Offset;
+    const std::int32_t Ymd = civilFromDays(StartDay + Offset);
+    ++Offset;
+    if (I == 205)
+      PeriodFromYmd = Ymd;
+    if (I == 249)
+      PeriodToYmd = Ymd;
+    Bar B;
+    B.TsOpenMs = moscowDayStartMs(Ymd);
+    B.AvailableAtMs = B.TsOpenMs + kDayMs;
+    B.Open = Decimal::fromUnits(100 + I);
+    B.High = B.Open;
+    B.Low = B.Open;
+    B.Close = B.Open;
+    B.Volume = 1000;
+    Series.push_back(B);
+    Days.push_back(TradingDay{Ymd, true});
+  }
+  Bars.addSecurity("snap-200", Sec);
+  Bars.addSeries("snap-200", "WARM", intervalSeconds(Timeframe::D1), Series);
+  Cal.add("snap-200", Days);
+
+  const Timeline T = Timeline::loadWithWarmup(
+      Bars, Cal, "snap-200", {Inst}, Timeframe::D1, PeriodFromYmd, PeriodToYmd,
+      Timeline::kDefaultWarmupBars);
+  EXPECT_EQ(T.warmupSteps(), 200);
+  ASSERT_EQ(T.warmupBars().size(), 200u);
+  EXPECT_EQ(T.warmupBars().front().Step, -200);
+  EXPECT_EQ(T.warmupBars().back().Step, -1);
+  EXPECT_EQ(T.totalSteps(), 45);
 }
 
 } // namespace

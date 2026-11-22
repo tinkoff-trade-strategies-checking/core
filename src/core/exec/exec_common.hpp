@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -92,6 +94,29 @@ inline Fill &recordFill(Portfolio &Portfolio, std::vector<Fill> &Fills,
   F.Seq = static_cast<std::int64_t>(Fills.size());
   Fills.push_back(F);
   return Fills.back();
+}
+
+// Когда позиция по бумаге обнуляется (position == 0), немедленно внутри шага
+// снимает все оставшиеся активные заявки на продажу этой бумаги с причиной
+// PositionClosed (INV-3, `decisions.md`, «Заявки», `dsl.md` п. 6).
+inline void cancelSellOrdersOnPositionClosed(std::vector<Order> &Orders,
+                                             int Instrument, std::int64_t Step,
+                                             std::vector<std::int64_t> &Changed,
+                                             std::size_t ChangedFrom) {
+  for (Order &O : Orders) {
+    if (O.Spec.Instrument != Instrument || O.Spec.OrderSide != Side::Sell)
+      continue;
+    if (O.Status != OrderStatus::Active &&
+        O.Status != OrderStatus::PartiallyFilled)
+      continue;
+    O.Status = OrderStatus::Cancelled;
+    O.ReasonCode = Reason::PositionClosed;
+    O.ClosedStep = Step;
+    if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
+                  Changed.end(), O.Id) == Changed.end()) {
+      Changed.push_back(O.Id);
+    }
+  }
 }
 
 } // namespace core

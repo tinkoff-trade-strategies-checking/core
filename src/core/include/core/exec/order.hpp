@@ -38,6 +38,7 @@ enum class Reason {
   OrderNotActive,
   LiquidityLimit,
   OcoSiblingFilled,
+  PositionClosed,
   Replaced,
   SessionEnd,
   CancelledByUser,

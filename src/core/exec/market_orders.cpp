@@ -19,6 +19,7 @@ void runMarketOrders(std::int64_t Step,
                      LiquidityBudget &Budget, std::vector<Order> &Orders,
                      Portfolio &Portfolio, std::vector<Fill> &Fills,
                      std::vector<std::int64_t> &Changed) {
+  const std::size_t ChangedFrom = Changed.size();
   // Заявки - по возрастанию id.
   std::vector<std::size_t> ByOrderId(Orders.size());
   std::iota(ByOrderId.begin(), ByOrderId.end(), std::size_t{0});
@@ -75,7 +76,15 @@ void runMarketOrders(std::int64_t Step,
       O.ReasonCode = reason;
     }
     O.ClosedStep = Step;
-    Changed.push_back(O.Id);
+    if (std::find(Changed.begin() + static_cast<std::ptrdiff_t>(ChangedFrom),
+                  Changed.end(), O.Id) == Changed.end()) {
+      Changed.push_back(O.Id);
+    }
+    if (O.Spec.OrderSide == Side::Sell && q > 0 &&
+        Portfolio.lots(InstrIdx) == 0) {
+      cancelSellOrdersOnPositionClosed(Orders, InstrIdx, Step, Changed,
+                                       ChangedFrom);
+    }
   }
 }
 

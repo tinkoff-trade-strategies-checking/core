@@ -235,6 +235,10 @@ void runStops(Context &C) {
     } else {
       closeOrder(C, O, OrderStatus::Cancelled, E.ReasonCode);
     }
+    if (!Buy && E.Lots > 0 && C.Folio.lots(O.Spec.Instrument) == 0) {
+      cancelSellOrdersOnPositionClosed(C.Orders, O.Spec.Instrument, C.Step,
+                                       C.Changed, C.ChangedFrom);
+    }
   }
 }
 
@@ -290,6 +294,10 @@ void runLimits(Context &C) {
     } else {
       closeOrder(C, O, OrderStatus::Cancelled,
                  E.ReasonCode); // не хватило денег или позиции
+    }
+    if (!Buy && E.Lots > 0 && C.Folio.lots(O.Spec.Instrument) == 0) {
+      cancelSellOrdersOnPositionClosed(C.Orders, O.Spec.Instrument, C.Step,
+                                       C.Changed, C.ChangedFrom);
     }
   }
 }
