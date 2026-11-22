@@ -231,7 +231,10 @@ rule "entry"
   EXPECT_EQ(Resp.consensus(2).step(), 4);
 
   ASSERT_EQ(Resp.algorithm_portfolios_size(), 2);
-  for (const pb::RunResult &Port : Resp.algorithm_portfolios()) {
+  EXPECT_EQ(Resp.algorithm_portfolios(0).algorithm_id(), "alg1");
+  EXPECT_EQ(Resp.algorithm_portfolios(1).algorithm_id(), "alg2");
+  for (const pb::AlgorithmPortfolio &Item : Resp.algorithm_portfolios()) {
+    const pb::RunResult &Port = Item.result();
     EXPECT_EQ(Port.status(), pb::COMPLETED);
     EXPECT_EQ(Port.last_step(), 6);
     EXPECT_EQ(Port.total_steps(), 7);
@@ -243,8 +246,8 @@ rule "entry"
     EXPECT_EQ(Port.report().benchmark_equity_size(), 7);
     EXPECT_TRUE(Port.report().metrics().has_sharpe());
   }
-  ASSERT_FALSE(Resp.algorithm_portfolios(1).orders().empty());
-  EXPECT_EQ(Resp.algorithm_portfolios(1).orders(0).spec().lots(), 3);
+  ASSERT_FALSE(Resp.algorithm_portfolios(1).result().orders().empty());
+  EXPECT_EQ(Resp.algorithm_portfolios(1).result().orders(0).spec().lots(), 3);
 }
 
 TEST_F(AnalyzeDivergencesRpc, TimingDivergenceAndEmptyAlgorithms) {
@@ -335,6 +338,18 @@ TEST_F(AnalyzeDivergencesRpc, ValidationErrorsAndCancellation) {
       Alg->mutable_strategy()->set_source(
           "rule \"r\" when false then buy 1 lots market because \"no\"");
     }
+    pb::DivergenceResponse Resp;
+    EXPECT_EQ(analyze(Req, &Resp).error_code(),
+              grpc::StatusCode::INVALID_ARGUMENT);
+  }
+  {
+    pb::DivergenceRequest Req;
+    *Req.mutable_market() = fixtureMarket();
+    Req.set_last_step(5);
+    pb::AlgorithmRef *Alg = Req.add_algorithms();
+    Alg->set_id("");
+    Alg->mutable_strategy()->set_source(
+        "rule \"r\" when false then cancel because \"no\"");
     pb::DivergenceResponse Resp;
     EXPECT_EQ(analyze(Req, &Resp).error_code(),
               grpc::StatusCode::INVALID_ARGUMENT);

@@ -342,9 +342,6 @@ TEST(Divergence, HumanSameStepCancelReplaceNetZeroAndMixedTypes) {
       placeLimit(8, 2, Side::Sell, 1, "102"),
   };
 
-  const DivergenceResult Res = analyzeDivergences(Spec, Tl, Human, 3, {});
-  (void)Res;
-
   const std::string NoOpSrc =
       "rule \"noop\" when false then buy 1 lots market because \"no\"\n";
   const DivergenceResult Res1 =
@@ -427,6 +424,40 @@ rule "liq"
   ASSERT_EQ(Res.Divergences.size(), 2u);
   EXPECT_EQ(Res.Divergences[0].AlgoStep, 0);
   EXPECT_EQ(Res.Divergences[1].AlgoStep, 2);
+
+  // Автоснятие виртуальной Sell-заявки при position == 0:
+  // Шаг 1: position == 1 -> алгоритм ставит sell limit 150 (совпадает с
+  // человеком на шаге 1). Шаг 2: position == 0 -> заявка с шага 1 снимается.
+  // Шаг 3: position снова == 1 -> создаётся новое действие (Missed на шаге 3).
+  const auto AutoTl = makeTimeline({
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+  });
+  const SessionSpec AutoSpec = makeSpec(AutoTl, "100000");
+  const std::vector<JournalEntry> AutoHuman{
+      placeMarket(0, 0, Side::Buy, 1),
+      placeMarket(1, 1, Side::Sell, 1),
+      placeMarket(2, 2, Side::Buy, 1),
+  };
+  const std::string SellSrc = R"dsl(
+rule "sell_high"
+  when position > 0
+  then sell 1 lots limit 150
+  because "продажа дорого"
+)dsl";
+  const DivergenceResult AutoRes =
+      analyzeDivergences(AutoSpec, AutoTl, AutoHuman, 4, {{"a1", SellSrc, {}}});
+  ASSERT_EQ(AutoRes.Divergences.size(), 3u);
+  EXPECT_EQ(AutoRes.Divergences[0].Type, DivergenceType::Excess);
+  EXPECT_EQ(AutoRes.Divergences[0].HumanStep, 0);
+  EXPECT_EQ(AutoRes.Divergences[1].Type, DivergenceType::Excess);
+  EXPECT_EQ(AutoRes.Divergences[1].HumanStep, 2);
+  EXPECT_EQ(AutoRes.Divergences[2].Type, DivergenceType::Missed);
+  EXPECT_EQ(AutoRes.Divergences[2].AlgoStep, 3);
+  EXPECT_EQ(AutoRes.Divergences[2].AlgoLots, -1);
 }
 
 TEST(Divergence, VirtualOrdersRejectPreservesOldAndCancelClearsSameBar) {

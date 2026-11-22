@@ -114,6 +114,9 @@ void fill(Context &Ctx, const pb::DivergenceRequest &Request,
   std::vector<core::AlgorithmInput> Algorithms;
   Algorithms.reserve(static_cast<std::size_t>(Request.algorithms_size()));
   for (const pb::AlgorithmRef &Alg : Request.algorithms()) {
+    if (Alg.id().empty()) {
+      throw std::invalid_argument("не задан id алгоритма");
+    }
     if (!Alg.has_strategy()) {
       throw std::invalid_argument("не задана strategy для алгоритма: " +
                                   Alg.id());
@@ -153,9 +156,12 @@ void fill(Context &Ctx, const pb::DivergenceRequest &Request,
   for (const core::ConsensusItem &Item : Result.Consensus) {
     writeConsensus(Item, *Timeline, Out->add_consensus());
   }
-  for (const core::AlgorithmPortfolio &Port : Result.Independent) {
+  for (std::size_t I = 0; I < Result.Independent.size(); ++I) {
+    const core::AlgorithmPortfolio &Port = Result.Independent[I];
+    pb::AlgorithmPortfolio *OutPort = Out->add_algorithm_portfolios();
+    OutPort->set_algorithm_id(Algorithms[I].Id);
     toProto(Port.Run, &Port.PortfolioReport, *Timeline, false,
-            Out->add_algorithm_portfolios());
+            OutPort->mutable_result());
   }
 }
 

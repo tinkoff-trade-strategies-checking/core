@@ -819,9 +819,14 @@ message ConsensusItem {
   Decimal median_cost = 7;
 }
 
+message AlgorithmPortfolio {
+  string algorithm_id = 1;
+  RunResult result = 2;
+}
+
 message DivergenceResponse {
   repeated Divergence divergences = 1;
   repeated MissedProfitableTrade missed_profitable = 2;
   repeated ConsensusItem consensus = 3;
-  repeated RunResult algorithm_portfolios = 4;
+  repeated AlgorithmPortfolio algorithm_portfolios = 4;
 }
