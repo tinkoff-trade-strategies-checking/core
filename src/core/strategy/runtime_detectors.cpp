@@ -106,10 +106,10 @@ std::optional<Finding> detectGuessedGaps(const Timeline &Tl,
   }
 
   if (GuessedGaps >= 5 && GuessedGaps * 5 >= TotalGaps * 4) {
-    const std::string Msg =
-        "Подозрение на подглядывание в будущее: угадано " +
-        std::to_string(GuessedGaps) + " из " + std::to_string(TotalGaps) +
-        " гэпов >= 2% рыночными заявками стратегии";
+    std::string Msg = "Подозрение на подглядывание в будущее: ";
+    Msg += "угадано " + std::to_string(GuessedGaps);
+    Msg += " из " + std::to_string(TotalGaps);
+    Msg += " гэпов >= 2% рыночными заявками стратегии";
     return Finding{"W-RT01", CheckLevel::Warning, Msg, -1};
   }
   return std::nullopt;

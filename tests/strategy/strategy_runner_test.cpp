@@ -309,9 +309,9 @@ rule "выход"
   ASSERT_TRUE(Res.Compiled);
   ASSERT_TRUE(Res.Engine.has_value());
 
-  // На шаге 3 у FIXA (instr=0) bars_in_position == 2 -> sell подаётся на шаге 3.
-  // У FIXB (instr=1) шаг 3 пропущен -> bars_in_position остаётся 1, sell
-  // подаётся на шаге 4.
+  // На шаге 3 у FIXA (instr=0) bars_in_position == 2, поэтому sell
+  // подаётся на шаге 3. У FIXB (instr=1) шаг 3 пропущен -> счётчик остаётся 1,
+  // sell подаётся на шаге 4.
   bool FoundSellA = false;
   bool FoundSellB = false;
   for (const Order &Ord : Res.Engine->orders()) {

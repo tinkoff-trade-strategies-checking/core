@@ -96,10 +96,13 @@ TEST(RuntimeDetectors, GuessedGapsThresholdAndExactTwoPercent) {
   std::vector<BarSpec> Specs;
   // 5 пар: exact +2% (100 -> 102), -2% (100 -> 98), +2%, -2%, +2%;
   // и 1 пара 1.99% (100 -> 101.99) — не считается гэпом.
-  const std::vector<std::pair<std::string, std::string>> Pairs{
-      {"100", "102"}, {"100", "98"}, {"100", "102"}, {"100", "98"},
-      {"100", "102"}, {"100", "101.99"},
-  };
+  std::vector<std::pair<std::string, std::string>> Pairs;
+  Pairs.emplace_back("100", "102");
+  Pairs.emplace_back("100", "98");
+  Pairs.emplace_back("100", "102");
+  Pairs.emplace_back("100", "98");
+  Pairs.emplace_back("100", "102");
+  Pairs.emplace_back("100", "101.99");
   for (std::size_t I = 0; I < Pairs.size(); ++I) {
     const auto Step = static_cast<std::int64_t>(I * 2);
     Specs.push_back(BarSpec{Step, "100", Pairs[I].first});
@@ -190,14 +193,22 @@ TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
       makeOrder(18, 18, Side::Buy, OrderType::Limit, "r"),
       makeOrder(20, 18, Side::Buy, OrderType::Market, ""),
   };
-  std::vector<Fill> Fills{
-      makeFill(0, 2, Side::Buy, 5), makeFill(2, 5, Side::Buy, 1),
-      makeFill(4, 7, Side::Buy, 1), makeFill(6, 9, Side::Buy, 1),
-      makeFill(8, 11, Side::Buy, 1), makeFill(10, 13, Side::Sell, 1),
-      makeFill(12, 15, Side::Sell, 1), makeFill(14, 17, Side::Buy, 3),
-      makeFill(16, 17, Side::Sell, 3), makeFill(18, 19, Side::Buy, 1),
-      makeFill(20, 19, Side::Buy, 1),
+  std::vector<Fill> Fills;
+  const auto AddFill = [&](std::int64_t OrdId, std::int64_t Step, Side S,
+                           std::int64_t Lots) {
+    Fills.push_back(makeFill(OrdId, Step, S, Lots));
   };
+  AddFill(0, 2, Side::Buy, 5);
+  AddFill(2, 5, Side::Buy, 1);
+  AddFill(4, 7, Side::Buy, 1);
+  AddFill(6, 9, Side::Buy, 1);
+  AddFill(8, 11, Side::Buy, 1);
+  AddFill(10, 13, Side::Sell, 1);
+  AddFill(12, 15, Side::Sell, 1);
+  AddFill(14, 17, Side::Buy, 3);
+  AddFill(16, 17, Side::Sell, 3);
+  AddFill(18, 19, Side::Buy, 1);
+  AddFill(20, 19, Side::Buy, 1);
 
   EXPECT_FALSE(detectGuessedGaps(Tl, Orders, Fills).has_value());
 
