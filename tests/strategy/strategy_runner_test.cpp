@@ -558,7 +558,20 @@ rule "выход"
   ASSERT_TRUE(RunRes.Compiled);
   ASSERT_TRUE(RunRes.Engine.has_value());
 
-  const Report SmoothRep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl);
+  const RuoniaSeries Rates = [&]() {
+    RuoniaSeries Out;
+    const std::int32_t Day0 = moscowYmd(moscowDayStartMs(20240201) - kDayMs);
+    Out.Rates.push_back(DailyRate{Day0, Decimal::parse("15.0")});
+    for (std::int64_t Step = 0; Step < Tl->totalSteps(); ++Step) {
+      Out.Rates.push_back(
+          DailyRate{Tl->yyyymmddOf(Step), Decimal::parse("15.0")});
+    }
+    return Out;
+  }();
+  const std::int32_t PrevDay = Rates.Rates.front().Yyyymmdd;
+
+  const Report SmoothRep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl,
+                                               std::nullopt, Rates, PrevDay);
   EXPECT_EQ(SmoothRep.ReportLevel, CheckLevel::Warning);
   int Wrt02Count = 0;
   for (const Finding &Item : SmoothRep.Findings) {
@@ -572,7 +585,8 @@ rule "выход"
   RunRes.Invalid = true;
   RunRes.FinalLevel = CheckLevel::Error;
   RunRes.RuntimeFindings = {Finding{"E-RT01", CheckLevel::Error, "сбой", 5}};
-  const Report InvalidRep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl);
+  const Report InvalidRep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl,
+                                                std::nullopt, Rates, PrevDay);
   EXPECT_EQ(InvalidRep.ReportLevel, CheckLevel::Error);
   ASSERT_EQ(InvalidRep.Findings.size(), 1u);
   EXPECT_EQ(InvalidRep.Findings[0].Code, "E-RT01");
