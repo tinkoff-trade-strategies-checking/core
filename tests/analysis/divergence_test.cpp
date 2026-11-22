@@ -945,17 +945,19 @@ TEST(Divergence, CooperativeCancellationStopsEarly) {
       "rule \"b\" when position == 0 then buy 1 lots market because \"b\"\n";
 
   int Checks = 0;
-  const DivergenceResult EarlyRes = analyzeDivergences(
-      Spec, Tl, {}, 3, {{"a1", AlgoSrc, {}}}, std::nullopt, std::nullopt, 0,
-      [&]() { return ++Checks >= 2; });
+  const auto EarlyCancel = [&]() { return ++Checks >= 2; };
+  const DivergenceResult EarlyRes =
+      analyzeDivergences(Spec, Tl, {}, 3, {{"a1", AlgoSrc, {}}}, std::nullopt,
+                         std::nullopt, 0, EarlyCancel);
   EXPECT_TRUE(EarlyRes.Cancelled);
   EXPECT_TRUE(EarlyRes.Independent.empty());
 
   // Отмена на фазе assembleIndependent (внутри runStrategy).
   int LateChecks = 0;
-  const DivergenceResult IndepCancelRes = analyzeDivergences(
-      Spec, Tl, {}, 3, {{"a1", AlgoSrc, {}}}, std::nullopt, std::nullopt, 0,
-      [&]() { return ++LateChecks >= 20; });
+  const auto LateCancel = [&]() { return ++LateChecks >= 20; };
+  const DivergenceResult IndepCancelRes =
+      analyzeDivergences(Spec, Tl, {}, 3, {{"a1", AlgoSrc, {}}}, std::nullopt,
+                         std::nullopt, 0, LateCancel);
   EXPECT_TRUE(IndepCancelRes.Cancelled);
 }
 

@@ -322,9 +322,11 @@ void updateVirtualOrders(std::vector<VirtualOrder> &Orders, int Instr,
     // Фаза 3: лимитные и тейк-профит заявки.
     for (std::size_t I = 0; I < Orders.size(); ++I) {
       VirtualOrder &Ord = Orders[I];
-      if (Ord.PlacedStep >= Step ||
-          (Ord.Spec.Type != OrderType::Limit &&
-           Ord.Spec.Type != OrderType::TakeProfit)) {
+      if (Ord.PlacedStep >= Step) {
+        continue;
+      }
+      if (Ord.Spec.Type != OrderType::Limit &&
+          Ord.Spec.Type != OrderType::TakeProfit) {
         continue;
       }
       const Decimal &Limit = *Ord.Spec.LimitPrice;
@@ -819,9 +821,9 @@ private:
       HumanOrderSides[NewId] = Place->Order.OrderSide;
     };
 
-    std::optional<SessionEngine> Walked = walkHuman(
-        Spec, TimelineRef, Journal, LastStep, OnStep, OnEntry,
-        [&]() { return isCancelled(); });
+    const auto CancelFn = [&]() { return isCancelled(); };
+    auto Walked = walkHuman(Spec, TimelineRef, Journal, LastStep, OnStep,
+                            OnEntry, CancelFn);
     if (!Walked.has_value()) {
       return false;
     }
@@ -1017,11 +1019,12 @@ private:
               algorithmValue(Engine, PendingList[Index], SeqBase);
         }
       };
-      if (!walkHuman(Spec, TimelineRef, Journal, Jobs.rbegin()->first + 1,
-                     OnStep,
-                     [](const JournalEntry &, const CommandResult &, bool) {},
-                     [&]() { return isCancelled(); })
-               .has_value()) {
+      auto NoEntry = [](const JournalEntry &, const CommandResult &, bool) {};
+      const auto CancelFn = [&]() { return isCancelled(); };
+      const std::int64_t LastJob = Jobs.rbegin()->first + 1;
+      auto Walked = walkHuman(Spec, TimelineRef, Journal, LastJob, OnStep,
+                              NoEntry, CancelFn);
+      if (!Walked.has_value()) {
         return false;
       }
     }
@@ -1288,15 +1291,13 @@ private:
 
 } // namespace
 
-DivergenceResult
-analyzeDivergences(const SessionSpec &Spec,
-                   std::shared_ptr<const Timeline> TimelineRef,
-                   std::span<const JournalEntry> Human, std::int64_t LastStep,
-                   const std::vector<AlgorithmInput> &Algorithms,
-                   const std::optional<BenchmarkSeries> &Benchmark,
-                   const std::optional<RuoniaSeries> &Ruonia,
-                   std::int32_t RuoniaPreviousDayYmd,
-                   std::function<bool()> ShouldCancel) {
+DivergenceResult analyzeDivergences(
+    const SessionSpec &Spec, std::shared_ptr<const Timeline> TimelineRef,
+    std::span<const JournalEntry> Human, std::int64_t LastStep,
+    const std::vector<AlgorithmInput> &Algorithms,
+    const std::optional<BenchmarkSeries> &Benchmark,
+    const std::optional<RuoniaSeries> &Ruonia,
+    std::int32_t RuoniaPreviousDayYmd, std::function<bool()> ShouldCancel) {
   Analyzer Runner(Spec, std::move(TimelineRef), Human, LastStep, Algorithms,
                   Benchmark, Ruonia, RuoniaPreviousDayYmd,
                   std::move(ShouldCancel));
