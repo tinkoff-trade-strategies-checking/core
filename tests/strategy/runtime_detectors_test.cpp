@@ -221,7 +221,7 @@ TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
 }
 
 TEST(RuntimeDetectors, TooSmoothResultBoundary) {
-  auto makeTrips = [](std::size_t Total, std::size_t Wins) {
+  auto MakeTrips = [](std::size_t Total, std::size_t Wins) {
     std::vector<RoundTrip> Trips;
     for (std::size_t I = 0; I < Total; ++I) {
       RoundTrip T{};
@@ -231,11 +231,11 @@ TEST(RuntimeDetectors, TooSmoothResultBoundary) {
     return Trips;
   };
 
-  EXPECT_FALSE(detectTooSmoothResult(makeTrips(29, 29)).has_value());
+  EXPECT_FALSE(detectTooSmoothResult(MakeTrips(29, 29)).has_value());
   // 90.0%
-  EXPECT_FALSE(detectTooSmoothResult(makeTrips(30, 27)).has_value());
+  EXPECT_FALSE(detectTooSmoothResult(MakeTrips(30, 27)).has_value());
   // 93.3%
-  const auto Res = detectTooSmoothResult(makeTrips(30, 28));
+  const auto Res = detectTooSmoothResult(MakeTrips(30, 28));
   ASSERT_TRUE(Res.has_value());
   EXPECT_EQ(Res->Code, "W-RT02");
   EXPECT_EQ(Res->Severity, CheckLevel::Warning);

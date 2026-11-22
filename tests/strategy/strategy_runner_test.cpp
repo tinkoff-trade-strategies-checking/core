@@ -36,7 +36,7 @@ makeTimeline(const std::vector<SimpleBar> &BarsSpec,
   const std::int64_t BaseMs = moscowDayStartMs(20240201);
 
   std::int64_t DayIdx = 0;
-  auto pushBar = [&](const SimpleBar &S, std::vector<Bar> &Out) {
+  auto PushBar = [&](const SimpleBar &S, std::vector<Bar> &Out) {
     const std::int64_t OpenMs = BaseMs + DayIdx * kDayMs;
     ++DayIdx;
     Bar B;
@@ -54,10 +54,10 @@ makeTimeline(const std::vector<SimpleBar> &BarsSpec,
 
   std::vector<Bar> WarmupBars;
   for (const SimpleBar &S : WarmupSpec) {
-    pushBar(S, WarmupBars);
+    PushBar(S, WarmupBars);
   }
   for (const SimpleBar &S : BarsSpec) {
-    pushBar(S, Bars);
+    PushBar(S, Bars);
   }
 
   Timeline MainTl = Timeline::build(Instruments, {Bars}, Calendar);
