@@ -970,6 +970,7 @@ TEST(PositionClosed, MarketSellCancelsStopAndTakeBeforeStopsPhase) {
   EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
   EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
   EXPECT_EQ(B.Orders[2].ClosedStep, 1);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 1, 2}));
 }
 
 TEST(PositionClosed, MarketSellThenMarketBuyDoesNotTriggerOldStop) {
@@ -991,6 +992,7 @@ TEST(PositionClosed, MarketSellThenMarketBuyDoesNotTriggerOldStop) {
   EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
   EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
   EXPECT_EQ(B.Orders[2].ClosedStep, 1);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 2, 1}));
 }
 
 TEST(PositionClosed, LimitSellCancelsOtherSellButNotBuyOrOtherInstrument) {
@@ -1025,6 +1027,7 @@ TEST(PositionClosed, LimitSellCancelsOtherSellButNotBuyOrOtherInstrument) {
   EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
   EXPECT_EQ(B.Orders[2].Status, OrderStatus::Active);
   EXPECT_EQ(B.Orders[3].Status, OrderStatus::Active);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 1}));
 }
 
 TEST(PositionClosed, PartialSellDoesNotCancelRemainingSells) {
@@ -1039,6 +1042,7 @@ TEST(PositionClosed, PartialSellDoesNotCancelRemainingSells) {
   ASSERT_EQ(B.Fills.size(), 1u);
   EXPECT_EQ(Pf.lots(0), 6);
   EXPECT_EQ(B.Orders[1].Status, OrderStatus::Active);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0}));
 }
 
 TEST(PositionClosed,
@@ -1057,6 +1061,130 @@ TEST(PositionClosed,
   EXPECT_EQ(B.Orders[1].ReasonCode, Reason::OcoSiblingFilled);
   EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
   EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 1, 2}));
+}
+
+TEST(PositionClosed, TrailingStopSellCancelsOtherSellOrders) {
+  const Timeline T = twoBars(B{0, 1, "100", "100", "90", "92"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  Order Trailing = makeOrder(0, Side::Sell, OrderType::TrailingStop, 10);
+  Trailing.Spec.TrailingPercent = d("5");
+  B.Orders.push_back(Trailing);
+  B.Orders.push_back(takeOrder(1, "110", 10));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(B.Fills[0].OrderId, 0);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Filled);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[1].ClosedStep, 1);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 1}));
+}
+
+TEST(PositionClosed, TriggeredStopLimitSellCancelsOtherSellOrders) {
+  const Timeline T =
+      Timeline::build({kA},
+                      {bars(kA, {B{0, 0, "100", "100", "100", "100"},
+                                 B{0, 1, "98", "99", "94", "95"},
+                                 B{0, 2, "95", "96", "93", "95"}})},
+                      {});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  Order Sl = makeOrder(0, Side::Sell, OrderType::StopLimit, 10);
+  Sl.Spec.StopPrice = d("95");
+  Sl.Spec.LimitPrice = d("94");
+  B.Orders.push_back(Sl);
+  B.Orders.push_back(limitOrder(1, Side::Sell, "110", 10));
+
+  step(Engine, 1, T, B, Pf);
+  EXPECT_TRUE(B.Orders[0].Triggered);
+  EXPECT_TRUE(B.Fills.empty());
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Active);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0}));
+
+  B.Changed.clear();
+  step(Engine, 2, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(B.Fills[0].OrderId, 0);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Filled);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[1].ClosedStep, 2);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 1}));
+}
+
+TEST(PositionClosed,
+     OcoViaRunLimitsKeepsOcoReasonWhileThirdOrderGetsPositionClosed) {
+  // Тейк из OCO-пары исполняется в runLimits и обнуляет позицию: вторая нога
+  // (стоп) сохраняет OcoSiblingFilled, третья продажа получает PositionClosed.
+  const Timeline T = twoBars(B{0, 1, "100", "112", "99", "110"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B = stopTakePair(true);
+  B.Orders.push_back(limitOrder(2, Side::Sell, "115", 5));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(B.Fills[0].OrderId, 1);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Filled);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[0].ReasonCode, Reason::OcoSiblingFilled);
+  EXPECT_EQ(B.Orders[2].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[2].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{1, 0, 2}));
+}
+
+TEST(PositionClosed,
+     RunLimitsPartialFillHittingZeroPositionCancelsSelfAndOtherSells) {
+  // LiquidityCap == Position < Spec.Lots (5 == 5 < 10) при V = 50 (бюджет 5):
+  // заявка частично исполняется на 5 лотов, обнуляет позицию и сразу
+  // снимает собственный остаток и другую продажу с причиной PositionClosed без
+  // дубля id в Changed.
+  const Timeline T =
+      Timeline::build({kA},
+                      {bars(kA, {B{0, 0, "100", "100", "100", "100", 50},
+                                 B{0, 1, "101", "102", "100", "101", 50}})},
+                      {});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(5);
+  Book B;
+  B.Orders.push_back(limitOrder(0, Side::Sell, "100", 10));
+  B.Orders.push_back(limitOrder(1, Side::Sell, "110", 5));
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(B.Fills[0].Lots, 5);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(B.Orders[0].FilledLots, 5);
+  EXPECT_EQ(B.Orders[0].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[0].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[0].ClosedStep, 1);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Cancelled);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::PositionClosed);
+  EXPECT_EQ(B.Orders[1].ClosedStep, 1);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0, 1}));
+}
+
+TEST(PositionClosed, DirectProcessStepDoesNotCancelSameStepPlacedSellOrder) {
+  // Защита INV-2 при прямом вызове ExecutionEngine::processStep: продажа,
+  // поданная на шаге 1 (PlacedStep == Step), ещё не действует и не снимается.
+  const Timeline T = twoBars(B{0, 1, "100", "115", "90", "100"});
+  const auto Engine = engineA();
+  Portfolio Pf = holding(10);
+  Book B;
+  B.Orders.push_back(makeOrder(0, Side::Sell, OrderType::Market, 10, 0));
+  B.Orders.push_back(makeOrder(1, Side::Sell, OrderType::Stop, 10, 1));
+  B.Orders[1].Spec.StopPrice = d("95");
+  step(Engine, 1, T, B, Pf);
+  ASSERT_EQ(B.Fills.size(), 1u);
+  EXPECT_EQ(Pf.lots(0), 0);
+  EXPECT_EQ(B.Orders[1].Status, OrderStatus::Active);
+  EXPECT_EQ(B.Orders[1].ReasonCode, Reason::None);
+  EXPECT_EQ(B.Changed, (std::vector<std::int64_t>{0}));
 }
 
 } // namespace

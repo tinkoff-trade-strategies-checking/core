@@ -206,6 +206,24 @@ std::string sideToString(core::Side OrderSide) {
   return OrderSide == core::Side::Buy ? "BUY" : "SELL";
 }
 
+std::string orderStatusToString(core::OrderStatus Status) {
+  switch (Status) {
+  case core::OrderStatus::Active:
+    return "ACTIVE";
+  case core::OrderStatus::PartiallyFilled:
+    return "PARTIALLY_FILLED";
+  case core::OrderStatus::Filled:
+    return "FILLED";
+  case core::OrderStatus::Cancelled:
+    return "CANCELLED";
+  case core::OrderStatus::Expired:
+    return "EXPIRED";
+  case core::OrderStatus::Rejected:
+    return "REJECTED";
+  }
+  return "UNKNOWN";
+}
+
 std::string reasonToString(core::Reason ReasonCode) {
   switch (ReasonCode) {
   case core::Reason::None:
@@ -315,6 +333,24 @@ JsonValue buildReportJson(const core::ReplayResult &Replay,
     TripsArr.emplace_back(std::move(Item));
   }
 
+  JsonArray OrdersArr;
+  for (const core::Order &O : Replay.Engine.orders()) {
+    JsonObject Item;
+    Item["id"] = O.Id;
+    const auto Idx = static_cast<std::size_t>(O.Spec.Instrument);
+    Item["instrument_key"] =
+        Idx < Instruments.size() ? Instruments[Idx].Key : "";
+    Item["secid"] = Idx < Instruments.size() ? Instruments[Idx].Ticker : "";
+    Item["side"] = sideToString(O.Spec.OrderSide);
+    Item["lots"] = O.Spec.Lots;
+    Item["filled_lots"] = O.FilledLots;
+    Item["status"] = orderStatusToString(O.Status);
+    Item["reason"] = reasonToString(O.ReasonCode);
+    Item["placed_step"] = O.PlacedStep;
+    Item["closed_step"] = O.ClosedStep;
+    OrdersArr.emplace_back(std::move(Item));
+  }
+
   JsonArray CmdArr;
   for (const core::CommandResult &Res : Replay.CommandResults) {
     JsonObject Item;
@@ -358,6 +394,7 @@ JsonValue buildReportJson(const core::ReplayResult &Replay,
   Root["costs"] = std::move(CostsObj);
   Root["fills"] = std::move(FillsArr);
   Root["round_trips"] = std::move(TripsArr);
+  Root["orders"] = std::move(OrdersArr);
   Root["command_results"] = std::move(CmdArr);
   Root["portfolio"] = std::move(PortfolioObj);
   return JsonValue(std::move(Root));

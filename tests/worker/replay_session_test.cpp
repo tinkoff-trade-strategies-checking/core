@@ -1030,3 +1030,57 @@ TEST_F(ReplaySession, DerivedBlindPortfolioAndChange) {
   EXPECT_EQ(core::fromProto(Bv.instruments(0).change_period_pct()),
             core::Decimal::parse("6.00"));
 }
+
+// INV-3: обнуление позиции в ReplaySession снимает оставшиеся заявки на продажу
+// и отражает их в events[].changed_orders[] с причиной POSITION_CLOSED.
+TEST_F(ReplaySession, PositionClosedUpdatesChangedOrders) {
+  pb::JournalEntry LimitSell;
+  LimitSell.set_seq(1);
+  LimitSell.set_step(1);
+  pb::OrderSpec *LimitSpec = LimitSell.mutable_place()->mutable_order();
+  LimitSpec->set_instrument_key("A");
+  LimitSpec->set_side(pb::SELL);
+  LimitSpec->set_type(pb::LIMIT);
+  LimitSpec->set_lots(5);
+  *LimitSpec->mutable_limit_price() = dec("120");
+  LimitSpec->set_time_in_force(pb::GTC);
+
+  pb::JournalEntry StopSell;
+  StopSell.set_seq(2);
+  StopSell.set_step(1);
+  pb::OrderSpec *StopSpec = StopSell.mutable_place()->mutable_order();
+  StopSpec->set_instrument_key("A");
+  StopSpec->set_side(pb::SELL);
+  StopSpec->set_type(pb::STOP);
+  StopSpec->set_lots(5);
+  *StopSpec->mutable_stop_price() = dec("95");
+  StopSpec->set_time_in_force(pb::GTC);
+
+  Journal = {marketOrder(0, 0, "A", pb::BUY, 5), LimitSell, StopSell,
+             marketOrder(3, 2, "A", pb::SELL, 5)};
+
+  pb::ReplaySessionResponse Response;
+  ASSERT_TRUE(replay(3, 2, &Response, false, false).ok());
+  EXPECT_FALSE(Response.has_blind_view());
+  ASSERT_EQ(Response.events_size(), 1);
+  const pb::StepEvents &Ev = Response.events(0);
+  EXPECT_EQ(Ev.step(), 3);
+  ASSERT_EQ(Ev.fills_size(), 1);
+  EXPECT_EQ(Ev.fills(0).order_id(), 6);
+  ASSERT_EQ(Ev.changed_orders_size(), 3);
+
+  EXPECT_EQ(Ev.changed_orders(0).id(), 2);
+  EXPECT_EQ(Ev.changed_orders(0).status(), pb::CANCELLED);
+  EXPECT_EQ(Ev.changed_orders(0).reason(), pb::POSITION_CLOSED);
+  EXPECT_EQ(Ev.changed_orders(0).closed_step(), 3);
+
+  EXPECT_EQ(Ev.changed_orders(1).id(), 4);
+  EXPECT_EQ(Ev.changed_orders(1).status(), pb::CANCELLED);
+  EXPECT_EQ(Ev.changed_orders(1).reason(), pb::POSITION_CLOSED);
+  EXPECT_EQ(Ev.changed_orders(1).closed_step(), 3);
+
+  EXPECT_EQ(Ev.changed_orders(2).id(), 6);
+  EXPECT_EQ(Ev.changed_orders(2).status(), pb::FILLED);
+  EXPECT_EQ(Ev.changed_orders(2).reason(), pb::REASON_UNSPECIFIED);
+  EXPECT_EQ(Ev.changed_orders(2).closed_step(), 3);
+}

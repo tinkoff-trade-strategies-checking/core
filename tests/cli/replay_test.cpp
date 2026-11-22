@@ -229,4 +229,72 @@ TEST(CliReplay, InvalidDecimalReturnsNonZeroAndStderr) {
   }
 }
 
+TEST(CliReplay, PositionClosedAppearsInOrdersJson) {
+  const std::filesystem::path TempPath =
+      std::filesystem::temp_directory_path() / "sim_cli_pos_closed_test.json";
+  {
+    std::ofstream Out(TempPath);
+    Out << R"json({
+  "market": {
+    "snapshot_id": "fixture-1",
+    "timeframe": "D1",
+    "from_date": "2024-01-09",
+    "to_date": "2024-01-22",
+    "initial_cash": "100000"
+  },
+  "journal": [
+    {
+      "seq": 0,
+      "step": 0,
+      "place": {
+        "order": {
+          "instrument_key": "A",
+          "side": "BUY",
+          "type": "MARKET",
+          "lots": 5,
+          "time_in_force": "GTC"
+        }
+      }
+    },
+    {
+      "seq": 1,
+      "step": 1,
+      "place": {
+        "order": {
+          "instrument_key": "A",
+          "side": "SELL",
+          "type": "LIMIT",
+          "lots": 5,
+          "limit_price": "120",
+          "time_in_force": "GTC"
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "step": 2,
+      "place": {
+        "order": {
+          "instrument_key": "A",
+          "side": "SELL",
+          "type": "MARKET",
+          "lots": 5,
+          "time_in_force": "GTC"
+        }
+      }
+    }
+  ]
+})json";
+  }
+
+  const CliOutput Res = runCli("replay \"" + TempPath.string() + "\"");
+  std::filesystem::remove(TempPath);
+  ASSERT_EQ(Res.ExitCode, 0) << Res.Stderr << "\n" << Res.Stdout;
+  const std::size_t OrdersPos = Res.Stdout.find("\"orders\": [");
+  ASSERT_NE(OrdersPos, std::string::npos) << Res.Stdout;
+  EXPECT_NE(Res.Stdout.find("\"reason\": \"POSITION_CLOSED\"", OrdersPos),
+            std::string::npos)
+      << Res.Stdout;
+}
+
 } // namespace
