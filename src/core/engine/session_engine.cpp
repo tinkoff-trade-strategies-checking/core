@@ -37,6 +37,7 @@ SessionEngine::SessionEngine(SessionSpec InSpec,
   if (Spec.InitialCash.sign() <= 0)
     throw std::invalid_argument(
         "SessionEngine: начальный капитал должен быть > 0");
+  validateCostConfig(Spec.Costs);
   recordStepState();
   // Единственный шаг шкалы - он же последний: сессия сразу закончена.
   if (TimelineRef->totalSteps() == 1)

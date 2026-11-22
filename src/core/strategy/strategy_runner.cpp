@@ -204,6 +204,7 @@ StrategyRunResult runStrategy(const SessionSpec &Spec,
 
   if (!CompileRes.Ok || !CompileRes.Instance) {
     Result.Compiled = false;
+    Result.FinalLevel = CheckLevel::Error;
     return Result;
   }
 
@@ -355,7 +356,8 @@ Report buildStrategyReport(const StrategyRunResult &RunResult,
     Report Out;
     Out.FinalEquity = InitialCash;
     Out.Findings = RunResult.RuntimeFindings;
-    Out.ReportLevel = RunResult.FinalLevel;
+    Out.ReportLevel =
+        !RunResult.Compiled ? CheckLevel::Error : RunResult.FinalLevel;
     return Out;
   }
 

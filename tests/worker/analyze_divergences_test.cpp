@@ -15,6 +15,7 @@
 #include "core/money/decimal.hpp"
 #include "core/money/proto_conv.hpp"
 #include "core/report/ruonia.hpp"
+#include "handlers.hpp"
 #include "worker_service.hpp"
 #include "worker_test_support.hpp"
 
@@ -420,5 +421,23 @@ TEST_F(AnalyzeDivergencesRpc, ValidationErrorsAndCancellation) {
     ClientCtx.TryCancel();
     const grpc::Status St = Stub->AnalyzeDivergences(&ClientCtx, Req, &Resp);
     EXPECT_EQ(St.error_code(), grpc::StatusCode::CANCELLED);
+  }
+  {
+    pb::DivergenceRequest Req;
+    *Req.mutable_market() = fixtureMarket();
+    Req.set_last_step(5);
+    pb::AlgorithmRef *Alg = Req.add_algorithms();
+    Alg->set_id("a1");
+    Alg->mutable_strategy()->set_source(
+        "rule \"b\" when position == 0 then buy 1 lots market because \"b\"");
+    pb::DivergenceResponse Resp;
+    int Checks = 0;
+    worker::Context Ctx{Fixture.Bars, Fixture.Calendar, Fixture.Ruonia,
+                        nullptr};
+    const grpc::Status St = worker::handleAnalyzeDivergences(
+        Ctx, Req, &Resp, [&]() { return ++Checks >= 2; });
+    EXPECT_EQ(St.error_code(), grpc::StatusCode::CANCELLED);
+    EXPECT_EQ(Resp.divergences_size(), 0);
+    EXPECT_EQ(Resp.algorithm_portfolios_size(), 0);
   }
 }

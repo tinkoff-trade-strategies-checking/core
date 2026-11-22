@@ -601,6 +601,31 @@ rule "выход"
   const Report BadRep = buildStrategyReport(BadRes, Spec.InitialCash, *Tl);
   EXPECT_EQ(BadRep.FinalEquity, Spec.InitialCash);
   EXPECT_EQ(BadRep.ReportLevel, CheckLevel::Error);
+
+  // Ошибка компиляции без E-LA* (E-SYN / E-TYPE): FinalLevel и ReportLevel
+  // должны быть Error, а не Ok.
+  StrategyRunOptions SynOpts;
+  SynOpts.Source = "not valid dsl";
+  const StrategyRunResult SynRes = runStrategy(Spec, Tl, SynOpts);
+  EXPECT_FALSE(SynRes.Compiled);
+  EXPECT_EQ(SynRes.FinalLevel, CheckLevel::Error);
+  EXPECT_EQ(buildStrategyReport(SynRes, Spec.InitialCash, *Tl).ReportLevel,
+            CheckLevel::Error);
+
+  StrategyRunOptions TypeOpts;
+  TypeOpts.Source =
+      "rule \"r\" when unknown_ident > 0 then cancel because \"type\"";
+  const StrategyRunResult TypeRes = runStrategy(Spec, Tl, TypeOpts);
+  EXPECT_FALSE(TypeRes.Compiled);
+  EXPECT_EQ(TypeRes.FinalLevel, CheckLevel::Error);
+  EXPECT_EQ(buildStrategyReport(TypeRes, Spec.InitialCash, *Tl).ReportLevel,
+            CheckLevel::Error);
+
+  StrategyRunResult UncompiledManual;
+  UncompiledManual.Compiled = false;
+  EXPECT_EQ(
+      buildStrategyReport(UncompiledManual, Spec.InitialCash, *Tl).ReportLevel,
+      CheckLevel::Error);
 }
 
 TEST(StrategyRunner, UpToStepAndOnProgress) {

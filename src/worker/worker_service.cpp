@@ -72,8 +72,11 @@ WorkerService::AnalyzeDivergences(grpc::ServerContext *Context,
                                   pb::DivergenceResponse *Response) {
   if (Context != nullptr && Context->IsCancelled())
     return grpc::Status::CANCELLED;
+  const auto IsCancelled = [Context]() {
+    return Context != nullptr && Context->IsCancelled();
+  };
   const grpc::Status Status =
-      handleAnalyzeDivergences(HandlerContext, *Request, Response);
+      handleAnalyzeDivergences(HandlerContext, *Request, Response, IsCancelled);
   if (Context != nullptr && Context->IsCancelled())
     return grpc::Status::CANCELLED;
   return Status;

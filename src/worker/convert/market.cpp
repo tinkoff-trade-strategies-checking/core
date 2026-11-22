@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "clickhouse/clickhouse_client.hpp"
+#include "core/exec/costs.hpp"
 #include "core/market/date_utils.hpp"
 #include "core/money/proto_conv.hpp"
 #include "core/report/ruonia.hpp"
@@ -84,6 +85,7 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
     Spec.Costs.SlippageKappa = core::fromProto(C.slippage_kappa());
     if (C.has_liquidity_share())
       Spec.Costs.LiquidityShare = core::fromProto(C.liquidity_share());
+    core::validateCostConfig(Spec.Costs);
   } else {
     throw std::invalid_argument("не заданы издержки исполнения");
   }

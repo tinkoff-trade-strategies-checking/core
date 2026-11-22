@@ -24,6 +24,10 @@ struct CostConfig {
   static CostConfig zero();
 };
 
+// Проверяет инварианты параметров издержек: ставки, спред и κ >= 0,
+// LiquidityShare в (0; 1] (std::invalid_argument при нарушении).
+void validateCostConfig(const CostConfig &Costs);
+
 // Цена исполнения рыночной заявки: frac = κ·lots/V (9 знаков HALF_UP); покупка
 // m = 1 + s/2 + frac, продажа m = 1 − s/2 − frac; base·m до 9 знаков и до шага
 // цены одним направленным режимом (покупка CEILING, продажа FLOOR), без

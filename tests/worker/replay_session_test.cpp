@@ -316,6 +316,19 @@ TEST_F(ReplaySession, BadRequestsAreInvalidArgument) {
   EXPECT_EQ(replay(3, -1, &Response).error_code(),
             grpc::StatusCode::INVALID_ARGUMENT);
   EXPECT_EQ(Response.total_steps(), 0); // при ошибке ответ не тронут
+
+  Market.mutable_initial_cash()->set_units(1000000);
+  *Market.mutable_costs()->mutable_commission_rate() = dec("-0.001");
+  EXPECT_EQ(replay(3, -1, &Response).error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+  *Market.mutable_costs()->mutable_commission_rate() = dec("0");
+
+  *Market.mutable_costs()->mutable_liquidity_share() = dec("0");
+  EXPECT_EQ(replay(3, -1, &Response).error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+  *Market.mutable_costs()->mutable_liquidity_share() = dec("1.5");
+  EXPECT_EQ(replay(3, -1, &Response).error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
 }
 
 TEST_F(ReplaySession, NoDataIsFailedPrecondition) {

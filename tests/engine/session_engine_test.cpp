@@ -650,4 +650,27 @@ TEST(Replay, BankruptStopsSession) {
             2); // отказ виден в событиях последнего шага
 }
 
+TEST(SessionEngineTest, RejectsInvalidCostConfig) {
+  const auto Tl = singleTimeline({"100", "101"});
+  auto MakeSpec = [&](CostConfig Costs) {
+    SessionSpec Spec;
+    Spec.Instruments = Tl->instruments();
+    Spec.Costs = std::move(Costs);
+    Spec.InitialCash = d("10000");
+    return Spec;
+  };
+
+  CostConfig NegComm = CostConfig::zero();
+  NegComm.CommissionRate = d("-0.01");
+  EXPECT_THROW(SessionEngine(MakeSpec(NegComm), Tl), std::invalid_argument);
+
+  CostConfig ZeroLiq = CostConfig::zero();
+  ZeroLiq.LiquidityShare = d("0");
+  EXPECT_THROW(SessionEngine(MakeSpec(ZeroLiq), Tl), std::invalid_argument);
+
+  CostConfig OverLiq = CostConfig::zero();
+  OverLiq.LiquidityShare = d("1.1");
+  EXPECT_THROW(SessionEngine(MakeSpec(OverLiq), Tl), std::invalid_argument);
+}
+
 } // namespace
