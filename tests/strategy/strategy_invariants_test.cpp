@@ -769,21 +769,19 @@ TEST(StrategyInvariants, DslCheckCompileStepRejectsNewsAndExternalIdentifiers) {
       SimpleBarSpec{"100", "101", "99", "100"},
   });
 
-  constexpr const char *const kForbiddenIds[] = {
-      "news", "headline", "sentiment", "feed", "date", "time", "timestamp",
-      "ymd", "secid", "ticker", "sector", "imoex", "benchmark", "ruonia",
-      "calendar", "http", "fetch", "env", "file", "rand", "random", "now",
-      "today"};
+  std::istringstream ForbiddenStream(
+      "news headline sentiment feed date time timestamp ymd secid ticker "
+      "sector imoex benchmark ruonia calendar http fetch env file rand random "
+      "now today");
 
-  for (const char *RawId : kForbiddenIds) {
-    const std::string IdStr(RawId);
+  const std::string LimitHead = "rule \"r\" when true then buy 1 lots limit ";
+  std::string IdStr;
+  while (ForbiddenStream >> IdStr) {
     const std::string WhenSrc =
         "rule \"r\" when " + IdStr + " > 0 then cancel because \"x\"";
     const std::string SizeSrc =
         "rule \"r\" when true then buy " + IdStr + " lots market because \"x\"";
-    const std::string PriceSrc =
-        "rule \"r\" when true then buy 1 lots limit " + IdStr +
-        " because \"x\"";
+    const std::string PriceSrc = LimitHead + IdStr + " because \"x\"";
     const std::string BecauseSrc =
         "rule \"r\" when true then buy 1 lots market because \"x={" + IdStr +
         "}\"";
