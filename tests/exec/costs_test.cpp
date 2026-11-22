@@ -98,6 +98,43 @@ TEST(Costs, FillPriceRejectsNonPositiveLots) {
                std::invalid_argument);
 }
 
+TEST(Costs, ValidateCostConfigRejectsInvalidValues) {
+  EXPECT_NO_THROW(core::validateCostConfig(CostConfig::defaults()));
+  EXPECT_NO_THROW(core::validateCostConfig(CostConfig::zero()));
+
+  CostConfig Boundary = CostConfig::zero();
+  Boundary.LiquidityShare = d("1");
+  EXPECT_NO_THROW(core::validateCostConfig(Boundary));
+
+  CostConfig NegComm = CostConfig::zero();
+  NegComm.CommissionRate = d("-0.001");
+  EXPECT_THROW(core::validateCostConfig(NegComm), std::invalid_argument);
+
+  CostConfig NegFee = CostConfig::zero();
+  NegFee.ExchangeFeeRate = d("-0.0001");
+  EXPECT_THROW(core::validateCostConfig(NegFee), std::invalid_argument);
+
+  CostConfig NegSpread = CostConfig::zero();
+  NegSpread.Spread = d("-0.001");
+  EXPECT_THROW(core::validateCostConfig(NegSpread), std::invalid_argument);
+
+  CostConfig NegKappa = CostConfig::zero();
+  NegKappa.SlippageKappa = d("-0.1");
+  EXPECT_THROW(core::validateCostConfig(NegKappa), std::invalid_argument);
+
+  CostConfig ZeroLiq = CostConfig::zero();
+  ZeroLiq.LiquidityShare = d("0");
+  EXPECT_THROW(core::validateCostConfig(ZeroLiq), std::invalid_argument);
+
+  CostConfig NegLiq = CostConfig::zero();
+  NegLiq.LiquidityShare = d("-0.1");
+  EXPECT_THROW(core::validateCostConfig(NegLiq), std::invalid_argument);
+
+  CostConfig OverLiq = CostConfig::zero();
+  OverLiq.LiquidityShare = d("1.01");
+  EXPECT_THROW(core::validateCostConfig(OverLiq), std::invalid_argument);
+}
+
 TEST(Costs, NoSlippageWithoutVolumeOrKappa) {
   // V = 0: проскальзывание 0, остаётся спред: 100 * 1.0005 = 100.05 и 100 *
   // 0.9995 = 99.95.

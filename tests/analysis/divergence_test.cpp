@@ -778,5 +778,186 @@ rule "r"
   RC_ASSERT(A.Independent[0].Digest == C.Independent[0].Digest);
 }
 
+TEST(Divergence, PositionReopenedOnBarCancelsVirtualSellOrders) {
+  // Шаг 0: человек buy 1 market (исполняется на шаге 1 @ 100 -> position=1).
+  // Шаг 1: алгоритм ставит sell 1 limit 150; человек на шаге 1 подаёт
+  // sell 1 market (исполняется на шаге 2 Open=100 -> pos=0) и buy 1 limit 95
+  // (исполняется на шаге 2 Low=94 -> pos=1, PositionReopenedOnBar=true).
+  // На шаге 2 старая виртуальная sell-заявка должна сняться, и алгоритм
+  // создаёт новое действие sell 1 limit 150 (Missed на шаге 2).
+  const auto Tl = makeTimeline({
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "101", "94", "100"},
+      SimpleBar{"100", "101", "99", "100"},
+  });
+  const SessionSpec Spec = makeSpec(Tl, "100000");
+  const std::vector<JournalEntry> Human{
+      placeMarket(0, 0, Side::Buy, 1),
+      placeMarket(1, 1, Side::Sell, 1),
+      placeLimit(2, 1, Side::Buy, 1, "95"),
+  };
+  const std::string SellSrc = R"dsl(
+rule "sell_high"
+  when position > 0
+  then sell 1 lots limit 150
+  because "продажа"
+)dsl";
+  const DivergenceResult Res =
+      analyzeDivergences(Spec, Tl, Human, 3, {{"a1", SellSrc, {}}});
+  int MissedSells = 0;
+  std::vector<std::int64_t> MissedSteps;
+  for (const Divergence &D : Res.Divergences) {
+    if (D.Type == DivergenceType::Missed && D.AlgoLots == -1) {
+      ++MissedSells;
+      MissedSteps.push_back(D.AlgoStep);
+    }
+  }
+  EXPECT_EQ(MissedSells, 2);
+  EXPECT_EQ(MissedSteps, (std::vector<std::int64_t>{1, 2}));
+}
+
+TEST(Divergence, VirtualOrdersShareLiquidityBudgetInPhaseOrder) {
+  // LiquidityShare = 0.1, VolumeLots = 10 -> единый Cap = 1 на баре 1.
+  // На шаге 0 алгоритм ставит buy 1 market и buy 1 limit 95.
+  // На шаге 1 (Open=94): Market забирает весь Cap=1, Limit остаётся активной
+  // и дедуплицирует повторное правило limit 95 на шаге 1.
+  const auto Tl = makeTimeline({
+      SimpleBar{"100", "101", "99", "100", 10},
+      SimpleBar{"94", "102", "93", "101", 10},
+      SimpleBar{"101", "102", "100", "101", 10},
+  });
+  CostConfig Costs = CostConfig::zero();
+  Costs.LiquidityShare = Decimal::parse("0.1");
+  const SessionSpec Spec = makeSpec(Tl, "100000", Costs);
+  const std::string Src = R"dsl(
+rule "mkt"
+  when close == 100
+  then buy 1 lots market
+  because "рынок"
+
+rule "lim"
+  when close == 100 or close == 101
+  then buy 1 lots limit 95
+  because "лимит"
+)dsl";
+  const DivergenceResult Res =
+      analyzeDivergences(Spec, Tl, {}, 2, {{"a1", Src, {}}});
+  ASSERT_EQ(Res.Divergences.size(), 1u);
+  EXPECT_EQ(Res.Divergences[0].AlgoStep, 0);
+  EXPECT_EQ(Res.Divergences[0].AlgoLots, 2);
+
+  // Stop -> Limit также делят единый Cap=1 на баре 1.
+  const auto StopTl = makeTimeline({
+      SimpleBar{"100", "101", "99", "100", 10},
+      SimpleBar{"100", "103", "98", "101", 10},
+      SimpleBar{"101", "102", "100", "101", 10},
+  });
+  const std::string StopSrc = R"dsl(
+rule "stp"
+  when close == 100
+  then buy 1 lots stop 102
+  because "стоп"
+
+rule "lim2"
+  when close == 100 or close == 101
+  then buy 1 lots limit 99
+  because "лимит"
+)dsl";
+  const DivergenceResult StopRes = analyzeDivergences(
+      makeSpec(StopTl, "100000", Costs), StopTl, {}, 2, {{"a1", StopSrc, {}}});
+  ASSERT_EQ(StopRes.Divergences.size(), 1u);
+  EXPECT_EQ(StopRes.Divergences[0].AlgoStep, 0);
+  EXPECT_EQ(StopRes.Divergences[0].AlgoLots, 1);
+}
+
+TEST(Divergence, MissedProfitableTradeWithOpposingUnfilledSellLimit) {
+  // Шаг 0: человек открывает 3 лота (исполнение на шаге 1 @ 100), чтобы на
+  // шаге 4 (вне окна W=3 от шага 0) иметь позицию >= 3 для встречной Sell
+  // Limit 150.
+  const auto Tl = makeTimeline({
+      SimpleBar{"100", "101", "99", "99"},
+      SimpleBar{"100", "101", "99", "101"},
+      SimpleBar{"101", "102", "100", "101"},
+      SimpleBar{"101", "102", "100", "101"},
+      SimpleBar{"100", "101", "99", "100"},
+      SimpleBar{"100", "112", "99", "110"},
+      SimpleBar{"120", "121", "119", "120"},
+      SimpleBar{"120", "121", "119", "120"},
+  });
+  const SessionSpec Spec = makeSpec(Tl, "100000");
+  const std::string NoOpSrc =
+      "rule \"no\" when false then buy 1 lots market because \"no\"\n";
+  const std::string BuyAt4Src =
+      "rule \"b\" when close == 100 then buy 2 lots market because \"b\"\n";
+  const std::string SellLimAt4Src =
+      "rule \"s\" when close == 100 then sell 1 lots limit 150 because "
+      "\"s\"\n";
+
+  // 1) На шаге 4: Buy 2 Market + Sell 2 Limit 150 (не исполнена) => Act.Lots=0.
+  // Сделка входа шага 4 (EntryStep=5, Lots=2, NetPnl=40) не теряется из Missed,
+  // а a2 (купил на шаге 4) не попадает в AlgorithmIds.
+  const std::vector<JournalEntry> NetZeroHuman{
+      placeMarket(0, 0, Side::Buy, 3),
+      placeMarket(1, 4, Side::Buy, 2),
+      placeLimit(2, 4, Side::Sell, 2, "150"),
+      placeMarket(3, 5, Side::Sell, 5),
+  };
+  const DivergenceResult ZeroRes = analyzeDivergences(
+      Spec, Tl, NetZeroHuman, 7, {{"a1", NoOpSrc, {}}, {"a2", BuyAt4Src, {}}});
+  ASSERT_EQ(ZeroRes.Missed.size(), 2u);
+  const MissedProfitableTrade &Trade4 = ZeroRes.Missed[1];
+  EXPECT_EQ(Trade4.EntryStep, 5);
+  EXPECT_EQ(Trade4.ExitStep, 6);
+  EXPECT_EQ(Trade4.Lots, 2);
+  EXPECT_EQ(Trade4.NetPnl, Decimal::parse("40"));
+  EXPECT_EQ(Trade4.AlgorithmIds, (std::vector<std::string>{"a1"}));
+  EXPECT_TRUE(Trade4.DivergenceSeqs.empty());
+
+  // 2) На шаге 4: Buy 2 Market + Sell 3 Limit 150 (не исполнена) => Lots=-1.
+  // Совпадение a2 по Sell не скрывает пропущенный вход, а Sell Excess у a1
+  // не попадает в DivergenceSeqs.
+  const std::vector<JournalEntry> NetNegHuman{
+      placeMarket(0, 0, Side::Buy, 3),
+      placeMarket(1, 4, Side::Buy, 2),
+      placeLimit(2, 4, Side::Sell, 3, "150"),
+      placeMarket(3, 5, Side::Sell, 5),
+  };
+  const DivergenceResult NegRes = analyzeDivergences(
+      Spec, Tl, NetNegHuman, 7,
+      {{"a1", NoOpSrc, {}}, {"a2", SellLimAt4Src, {}}, {"a3", BuyAt4Src, {}}});
+  ASSERT_EQ(NegRes.Missed.size(), 2u);
+  const MissedProfitableTrade &NegTrade4 = NegRes.Missed[1];
+  EXPECT_EQ(NegTrade4.EntryStep, 5);
+  EXPECT_EQ(NegTrade4.AlgorithmIds, (std::vector<std::string>{"a1", "a2"}));
+  EXPECT_TRUE(NegTrade4.DivergenceSeqs.empty());
+}
+
+TEST(Divergence, CooperativeCancellationStopsEarly) {
+  const auto Tl = makeTimeline({
+      SimpleBar{"100", "105", "95", "100"},
+      SimpleBar{"100", "105", "95", "100"},
+      SimpleBar{"100", "105", "95", "100"},
+      SimpleBar{"100", "105", "95", "100"},
+  });
+  const SessionSpec Spec = makeSpec(Tl, "100000");
+  const std::string AlgoSrc =
+      "rule \"b\" when position == 0 then buy 1 lots market because \"b\"\n";
+
+  int Checks = 0;
+  const DivergenceResult EarlyRes = analyzeDivergences(
+      Spec, Tl, {}, 3, {{"a1", AlgoSrc, {}}}, std::nullopt, std::nullopt, 0,
+      [&]() { return ++Checks >= 2; });
+  EXPECT_TRUE(EarlyRes.Cancelled);
+  EXPECT_TRUE(EarlyRes.Independent.empty());
+
+  // Отмена на фазе assembleIndependent (внутри runStrategy).
+  int LateChecks = 0;
+  const DivergenceResult IndepCancelRes = analyzeDivergences(
+      Spec, Tl, {}, 3, {{"a1", AlgoSrc, {}}}, std::nullopt, std::nullopt, 0,
+      [&]() { return ++LateChecks >= 20; });
+  EXPECT_TRUE(IndepCancelRes.Cancelled);
+}
+
 } // namespace
 } // namespace core

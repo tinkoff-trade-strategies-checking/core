@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -87,8 +88,9 @@ void writeConsensus(const core::ConsensusItem &Src,
   core::toProto(Src.MedianCost, Out->mutable_median_cost());
 }
 
-void fill(Context &Ctx, const pb::DivergenceRequest &Request,
-          pb::DivergenceResponse *Out) {
+bool fill(Context &Ctx, const pb::DivergenceRequest &Request,
+          pb::DivergenceResponse *Out,
+          const std::function<bool()> &IsCancelled) {
   if (!Request.has_market()) {
     throw std::invalid_argument("не задан market");
   }
@@ -143,9 +145,12 @@ void fill(Context &Ctx, const pb::DivergenceRequest &Request,
     }
   }
 
-  const core::DivergenceResult Result =
-      core::analyzeDivergences(Spec, Timeline, Journal, Request.last_step(),
-                               Algorithms, Benchmark, Ruonia, PreviousDay);
+  const core::DivergenceResult Result = core::analyzeDivergences(
+      Spec, Timeline, Journal, Request.last_step(), Algorithms, Benchmark,
+      Ruonia, PreviousDay, IsCancelled);
+  if (Result.Cancelled || (IsCancelled && IsCancelled())) {
+    return false;
+  }
 
   for (const core::Divergence &Div : Result.Divergences) {
     writeDivergence(Div, *Timeline, Out->add_divergences());
@@ -163,18 +168,22 @@ void fill(Context &Ctx, const pb::DivergenceRequest &Request,
     toProto(Port.Run, &Port.PortfolioReport, *Timeline, false,
             OutPort->mutable_result());
   }
+  return true;
 }
 
 } // namespace
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException). Ответ
 // собирается отдельно и записывается в Response только при успехе.
-grpc::Status handleAnalyzeDivergences(Context &Ctx,
-                                      const pb::DivergenceRequest &Request,
-                                      pb::DivergenceResponse *Response) {
+grpc::Status
+handleAnalyzeDivergences(Context &Ctx, const pb::DivergenceRequest &Request,
+                         pb::DivergenceResponse *Response,
+                         const std::function<bool()> &IsCancelled) {
   try {
     pb::DivergenceResponse Result;
-    fill(Ctx, Request, &Result);
+    if (!fill(Ctx, Request, &Result, IsCancelled)) {
+      return grpc::Status::CANCELLED;
+    }
     *Response = std::move(Result);
     return grpc::Status::OK;
   } catch (...) {

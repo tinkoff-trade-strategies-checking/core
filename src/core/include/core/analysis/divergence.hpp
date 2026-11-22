@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -94,6 +95,7 @@ struct AlgorithmPortfolio {
 };
 
 struct DivergenceResult {
+  bool Cancelled = false;
   std::vector<Divergence> Divergences;
   std::vector<MissedProfitableTrade> Missed;
   std::vector<ConsensusItem> Consensus;
@@ -109,6 +111,7 @@ DivergenceResult analyzeDivergences(
     const std::vector<AlgorithmInput> &Algorithms,
     const std::optional<BenchmarkSeries> &Benchmark = std::nullopt,
     const std::optional<RuoniaSeries> &Ruonia = std::nullopt,
-    std::int32_t RuoniaPreviousDayYmd = 0);
+    std::int32_t RuoniaPreviousDayYmd = 0,
+    std::function<bool()> ShouldCancel = {});
 
 } // namespace core

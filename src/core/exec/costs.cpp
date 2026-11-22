@@ -16,6 +16,27 @@ CostConfig CostConfig::defaults() {
 
 CostConfig CostConfig::zero() { return CostConfig{}; }
 
+void validateCostConfig(const CostConfig &Costs) {
+  if (Costs.CommissionRate.sign() < 0)
+    throw std::invalid_argument(
+        "CostConfig: комиссия не может быть отрицательной");
+  if (Costs.ExchangeFeeRate.sign() < 0)
+    throw std::invalid_argument(
+        "CostConfig: биржевой сбор не может быть отрицательным");
+  if (Costs.Spread.sign() < 0)
+    throw std::invalid_argument(
+        "CostConfig: спред не может быть отрицательным");
+  if (Costs.SlippageKappa.sign() < 0)
+    throw std::invalid_argument(
+        "CostConfig: коэффициент проскальзывания не может быть отрицательным");
+  if (Costs.LiquidityShare.has_value() &&
+      (*Costs.LiquidityShare <= Decimal::zero() ||
+       *Costs.LiquidityShare > Decimal::fromUnits(1))) {
+    throw std::invalid_argument(
+        "CostConfig: доля ликвидности должна быть в (0; 1]");
+  }
+}
+
 namespace {
 
 Decimal halfSpread(const CostConfig &Costs) {

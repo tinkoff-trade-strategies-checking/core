@@ -218,64 +218,171 @@ bool humanAllowsMoreThanCap(const VirtualOrder &Ord, const StepBar &Bar,
   }
 }
 
+template <class PriceFn>
+std::int64_t executedVirtualLots(const VirtualOrder &Ord, const StepBar &Bar,
+                                 std::int64_t Cap, const SessionSpec &Spec,
+                                 const Portfolio &HumanPortfolio,
+                                 PriceFn &&PriceAt) {
+  (void)Bar;
+  const int Instr = Ord.Spec.Instrument;
+  std::int64_t Q = std::min(Ord.RemainingLots, std::max<std::int64_t>(Cap, 0));
+  if (Ord.Spec.OrderSide == Side::Sell) {
+    return std::max<std::int64_t>(std::min(Q, HumanPortfolio.lots(Instr)), 0);
+  }
+  const Instrument &Inst = Spec.Instruments[static_cast<std::size_t>(Instr)];
+  auto Fits = [&](std::int64_t Lots) {
+    if (Lots <= 0) {
+      return true;
+    }
+    try {
+      const Decimal Price = PriceAt(Lots);
+      const Amounts Amts = amounts(Price, Lots, Inst.LotSize, Spec.Costs);
+      return Amts.Value + Amts.Commission + Amts.Fee <= HumanPortfolio.cash();
+    } catch (const DecimalOverflow &) {
+      return false;
+    }
+  };
+  if (Q > 0 && !Fits(Q)) {
+    std::int64_t Lo = 0;
+    std::int64_t Hi = Q - 1;
+    while (Lo < Hi) {
+      const std::int64_t Mid = Lo + (Hi - Lo + 1) / 2;
+      if (Fits(Mid)) {
+        Lo = Mid;
+      } else {
+        Hi = Mid - 1;
+      }
+    }
+    Q = Lo;
+  }
+  return Q;
+}
+
 void updateVirtualOrders(std::vector<VirtualOrder> &Orders, int Instr,
                          std::int64_t Step, const Timeline &Tl,
                          const SessionSpec &Spec,
-                         const Portfolio &HumanPortfolio) {
+                         const Portfolio &HumanPortfolio,
+                         bool PositionReopenedOnBar) {
   const StepBar *Bar = Tl.barOf(Instr, Step);
+  std::vector<char> Removed(Orders.size(), 0);
+
+  if (Bar != nullptr) {
+    std::optional<std::int64_t> RemainingCap;
+    if (Spec.Costs.LiquidityShare.has_value()) {
+      RemainingCap = liquidityCap(*Bar, Spec.Costs);
+    }
+    const Decimal &PriceStep =
+        Spec.Instruments[static_cast<std::size_t>(Instr)].PriceStep;
+
+    // Фаза 1: рыночные заявки.
+    for (std::size_t I = 0; I < Orders.size(); ++I) {
+      VirtualOrder &Ord = Orders[I];
+      if (Ord.PlacedStep >= Step || Ord.Spec.Type != OrderType::Market) {
+        continue;
+      }
+      if (RemainingCap.has_value()) {
+        const std::int64_t Q = executedVirtualLots(
+            Ord, *Bar, *RemainingCap, Spec, HumanPortfolio,
+            [&](std::int64_t Lots) {
+              return fillPrice(Ord.Spec.OrderSide, Bar->Open, Lots,
+                               Bar->VolumeLots, Spec.Costs, PriceStep);
+            });
+        *RemainingCap -= Q;
+      }
+      Removed[I] = 1;
+    }
+
+    // Фаза 2: стоп-заявки.
+    for (std::size_t I = 0; I < Orders.size(); ++I) {
+      VirtualOrder &Ord = Orders[I];
+      if (Ord.PlacedStep >= Step || Ord.Spec.Type != OrderType::Stop) {
+        continue;
+      }
+      const Decimal &Stop = *Ord.Spec.StopPrice;
+      const bool Buy = (Ord.Spec.OrderSide == Side::Buy);
+      const bool Triggered = Buy ? (Bar->Open >= Stop || Bar->High >= Stop)
+                                 : (Bar->Open <= Stop || Bar->Low <= Stop);
+      if (!Triggered) {
+        continue;
+      }
+      if (RemainingCap.has_value()) {
+        const Decimal Base =
+            Buy ? std::max(Bar->Open, Stop) : std::min(Bar->Open, Stop);
+        const std::int64_t Q = executedVirtualLots(
+            Ord, *Bar, *RemainingCap, Spec, HumanPortfolio,
+            [&](std::int64_t Lots) {
+              return fillPrice(Ord.Spec.OrderSide, Base, Lots, Bar->VolumeLots,
+                               Spec.Costs, PriceStep);
+            });
+        *RemainingCap -= Q;
+      }
+      Removed[I] = 1;
+    }
+
+    // Фаза 3: лимитные и тейк-профит заявки.
+    for (std::size_t I = 0; I < Orders.size(); ++I) {
+      VirtualOrder &Ord = Orders[I];
+      if (Ord.PlacedStep >= Step ||
+          (Ord.Spec.Type != OrderType::Limit &&
+           Ord.Spec.Type != OrderType::TakeProfit)) {
+        continue;
+      }
+      const Decimal &Limit = *Ord.Spec.LimitPrice;
+      const bool Buy = (Ord.Spec.OrderSide == Side::Buy);
+      const bool AtOpen = Buy ? (Bar->Open <= Limit) : (Bar->Open >= Limit);
+      const bool Crossed =
+          AtOpen || (Buy ? (Bar->Low < Limit) : (Bar->High > Limit));
+      if (!Crossed) {
+        continue;
+      }
+      if (RemainingCap.has_value()) {
+        const std::int64_t Cap = *RemainingCap;
+        const std::int64_t Q = executedVirtualLots(
+            Ord, *Bar, Cap, Spec, HumanPortfolio, [&](std::int64_t Lots) {
+              if (!AtOpen) {
+                return Limit;
+              }
+              const Decimal FilledPrice =
+                  fillPrice(Ord.Spec.OrderSide, Bar->Open, Lots,
+                            Bar->VolumeLots, Spec.Costs, PriceStep);
+              return Buy ? std::min(Limit, FilledPrice)
+                         : std::max(Limit, FilledPrice);
+            });
+        *RemainingCap -= Q;
+        if (Cap < Ord.RemainingLots && Q == Cap &&
+            humanAllowsMoreThanCap(Ord, *Bar, AtOpen, Cap, Spec,
+                                   HumanPortfolio)) {
+          Ord.RemainingLots -= Cap;
+        } else {
+          Removed[I] = 1;
+        }
+      } else {
+        Removed[I] = 1;
+      }
+    }
+  }
+
   std::vector<VirtualOrder> Kept;
   Kept.reserve(Orders.size());
-
-  for (VirtualOrder &Ord : Orders) {
+  for (std::size_t I = 0; I < Orders.size(); ++I) {
+    VirtualOrder &Ord = Orders[I];
     if (Ord.PlacedStep >= Step) {
       Kept.push_back(std::move(Ord));
       continue;
     }
-    bool Remove = false;
-    if (Bar != nullptr) {
-      if (Ord.Spec.Type == OrderType::Market) {
-        Remove = true;
-      } else if (Ord.Spec.Type == OrderType::Stop) {
-        const Decimal &Stop = *Ord.Spec.StopPrice;
-        const bool Buy = (Ord.Spec.OrderSide == Side::Buy);
-        Remove = Buy ? (Bar->Open >= Stop || Bar->High >= Stop)
-                     : (Bar->Open <= Stop || Bar->Low <= Stop);
-      } else if (Ord.Spec.Type == OrderType::Limit ||
-                 Ord.Spec.Type == OrderType::TakeProfit) {
-        const Decimal &Limit = *Ord.Spec.LimitPrice;
-        const bool Buy = (Ord.Spec.OrderSide == Side::Buy);
-        const bool AtOpen = Buy ? (Bar->Open <= Limit) : (Bar->Open >= Limit);
-        const bool Crossed =
-            AtOpen || (Buy ? (Bar->Low < Limit) : (Bar->High > Limit));
-        if (Crossed) {
-          if (Spec.Costs.LiquidityShare.has_value()) {
-            const std::int64_t Cap = liquidityCap(*Bar, Spec.Costs);
-            if (Cap < Ord.RemainingLots &&
-                humanAllowsMoreThanCap(Ord, *Bar, AtOpen, Cap, Spec,
-                                       HumanPortfolio)) {
-              Ord.RemainingLots -= Cap;
-            } else {
-              Remove = true;
-            }
-          } else {
-            Remove = true;
-          }
-        }
-      }
+    if (Removed[I]) {
+      continue;
     }
-    if (!Remove && Tl.isLastStepOfDay(Step) &&
-        Ord.Spec.Tif == TimeInForce::Day &&
+    if (Tl.isLastStepOfDay(Step) && Ord.Spec.Tif == TimeInForce::Day &&
         Ord.PlacedStep + 1 < Tl.totalSteps() &&
         Tl.tradingDayOf(Ord.PlacedStep + 1) <= Tl.tradingDayOf(Step)) {
-      Remove = true;
+      continue;
     }
-    if (!Remove && HumanPortfolio.lots(Instr) == 0 &&
+    if ((HumanPortfolio.lots(Instr) == 0 || PositionReopenedOnBar) &&
         Ord.Spec.OrderSide == Side::Sell) {
-      Remove = true;
+      continue;
     }
-    if (!Remove) {
-      Kept.push_back(std::move(Ord));
-    }
+    Kept.push_back(std::move(Ord));
   }
   Orders = std::move(Kept);
 }
@@ -399,18 +506,25 @@ Decimal actionValue(const std::vector<Fill> &Fills,
 }
 
 template <class StepFn, class EntryFn>
-SessionEngine
+std::optional<SessionEngine>
 walkHuman(const SessionSpec &Spec, std::shared_ptr<const Timeline> Tl,
           std::span<const JournalEntry> Journal, std::int64_t LastStep,
-          StepFn &&OnStep, EntryFn &&OnEntry) {
+          StepFn &&OnStep, EntryFn &&OnEntry,
+          const std::function<bool()> &ShouldCancel = {}) {
   SessionEngine Engine(Spec, std::move(Tl));
   std::size_t Next = 0;
   for (;;) {
+    if (ShouldCancel && ShouldCancel()) {
+      return std::nullopt;
+    }
     const std::int64_t K = Engine.currentStep();
     const bool ActiveStep =
         (Engine.status() == SessionStatus::Running && K < LastStep);
     if (ActiveStep) {
       OnStep(K, Engine);
+      if (ShouldCancel && ShouldCancel()) {
+        return std::nullopt;
+      }
     }
     while (Next < Journal.size() &&
            (Journal[Next].Step == K ||
@@ -486,21 +600,36 @@ public:
            const std::vector<AlgorithmInput> &Inputs,
            const std::optional<BenchmarkSeries> &BenchmarkIn,
            const std::optional<RuoniaSeries> &RuoniaIn,
-           std::int32_t RuoniaPrevDayYmd)
+           std::int32_t RuoniaPrevDayYmd, std::function<bool()> CancelCheck)
       : Spec(SessionConfig), TimelineRef(std::move(Tl)), Journal(Entries),
         LastStep(UpToStep), Algorithms(Inputs), Benchmark(BenchmarkIn),
         Ruonia(RuoniaIn), RuoniaPreviousDayYmd(RuoniaPrevDayYmd),
+        ShouldCancel(std::move(CancelCheck)),
         ExecEngine(Spec.Instruments, Spec.Costs) {}
 
   DivergenceResult run() {
+    DivergenceResult Result;
     validate();
-    collectActions();
+    if (isCancelled()) {
+      Result.Cancelled = true;
+      return Result;
+    }
+    if (!collectActions() || isCancelled()) {
+      Result.Cancelled = true;
+      return Result;
+    }
     for (std::size_t A = 0; A < Algorithms.size(); ++A) {
+      if (isCancelled()) {
+        Result.Cancelled = true;
+        return Result;
+      }
       match(A);
     }
     priceHumanSide();
-    priceAlgorithmSide();
-    DivergenceResult Result;
+    if (!priceAlgorithmSide() || isCancelled()) {
+      Result.Cancelled = true;
+      return Result;
+    }
     const std::vector<std::int64_t> PendingToSeq = assembleDivergences(Result);
     assembleMissedTrades(Result, PendingToSeq);
     assembleConsensus(Result);
@@ -509,6 +638,7 @@ public:
   }
 
 private:
+  bool isCancelled() const { return ShouldCancel && ShouldCancel(); }
   void validate() {
     if (!TimelineRef) {
       throw std::invalid_argument("analyzeDivergences: нет шкалы времени");
@@ -550,6 +680,9 @@ private:
     const std::size_t NumInstruments = Spec.Instruments.size();
     Instances.reserve(Algorithms.size());
     for (const AlgorithmInput &Input : Algorithms) {
+      if (isCancelled()) {
+        return;
+      }
       dsl::CompileResult CompileRes =
           dsl::compile(Input.Source, Input.ParamOverrides, NumInstruments);
       if (!CompileRes.Ok || !CompileRes.Instance ||
@@ -561,10 +694,13 @@ private:
     }
   }
 
-  void collectActions() {
+  bool collectActions() {
     const std::size_t NumInstruments = Spec.Instruments.size();
     std::vector<std::optional<std::int64_t>> WarmupLastStep(NumInstruments);
     for (const StepBar &WarmBar : TimelineRef->warmupBars()) {
+      if (isCancelled()) {
+        return false;
+      }
       const std::size_t InstrIdx = static_cast<std::size_t>(WarmBar.Instrument);
       if (InstrIdx >= NumInstruments ||
           (WarmupLastStep[InstrIdx].has_value() &&
@@ -575,6 +711,9 @@ private:
       WarmupLastStep[InstrIdx] = WarmBar.Step;
       const dsl::Bar DslBar = toDslBar(WarmBar);
       for (const auto &InstPtr : Instances) {
+        if (isCancelled()) {
+          return false;
+        }
         const dsl::StepOutcome Out =
             InstPtr->step(InstrIdx, DslBar, dsl::PortfolioSnapshot{}, true);
         if (Out.Error.has_value()) {
@@ -590,13 +729,20 @@ private:
     std::vector<std::optional<std::int64_t>> LastBarStep = WarmupLastStep;
 
     const auto OnStep = [&](std::int64_t K, const SessionEngine &Engine) {
+      if (isCancelled()) {
+        return;
+      }
       const PortfolioSnapshot Snap = Engine.snapshot();
       for (std::size_t I = 0; I < NumInstruments; ++I) {
+        if (isCancelled()) {
+          return;
+        }
         const int Instr = static_cast<int>(I);
         if (K >= 1) {
           for (std::size_t A = 0; A < Algorithms.size(); ++A) {
             updateVirtualOrders(VirtualOrders[A][I], Instr, K, *TimelineRef,
-                                Spec, Engine.portfolio());
+                                Spec, Engine.portfolio(),
+                                Snap.PositionReopenedOnBar[I]);
           }
         }
         const StepBar *BarPtr = TimelineRef->barOf(Instr, K);
@@ -616,6 +762,9 @@ private:
         const Decimal &PriceStep = Spec.Instruments[I].PriceStep;
 
         for (std::size_t A = 0; A < Instances.size(); ++A) {
+          if (isCancelled()) {
+            return;
+          }
           const dsl::StepOutcome Out =
               Instances[A]->step(I, DslBar, DslSnap, false);
           if (Out.Error.has_value()) {
@@ -651,6 +800,7 @@ private:
               std::find(Act.OrderIds.begin(), Act.OrderIds.end(), Gone));
           HumanOrderLots.erase(Gone);
           HumanOrderTypes.erase(Gone);
+          HumanOrderSides.erase(Gone);
           HumanOrderToAction.erase(Old);
         }
       }
@@ -666,17 +816,28 @@ private:
           ActionKey{Place->Order.Instrument, Entry.Step};
       HumanOrderLots[NewId] = signedLots(Place->Order);
       HumanOrderTypes[NewId] = Place->Order.Type;
+      HumanOrderSides[NewId] = Place->Order.OrderSide;
     };
 
-    Human.emplace(
-        walkHuman(Spec, TimelineRef, Journal, LastStep, OnStep, OnEntry));
+    std::optional<SessionEngine> Walked = walkHuman(
+        Spec, TimelineRef, Journal, LastStep, OnStep, OnEntry,
+        [&]() { return isCancelled(); });
+    if (!Walked.has_value()) {
+      return false;
+    }
+    Human.emplace(std::move(*Walked));
     LastSession = Human->currentStep();
     finalizeHumanActions(HumanActions, HumanOrderTypes);
     for (auto It = HumanOrderToAction.begin();
          It != HumanOrderToAction.end();) {
-      It = HumanActions.count(It->second) == 0 ? HumanOrderToAction.erase(It)
-                                               : std::next(It);
+      const auto SideIt = HumanOrderSides.find(It->first);
+      const bool IsBuy =
+          SideIt != HumanOrderSides.end() && SideIt->second == Side::Buy;
+      It = (!IsBuy && HumanActions.count(It->second) == 0)
+               ? HumanOrderToAction.erase(It)
+               : std::next(It);
     }
+    return true;
   }
 
   std::int64_t horizonAfter(std::size_t Algorithm, int Instrument,
@@ -720,6 +881,7 @@ private:
             continue;
           }
           HMatched[H] = AMatched[K] = 1;
+          MatchedAlgoActions.insert({A, Instrument, As[K]->Step});
           Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].Matched = true;
           if (sizeDiffers(Hs[H]->Lots, As[K]->Lots)) {
             HPending[H] =
@@ -754,6 +916,7 @@ private:
           continue;
         }
         HMatched[H] = AMatched[Best] = 1;
+        MatchedAlgoActions.insert({A, Instrument, As[Best]->Step});
         Outcome[{A, Hs[H]->Instrument, Hs[H]->Step}].Matched = true;
         HPending[H] = makePending(A, DivergenceType::Timing, Hs[H], As[Best],
                                   std::max(Hs[H]->Step, As[Best]->Step));
@@ -831,7 +994,7 @@ private:
     }
   }
 
-  void priceAlgorithmSide() {
+  bool priceAlgorithmSide() {
     std::map<std::int64_t, std::vector<std::size_t>> Jobs;
     for (std::size_t Index = 0; Index < PendingList.size(); ++Index) {
       if (PendingList[Index].SnapStep >= 0) {
@@ -847,12 +1010,23 @@ private:
           return;
         }
         for (const std::size_t Index : Found->second) {
+          if (isCancelled()) {
+            return;
+          }
           PendingList[Index].AlgoValue =
               algorithmValue(Engine, PendingList[Index], SeqBase);
         }
       };
-      walkHuman(Spec, TimelineRef, Journal, Jobs.rbegin()->first + 1, OnStep,
-                [](const JournalEntry &, const CommandResult &, bool) {});
+      if (!walkHuman(Spec, TimelineRef, Journal, Jobs.rbegin()->first + 1,
+                     OnStep,
+                     [](const JournalEntry &, const CommandResult &, bool) {},
+                     [&]() { return isCancelled(); })
+               .has_value()) {
+        return false;
+      }
+    }
+    if (isCancelled()) {
+      return false;
     }
     const Decimal Hundred = Decimal::fromUnits(100);
     const auto &Equity = Human->equity();
@@ -868,6 +1042,7 @@ private:
               ? ExactDiff.mulDiv(Hundred, EquityAt, 2, RoundingMode::HalfUp)
               : Decimal::zero();
     }
+    return true;
   }
 
   Decimal algorithmValue(const SessionEngine &At, const Pending &P,
@@ -894,7 +1069,7 @@ private:
       const CommandResult Res = Copy.apply(Entry);
       Ids.insert(Res.OrderIds.begin(), Res.OrderIds.end());
     }
-    while (Copy.currentStep() < P.Result.HorizonStep &&
+    while (!isCancelled() && Copy.currentStep() < P.Result.HorizonStep &&
            Copy.status() == SessionStatus::Running) {
       Copy.advance();
     }
@@ -936,6 +1111,19 @@ private:
     return PendingToSeq;
   }
 
+  bool algoMadeBuyNear(std::size_t A, int Instrument, std::int64_t Step) const {
+    const ActionMap &Map = AlgoActions[A];
+    const auto Low = Map.lower_bound(ActionKey{Instrument, Step - kWindow});
+    const auto High = Map.upper_bound(ActionKey{Instrument, Step + kWindow});
+    for (auto It = Low; It != High; ++It) {
+      if (It->second.Lots > 0 &&
+          MatchedAlgoActions.count({A, Instrument, It->first.second}) == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void
   assembleMissedTrades(DivergenceResult &Result,
                        const std::vector<std::int64_t> &PendingToSeq) const {
@@ -960,15 +1148,27 @@ private:
       const Decimal Units = Decimal::fromUnits(Trip.Lots * LotSize);
       Missed.EntryPrice = Trip.EntryValue.div(Units, RoundingMode::HalfUp);
       Missed.ExitPrice = Trip.ExitValue.div(Units, RoundingMode::HalfUp);
+      const auto HumanIt = HumanActions.find(Entry->second);
+      const bool HasHumanBuy =
+          HumanIt != HumanActions.end() && HumanIt->second.Lots > 0;
       for (std::size_t A = 0; A < Algorithms.size(); ++A) {
-        const auto Found =
-            Outcome.find({A, Entry->second.first, Entry->second.second});
-        if (Found != Outcome.end() && !Found->second.Matched) {
-          Missed.AlgorithmIds.push_back(Algorithms[A].Id);
-          if (Found->second.PendingIndex != kNone) {
-            Missed.DivergenceSeqs.push_back(
-                PendingToSeq[Found->second.PendingIndex]);
+        if (HasHumanBuy) {
+          const auto Found =
+              Outcome.find({A, Entry->second.first, Entry->second.second});
+          if (Found != Outcome.end() && !Found->second.Matched) {
+            Missed.AlgorithmIds.push_back(Algorithms[A].Id);
+            if (Found->second.PendingIndex != kNone) {
+              const Divergence &Div =
+                  PendingList[Found->second.PendingIndex].Result;
+              if (Div.Type == DivergenceType::Excess && Div.HumanLots > 0) {
+                Missed.DivergenceSeqs.push_back(
+                    PendingToSeq[Found->second.PendingIndex]);
+              }
+            }
           }
+        } else if (!algoMadeBuyNear(A, Entry->second.first,
+                                    Entry->second.second)) {
+          Missed.AlgorithmIds.push_back(Algorithms[A].Id);
         }
       }
       if (!Missed.AlgorithmIds.empty()) {
@@ -1033,11 +1233,20 @@ private:
   void assembleIndependent(DivergenceResult &Result) const {
     Result.Independent.reserve(Algorithms.size());
     for (const AlgorithmInput &Input : Algorithms) {
+      if (isCancelled()) {
+        Result.Cancelled = true;
+        return;
+      }
       StrategyRunOptions Opts;
       Opts.Source = Input.Source;
       Opts.ParamOverrides = Input.ParamOverrides;
+      Opts.ShouldCancel = ShouldCancel;
       Opts.UpToStep = LastSession;
       StrategyRunResult Run = runStrategy(Spec, TimelineRef, Opts);
+      if (Run.Cancelled || isCancelled()) {
+        Result.Cancelled = true;
+        return;
+      }
       const std::int64_t EndStep =
           Run.Engine.has_value() ? Run.Engine->currentStep() : LastSession;
       const std::optional<BenchmarkSeries> ClippedBenchmark =
@@ -1061,6 +1270,7 @@ private:
   const std::optional<BenchmarkSeries> &Benchmark;
   const std::optional<RuoniaSeries> &Ruonia;
   std::int32_t RuoniaPreviousDayYmd = 0;
+  std::function<bool()> ShouldCancel;
   ExecutionEngine ExecEngine;
 
   std::vector<std::unique_ptr<dsl::StrategyInstance>> Instances;
@@ -1069,9 +1279,11 @@ private:
   std::map<std::int64_t, ActionKey> HumanOrderToAction;
   std::map<std::int64_t, std::int64_t> HumanOrderLots;
   std::map<std::int64_t, OrderType> HumanOrderTypes;
+  std::map<std::int64_t, Side> HumanOrderSides;
   std::vector<ActionMap> AlgoActions;
   std::vector<Pending> PendingList;
   std::map<std::tuple<std::size_t, int, std::int64_t>, HumanOutcome> Outcome;
+  std::set<std::tuple<std::size_t, int, std::int64_t>> MatchedAlgoActions;
 };
 
 } // namespace
@@ -1083,9 +1295,11 @@ analyzeDivergences(const SessionSpec &Spec,
                    const std::vector<AlgorithmInput> &Algorithms,
                    const std::optional<BenchmarkSeries> &Benchmark,
                    const std::optional<RuoniaSeries> &Ruonia,
-                   std::int32_t RuoniaPreviousDayYmd) {
+                   std::int32_t RuoniaPreviousDayYmd,
+                   std::function<bool()> ShouldCancel) {
   Analyzer Runner(Spec, std::move(TimelineRef), Human, LastStep, Algorithms,
-                  Benchmark, Ruonia, RuoniaPreviousDayYmd);
+                  Benchmark, Ruonia, RuoniaPreviousDayYmd,
+                  std::move(ShouldCancel));
   return Runner.run();
 }
 
