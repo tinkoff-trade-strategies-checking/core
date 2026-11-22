@@ -17,10 +17,10 @@
 namespace worker {
 
 // Ни одно исключение не выходит наружу (statusFromCurrentException).
-grpc::Status handleRunStrategy(
-    Context &Ctx, const pb::RunStrategyRequest &Request,
-    grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
-    const std::function<bool()> &IsCancelled) {
+grpc::Status
+handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
+                  grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
+                  const std::function<bool()> &IsCancelled) {
   try {
     if (!Request.has_market()) {
       throw std::invalid_argument("не задан market");
@@ -68,8 +68,7 @@ grpc::Status handleRunStrategy(
       LastSentDone = DoneSteps;
     };
 
-    const core::StrategyRunResult Run =
-        core::runStrategy(Spec, Timeline, Opts);
+    const core::StrategyRunResult Run = core::runStrategy(Spec, Timeline, Opts);
     if (Run.Cancelled || StreamAborted || (IsCancelled && IsCancelled())) {
       return grpc::Status::CANCELLED;
     }
@@ -86,8 +85,8 @@ grpc::Status handleRunStrategy(
       const std::optional<core::BenchmarkSeries> Benchmark =
           CompletedDay.has_value() ? loadBenchmark(Ctx, Market, *CompletedDay)
                                    : std::nullopt;
-      ReportOpt = core::buildStrategyReport(
-          Run, Spec.InitialCash, *Timeline, Benchmark, Ruonia, PreviousDay);
+      ReportOpt = core::buildStrategyReport(Run, Spec.InitialCash, *Timeline,
+                                            Benchmark, Ruonia, PreviousDay);
     }
 
     pb::RunStrategyUpdate FinalUpdate;

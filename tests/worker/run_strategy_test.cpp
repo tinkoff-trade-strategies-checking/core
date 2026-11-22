@@ -63,10 +63,11 @@ protected:
   void addSyntheticSeries(const std::string &Snapshot,
                           const std::string &Ticker,
                           const std::vector<core::Bar> &Series,
-                          const std::vector<core::TradingDay> &Cal) {
+                          const std::vector<core::TradingDay> &Cal,
+                          const char *PriceStep = "0.01") {
     Fixture.Bars.addSecurity(
         Snapshot,
-        core::Security{Ticker, "Тест", 1, core::Decimal::parse("0.01")});
+        core::Security{Ticker, "Тест", 1, core::Decimal::parse(PriceStep)});
     Fixture.Bars.addSeries(Snapshot, Ticker, 86400, Series);
     Fixture.Calendar.add(Snapshot, Cal);
     Fixture.Ruonia.add(
@@ -84,14 +85,15 @@ protected:
 pb::MarketSpec singleInstrMarket(const std::string &Snapshot,
                                  const std::string &FromDate,
                                  const std::string &ToDate,
-                                 const char *InitialCash = "100000") {
+                                 const char *InitialCash = "100000",
+                                 const char *PriceStep = "0.01") {
   pb::MarketSpec Market;
   Market.set_snapshot_id(Snapshot);
   pb::Instrument *Instr = Market.add_instruments();
   Instr->set_key("A");
   Instr->set_ticker("TESTA");
   Instr->set_lot_size(1);
-  *Instr->mutable_price_step() = dec("0.01");
+  *Instr->mutable_price_step() = dec(PriceStep);
   Market.set_timeframe(pb::D1);
   Market.set_from_date(FromDate);
   Market.set_to_date(ToDate);
@@ -108,17 +110,15 @@ pb::MarketSpec singleInstrMarket(const std::string &Snapshot,
 
 TEST_F(RunStrategyRpc, CompletedRunWithProgressReportAndDeterministicDigest) {
   const std::string Source = R"dsl(
-param enter_lvl = 101
-param exit_lvl = 104
 param qty = 2
 
 rule "вход"
-  when position == 0 and close >= enter_lvl
+  when position == 0 and close >= 101
   then buy qty lots market
   because "вход при close={close}"
 
 rule "выход"
-  when position > 0 and close >= exit_lvl
+  when position > 0 and close >= 104
   then sell all
   because "выход при close={close}"
 )dsl";
@@ -166,8 +166,8 @@ TEST_F(RunStrategyRpc, IncludeHistoryIncludesWarmupAndMultipleProgress) {
   std::vector<core::TradingDay> Cal;
   const std::int64_t BaseMs = core::moscowDayStartMs(20240101);
   for (int I = 0; I < 65; ++I) {
-    const std::int64_t OpenMs = BaseMs + static_cast<std::int64_t>(I) *
-                                             core::kDayMs;
+    const std::int64_t OpenMs =
+        BaseMs + static_cast<std::int64_t>(I) * core::kDayMs;
     core::Bar B;
     B.TsOpenMs = OpenMs;
     B.AvailableAtMs = OpenMs + core::kDayMs;
@@ -179,9 +179,9 @@ TEST_F(RunStrategyRpc, IncludeHistoryIncludesWarmupAndMultipleProgress) {
   }
   addSyntheticSeries("long-snap", "TESTA", Bars, Cal);
 
-  pb::MarketSpec Market = singleInstrMarket(
-      "long-snap", core::formatIsoDate(Cal[5].Yyyymmdd),
-      core::formatIsoDate(Cal.back().Yyyymmdd));
+  const std::string From = core::formatIsoDate(Cal[5].Yyyymmdd);
+  const std::string To = core::formatIsoDate(Cal.back().Yyyymmdd);
+  pb::MarketSpec Market = singleInstrMarket("long-snap", From, To);
   Market.set_warmup_bars(5);
 
   pb::RunStrategyRequest Req;
@@ -252,34 +252,35 @@ TEST_F(RunStrategyRpc, InvalidStrategyReturnsOkWithInvalidAndDiagnostics) {
 }
 
 TEST_F(RunStrategyRpc, BankruptStopHaltsEarlyAndRespectsInv1) {
-  const std::int32_t Days[] = {20240201, 20240202, 20240205};
-  const char *Opens[] = {"10", "100", "50"};
-  const char *Closes[] = {"10", "1", "50"};
+  const std::int32_t Days[] = {20240201, 20240202, 20240205, 20240206};
+  const char *Closes[] = {"0.99", "0.99", "0.001", "0.001"};
   std::vector<core::Bar> Bars;
   std::vector<core::TradingDay> Cal;
-  for (int I = 0; I < 3; ++I) {
+  core::Decimal Prev = core::Decimal::parse(Closes[0]);
+  for (int I = 0; I < 4; ++I) {
     const std::int64_t OpenMs = core::moscowDayStartMs(Days[I]);
     core::Bar B;
     B.TsOpenMs = OpenMs;
     B.AvailableAtMs = OpenMs + core::kDayMs;
-    B.Open = core::Decimal::parse(Opens[I]);
+    B.Open = Prev;
     B.Close = core::Decimal::parse(Closes[I]);
     B.High = std::max(B.Open, B.Close);
     B.Low = std::min(B.Open, B.Close);
-    B.Volume = 100000;
+    B.Volume = 1000;
     B.Value = B.Close.times(B.Volume);
+    Prev = B.Close;
     Bars.push_back(B);
     Cal.push_back(core::TradingDay{Days[I], true});
   }
-  addSyntheticSeries("bankrupt-snap", "TESTA", Bars, Cal);
+  addSyntheticSeries("bankrupt-snap", "TESTA", Bars, Cal, "0.001");
 
   pb::RunStrategyRequest Req;
-  *Req.mutable_market() =
-      singleInstrMarket("bankrupt-snap", "2024-02-01", "2024-02-05", "1000");
+  *Req.mutable_market() = singleInstrMarket("bankrupt-snap", "2024-02-01",
+                                            "2024-02-06", "0.99", "0.001");
   Req.mutable_strategy()->set_source(R"dsl(
 rule "all_in"
   when position == 0
-  then buy 90 lots market
+  then buy 1 lots market
   because "максимум"
 )dsl");
   Req.set_include_history(true);
@@ -291,11 +292,11 @@ rule "all_in"
   ASSERT_EQ(Results.size(), 1u);
   const pb::RunResult &Res = Results[0];
   EXPECT_EQ(Res.status(), pb::BANKRUPT_STOP);
-  EXPECT_EQ(Res.last_step(), 1);
-  EXPECT_EQ(Res.total_steps(), 3);
+  EXPECT_EQ(Res.last_step(), 2);
+  EXPECT_EQ(Res.total_steps(), 4);
   EXPECT_TRUE(Res.has_report());
-  ASSERT_EQ(Res.history_size(), 2);
-  EXPECT_EQ(Res.history(1).step(), 1);
+  ASSERT_EQ(Res.history_size(), 3);
+  EXPECT_EQ(Res.history(2).step(), 2);
 }
 
 TEST_F(RunStrategyRpc, ParamOverridesValidationAndCancellation) {

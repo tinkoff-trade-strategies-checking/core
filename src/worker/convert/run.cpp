@@ -58,13 +58,11 @@ void toProto(const dsl::Diagnostic &Diag, pb::Diagnostic *Out) {
     DstFix->set_description(Fix.Description);
     for (const dsl::TextEdit &Edit : Fix.Edits) {
       pb::TextEdit *DstEdit = DstFix->add_edits();
-      DstEdit->set_start_line(
-          static_cast<std::int32_t>(Edit.Range.Start.Line));
+      DstEdit->set_start_line(static_cast<std::int32_t>(Edit.Range.Start.Line));
       DstEdit->set_start_column(
           static_cast<std::int32_t>(Edit.Range.Start.Column));
       DstEdit->set_end_line(static_cast<std::int32_t>(Edit.Range.End.Line));
-      DstEdit->set_end_column(
-          static_cast<std::int32_t>(Edit.Range.End.Column));
+      DstEdit->set_end_column(static_cast<std::int32_t>(Edit.Range.End.Column));
       DstEdit->set_replacement(Edit.Replacement);
     }
   }

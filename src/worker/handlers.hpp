@@ -43,8 +43,8 @@ grpc::Status handleClassifyPeriods(Context &Context,
                                    pb::ClassifyPeriodsResponse *Response);
 grpc::Status handleCheckStrategy(const pb::CheckStrategyRequest &Request,
                                  pb::CheckStrategyResponse *Response);
-grpc::Status handleRunStrategy(
-    Context &Ctx, const pb::RunStrategyRequest &Request,
-    grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
-    const std::function<bool()> &IsCancelled = {});
+grpc::Status
+handleRunStrategy(Context &Ctx, const pb::RunStrategyRequest &Request,
+                  grpc::ServerWriter<pb::RunStrategyUpdate> *Writer,
+                  const std::function<bool()> &IsCancelled = {});
 } // namespace worker
