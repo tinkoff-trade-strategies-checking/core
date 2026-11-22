@@ -41,6 +41,8 @@ service SimulationWorker {
   rpc CheckStrategy(CheckStrategyRequest) returns (CheckStrategyResponse);
   // Детерминированный прогон DSL-стратегии на истории с прогрессом (UC-14, UC-18, INV-3, INV-4).
   rpc RunStrategy(RunStrategyRequest) returns (stream RunStrategyUpdate);
+  // Разбор расхождений между действиями человека и алгоритмов (ФТ-18…20, INV-3, INV-4, INV-6).
+  rpc AnalyzeDivergences(DivergenceRequest) returns (DivergenceResponse);
 }
 
 message PingRequest {}
@@ -751,4 +753,80 @@ message RunStrategyUpdate {
     RunProgress progress = 1;
     RunResult result = 2;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Разбор расхождений человека и алгоритмов (ФТ-18…20)
+// ---------------------------------------------------------------------------
+
+message AlgorithmRef {
+  string id = 1;
+  StrategySource strategy = 2;
+}
+
+message DivergenceRequest {
+  MarketSpec market = 1;
+  repeated JournalEntry journal = 2;
+  int64 last_step = 3;
+  repeated AlgorithmRef algorithms = 4;
+}
+
+enum DivergenceType {
+  DIVERGENCE_TYPE_UNSPECIFIED = 0;
+  EXCESS = 1;
+  MISSED = 2;
+  SIZE = 3;
+  TIMING = 4;
+}
+
+message Divergence {
+  string algorithm_id = 1;
+  string instrument_key = 2;
+  DivergenceType type = 3;
+  int64 human_step = 4;            // -1 — нет действия
+  int64 algo_step = 5;             // -1 — нет действия
+  int64 human_lots = 6;            // со знаком: + покупка, − продажа
+  int64 algo_lots = 7;             // со знаком: + покупка, − продажа
+  int64 horizon_step = 8;
+  Decimal cost = 9;
+  Decimal cost_percent = 10;       // 2 знака HALF_UP (INV-6)
+  string reason = 11;
+  int64 seq = 12;                  // 0-based индекс для UUID v5 (backend)
+  OrderType human_order_type = 13; // MARKET / LIMIT / ORDER_TYPE_UNSPECIFIED
+  OrderType algo_order_type = 14;  // MARKET / LIMIT / ORDER_TYPE_UNSPECIFIED
+}
+
+message MissedProfitableTrade {
+  string instrument_key = 1;
+  int64 entry_step = 2;
+  int64 exit_step = 3;
+  int64 lots = 4;
+  Decimal net_pnl = 5;
+  repeated string algorithm_ids = 6;
+  Decimal entry_price = 7;         // средняя цена входа за штуку: стоимость сделок входа без издержек / (лоты × лот), HALF_UP
+  Decimal exit_price = 8;          // то же для выхода
+  int64 seq = 9;                   // 0-based индекс для UUID v5 (backend)
+  repeated int64 divergence_seqs = 10; // seq входных EXCESS-расхождений в порядке algorithm_ids
+}
+
+message ConsensusItem {
+  string instrument_key = 1;
+  int64 step = 2;
+  Side side = 3;
+  bool human_action = 4;
+  int32 agreeing = 5;
+  int32 total = 6;
+  Decimal median_cost = 7;
+}
+
+message AlgorithmPortfolio {
+  string algorithm_id = 1;
+  RunResult result = 2;
+}
+
+message DivergenceResponse {
+  repeated Divergence divergences = 1;
+  repeated MissedProfitableTrade missed_profitable = 2;
+  repeated ConsensusItem consensus = 3;
+  repeated AlgorithmPortfolio algorithm_portfolios = 4;
 }
