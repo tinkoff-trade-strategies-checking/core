@@ -220,6 +220,34 @@ TEST(RuntimeDetectors, GuessedGapsNetZeroSkippedBarsAndFilters) {
   EXPECT_EQ(Res5of6->Code, "W-RT01");
 }
 
+TEST(RuntimeDetectors, GuessedGapsExactEightyPercentBoundary) {
+  std::vector<BarSpec> Specs;
+  for (int I = 0; I < 10; ++I) {
+    const auto Step = static_cast<std::int64_t>(I * 2);
+    Specs.push_back(BarSpec{Step, "100", "100"});
+    Specs.push_back(BarSpec{Step + 1, "102", "100"});
+  }
+  const Timeline Tl = makeSingleTimeline(Specs);
+
+  std::vector<Order> Orders;
+  std::vector<Fill> Fills;
+  for (int I = 0; I < 10; ++I) {
+    const Side S = (I < 7) ? Side::Buy : Side::Sell;
+    Orders.push_back(makeOrder(I * 2, I * 2, S, OrderType::Market, "r"));
+    Fills.push_back(makeFill(I * 2, I * 2 + 1, S, 1));
+  }
+  // 7/10 = 70% < 80% -> нет W-RT01.
+  EXPECT_FALSE(detectGuessedGaps(Tl, Orders, Fills).has_value());
+
+  // 8/10 = 80.0% (ровно порог) -> W-RT01.
+  Orders[7].Spec.OrderSide = Side::Buy;
+  Fills[7].OrderSide = Side::Buy;
+  const auto Res = detectGuessedGaps(Tl, Orders, Fills);
+  ASSERT_TRUE(Res.has_value());
+  EXPECT_EQ(Res->Code, "W-RT01");
+  EXPECT_EQ(Res->Severity, CheckLevel::Warning);
+}
+
 TEST(RuntimeDetectors, TooSmoothResultBoundary) {
   auto MakeTrips = [](std::size_t Total, std::size_t Wins) {
     std::vector<RoundTrip> Trips;
@@ -258,17 +286,12 @@ TEST(RuntimeDetectors, ApplyRuntimeChecksAggregatesLevelsAndFindings) {
   EXPECT_EQ(Rep.Findings[0].Code, "W-RT02");
   EXPECT_EQ(Rep.ReportLevel, CheckLevel::Warning);
 
-  applyRuntimeChecks(
-      Rep, CheckLevel::Warning, Tl, {}, {},
-      {Finding{"E-RT01", CheckLevel::Error, "нарушение целостности", 1}});
+  const Finding Ert{"E-RT01", CheckLevel::Error, "сбой", 1};
+  applyRuntimeChecks(Rep, CheckLevel::Warning, Tl, {}, {}, {Ert});
   EXPECT_EQ(Rep.ReportLevel, CheckLevel::Error);
-  bool HasIntegrity = false;
-  for (const Finding &Item : Rep.Findings) {
-    if (Item.Code == "E-RT01") {
-      HasIntegrity = true;
-    }
-  }
-  EXPECT_TRUE(HasIntegrity);
+  ASSERT_EQ(Rep.Findings.size(), 2u);
+  EXPECT_EQ(Rep.Findings[0].Code, "W-RT02");
+  EXPECT_EQ(Rep.Findings[1].Code, "E-RT01");
 }
 
 } // namespace

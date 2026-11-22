@@ -9,6 +9,7 @@
 
 #include "core/engine/digest.hpp"
 #include "core/market/date_utils.hpp"
+#include "core/report/ruonia.hpp"
 #include "core/strategy/runtime_detectors.hpp"
 #include "core/strategy/strategy_runner.hpp"
 #include "dsl/interpreter.hpp"
@@ -467,6 +468,125 @@ TEST(StrategyRunner, AlgorithmHasNoNewsOrDateAccess_INV9) {
     ASSERT_FALSE(Res.Diagnostics.empty());
     EXPECT_EQ(Res.Diagnostics[0].Code, "E-TYPE");
   }
+}
+
+TEST(StrategyRunner, BuildStrategyReportWithRuoniaAndWarnings) {
+  // 14 баров с чередующимися гэпами +3% / -2.9% для срабатывания W-RT01.
+  std::vector<SimpleBar> Bars;
+  for (int I = 0; I < 14; ++I) {
+    if (I % 2 == 0) {
+      Bars.push_back(SimpleBar{"100", "101", "99", "100"});
+    } else {
+      Bars.push_back(SimpleBar{"103", "104", "102", "103"});
+    }
+  }
+  const auto Tl = makeTimeline(Bars);
+  const SessionSpec Spec = makeSpec(Tl);
+
+  // Добавляем статическое предупреждение W-LA01 + правила с W-RT01.
+  const std::string Source = R"dsl(
+param n = 2
+param lvl = 150
+rule "предупреждение"
+  when sma(close, n) > lvl
+  then cancel
+  because "статический уровень"
+
+rule "покупка"
+  when position == 0 and close == 100
+  then buy 1 lots market
+  because "вход перед гэпом"
+
+rule "продажа"
+  when position > 0 and close == 103
+  then sell all market
+  because "выход перед гэпом"
+)dsl";
+  StrategyRunOptions Opts;
+  Opts.Source = Source;
+  const StrategyRunResult RunRes = runStrategy(Spec, Tl, Opts);
+  ASSERT_TRUE(RunRes.Compiled);
+  EXPECT_EQ(RunRes.StaticLookahead, CheckLevel::Warning);
+
+  RuoniaSeries Rates;
+  const std::int64_t BaseMs = moscowDayStartMs(20240201);
+  const std::int32_t PrevDay = moscowYmd(BaseMs - kDayMs);
+  Rates.Rates.push_back(DailyRate{PrevDay, Decimal::parse("15.0")});
+  for (std::int64_t Step = 0; Step < Tl->totalSteps(); ++Step) {
+    Rates.Rates.push_back(
+        DailyRate{Tl->yyyymmddOf(Step), Decimal::parse("15.0")});
+  }
+
+  const Report Rep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl,
+                                         std::nullopt, Rates, PrevDay);
+  EXPECT_EQ(Rep.ReportLevel, CheckLevel::Warning);
+  EXPECT_TRUE(Rep.Stats.Sharpe.has_value());
+  EXPECT_TRUE(Rep.Stats.Volatility.has_value());
+
+  int Wrt01Count = 0;
+  for (const Finding &Item : Rep.Findings) {
+    if (Item.Code == "W-RT01") {
+      ++Wrt01Count;
+    }
+  }
+  EXPECT_EQ(Wrt01Count, 1);
+}
+
+TEST(StrategyRunner, BuildStrategyReportWithTooSmoothAndInvalidRuns) {
+  // 64 растущих бара: 31 прибыльный круг -> W-RT02.
+  std::vector<SimpleBar> RisingBars;
+  for (int I = 0; I < 64; ++I) {
+    const std::string Price = std::to_string(100 + I * 2);
+    RisingBars.push_back(SimpleBar{Price, Price, Price, Price});
+  }
+  const auto Tl = makeTimeline(RisingBars);
+  const SessionSpec Spec = makeSpec(Tl);
+
+  StrategyRunOptions Opts;
+  Opts.Source = R"dsl(
+rule "вход"
+  when position == 0
+  then buy 1 lots market
+  because "вход"
+
+rule "выход"
+  when position > 0
+  then sell all market
+  because "выход"
+)dsl";
+  StrategyRunResult RunRes = runStrategy(Spec, Tl, Opts);
+  ASSERT_TRUE(RunRes.Compiled);
+  ASSERT_TRUE(RunRes.Engine.has_value());
+
+  const Report SmoothRep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl);
+  EXPECT_EQ(SmoothRep.ReportLevel, CheckLevel::Warning);
+  int Wrt02Count = 0;
+  for (const Finding &Item : SmoothRep.Findings) {
+    if (Item.Code == "W-RT02") {
+      ++Wrt02Count;
+    }
+  }
+  EXPECT_EQ(Wrt02Count, 1);
+
+  // При Invalid == true сохраняется E-RT01 без ложных W-RT01/W-RT02.
+  RunRes.Invalid = true;
+  RunRes.FinalLevel = CheckLevel::Error;
+  RunRes.RuntimeFindings = {Finding{"E-RT01", CheckLevel::Error, "сбой", 5}};
+  const Report InvalidRep = buildStrategyReport(RunRes, Spec.InitialCash, *Tl);
+  EXPECT_EQ(InvalidRep.ReportLevel, CheckLevel::Error);
+  ASSERT_EQ(InvalidRep.Findings.size(), 1u);
+  EXPECT_EQ(InvalidRep.Findings[0].Code, "E-RT01");
+
+  // Нескомпилированная стратегия (!Engine): FinalEquity == InitialCash.
+  StrategyRunOptions BadOpts;
+  BadOpts.Source =
+      "rule \"r\" when close[-1] > close then cancel because \"bad\"";
+  const StrategyRunResult BadRes = runStrategy(Spec, Tl, BadOpts);
+  EXPECT_FALSE(BadRes.Compiled);
+  EXPECT_FALSE(BadRes.Engine.has_value());
+  const Report BadRep = buildStrategyReport(BadRes, Spec.InitialCash, *Tl);
+  EXPECT_EQ(BadRep.FinalEquity, Spec.InitialCash);
+  EXPECT_EQ(BadRep.ReportLevel, CheckLevel::Error);
 }
 
 } // namespace

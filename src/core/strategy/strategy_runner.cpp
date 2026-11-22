@@ -339,6 +339,18 @@ Report buildStrategyReport(const StrategyRunResult &RunResult,
       buildMetricsInput(*RunResult.Engine, InitialCash, Tl, Benchmark, Ruonia,
                         RuoniaPreviousDayYmd);
   Report Out = computeReport(Input);
+  if (RunResult.Invalid) {
+    for (const Finding &Item : RunResult.RuntimeFindings) {
+      if (Item.Code != "W-RT01" && Item.Code != "W-RT02") {
+        Out.Findings.push_back(Item);
+      }
+    }
+    Out.ReportLevel = combineCheckLevel(
+        CheckLevel::Error,
+        combineCheckLevel(RunResult.StaticLookahead, RunResult.FinalLevel));
+    return Out;
+  }
+
   std::vector<Finding> Extra;
   for (const Finding &Item : RunResult.RuntimeFindings) {
     if (Item.Code != "W-RT01" && Item.Code != "W-RT02") {

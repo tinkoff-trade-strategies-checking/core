@@ -140,14 +140,24 @@ void applyRuntimeChecks(Report &OutReport, CheckLevel StaticLevel,
                         const Timeline &Tl, const std::vector<Order> &Orders,
                         const std::vector<Fill> &Fills,
                         const std::vector<Finding> &ExtraFindings) {
+  const auto HasFindingCode = [&](const std::string &Code) {
+    return std::any_of(OutReport.Findings.begin(), OutReport.Findings.end(),
+                       [&](const Finding &Item) { return Item.Code == Code; });
+  };
+
   for (const Finding &Item : ExtraFindings) {
     OutReport.Findings.push_back(Item);
   }
-  if (const auto GapsFinding = detectGuessedGaps(Tl, Orders, Fills)) {
-    OutReport.Findings.push_back(*GapsFinding);
+  if (!HasFindingCode("W-RT01")) {
+    if (const auto GapsFinding = detectGuessedGaps(Tl, Orders, Fills)) {
+      OutReport.Findings.push_back(*GapsFinding);
+    }
   }
-  if (const auto SmoothFinding = detectTooSmoothResult(OutReport.RoundTrips)) {
-    OutReport.Findings.push_back(*SmoothFinding);
+  if (!HasFindingCode("W-RT02")) {
+    if (const auto SmoothFinding =
+            detectTooSmoothResult(OutReport.RoundTrips)) {
+      OutReport.Findings.push_back(*SmoothFinding);
+    }
   }
 
   CheckLevel Worst = combineCheckLevel(StaticLevel, OutReport.ReportLevel);
