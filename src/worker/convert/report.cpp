@@ -1,5 +1,8 @@
 #include "convert/report.hpp"
 
+#include <stdexcept>
+#include <string>
+
 #include "core/money/proto_conv.hpp"
 #include "core/report/metrics_input.hpp"
 
@@ -48,6 +51,39 @@ metricsInput(const core::SessionEngine &Engine,
                                  Ruonia, RuoniaPreviousDayYmd);
 }
 
+pb::Level toProto(core::CheckLevel Severity) {
+  switch (Severity) {
+  case core::CheckLevel::Ok:
+    return pb::OK;
+  case core::CheckLevel::Warning:
+    return pb::WARNING;
+  case core::CheckLevel::Error:
+    return pb::ERROR;
+  }
+  return pb::LEVEL_UNSPECIFIED;
+}
+
+core::CheckLevel checkLevelFromProto(pb::Level Value) {
+  switch (Value) {
+  case pb::OK:
+    return core::CheckLevel::Ok;
+  case pb::WARNING:
+    return core::CheckLevel::Warning;
+  case pb::ERROR:
+    return core::CheckLevel::Error;
+  default:
+    throw std::invalid_argument("неизвестный уровень проверки: " +
+                                std::to_string(static_cast<int>(Value)));
+  }
+}
+
+void toProto(const core::Finding &Item, pb::Finding *Out) {
+  Out->set_code(Item.Code);
+  Out->set_level(toProto(Item.Severity));
+  Out->set_message(Item.Message);
+  Out->set_step(Item.Step);
+}
+
 void toProto(const core::Report &Report, const core::Timeline &Timeline,
              pb::Report *Out) {
   metricsToProto(Report.Stats, Out->mutable_metrics());
@@ -67,6 +103,9 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
     Point->set_step(P.Step);
     core::toProto(P.Equity, Point->mutable_equity());
   }
+  Out->set_level(toProto(Report.ReportLevel));
+  for (const core::Finding &F : Report.Findings)
+    toProto(F, Out->add_findings());
   core::toProto(Report.FinalEquity, Out->mutable_final_equity());
   for (const core::EquityPoint &P : Report.BenchmarkEquity) {
     pb::EquityPoint *Point = Out->add_benchmark_equity();

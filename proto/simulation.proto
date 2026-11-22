@@ -37,6 +37,8 @@ service SimulationWorker {
   rpc EstimateOrder(EstimateOrderRequest) returns (EstimateOrderResponse);
   // Классификация исторических периодов по волатильности и просадке IMOEX (`decisions.md`, «Стресс-сценарии»).
   rpc ClassifyPeriods(ClassifyPeriodsRequest) returns (ClassifyPeriodsResponse);
+  // Статическая проверка и линтер стратегии на DSL (`dsl.md`).
+  rpc CheckStrategy(CheckStrategyRequest) returns (CheckStrategyResponse);
 }
 
 message PingRequest {}
@@ -118,6 +120,14 @@ enum SessionStatus {
   RUNNING = 1;
   FINISHED_END = 2;
   BANKRUPT = 3;
+}
+
+// Уровень статической и рантайм-диагностики стратегии (`dsl.md`, ФТ-14).
+enum Level {
+  LEVEL_UNSPECIFIED = 0;
+  OK = 1;
+  WARNING = 2;
+  ERROR = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,8 +225,8 @@ message JournalEntry {
     CancelOrder cancel = 4;
     ReplaceOrder replace = 5;
   }
-  reserved 6, 7;
-  reserved "rule_name", "because";
+  string rule_name = 6; // имя правила стратегии, породившего команду; пусто для ручной торговли
+  string because = 7;   // причина действия правила (`because` из DSL)
 }
 
 // ---------------------------------------------------------------------------
@@ -232,8 +242,8 @@ message Order {
   string invalid_field = 6;
   int64 filled_lots = 7;
   int64 oco_sibling_id = 8;       // -1 — нет связанной заявки
-  reserved 9, 10;
-  reserved "rule_name", "because";
+  string rule_name = 9;           // имя правила стратегии; пусто для ручных заявок
+  string because = 10;            // причина заявки из правила стратегии
   Decimal trailing_stop_level = 11;
   int64 closed_step = 12;         // -1 — заявка ещё открыта
 }
@@ -364,12 +374,20 @@ message RoundTrip {
   int64 seq = 10;            // индекс пары в Report.round_trips (с 0; порядок продаж, внутри — покупок), core#54
 }
 
+// Диагностическое сообщение времени исполнения (ФТ-14: E-RT01, W-RT01, W-RT02).
+message Finding {
+  string code = 1;
+  Level level = 2;
+  string message = 3;
+  int64 step = 4; // шаг обнаружения; -1 если относится ко всему прогону
+}
+
 message Report {
   Metrics metrics = 1;
   CostTotals costs = 2;
   repeated EquityPoint equity = 3;
-  reserved 4, 5;
-  reserved "findings", "level";
+  repeated Finding findings = 4;
+  Level level = 5;
   Decimal final_equity = 6;
   // Кривая бенчмарка (MarketSpec.benchmark_ticker) в рублях того же капитала: initial_cash * close дня / open первого
   // дня, точка на последнем шаге каждого полностью пройденного торгового дня; до копейки HALF_UP (core#58). Пусто без бенчмарка.
@@ -633,4 +651,57 @@ message ClassifyPeriodsResponse {
   repeated PeriodWindow windows = 1;
   double p33 = 2;
   double p80 = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Стратегии (`dsl.md`): статическая проверка, линтер и параметры
+// ---------------------------------------------------------------------------
+
+message ParamValue {
+  string name = 1;
+  double value = 2;
+}
+
+message TextEdit {
+  int32 start_line = 1;    // 1-based строка начала замены
+  int32 start_column = 2;  // 1-based столбец начала замены
+  int32 end_line = 3;      // 1-based строка конца (полуинтервал)
+  int32 end_column = 4;    // 1-based столбец конца (полуинтервал)
+  string replacement = 5;
+}
+
+message DiagnosticFix {
+  string description = 1;
+  repeated TextEdit edits = 2;
+}
+
+message Diagnostic {
+  string code = 1;
+  Level level = 2;
+  int32 start_line = 3;    // 1-based; 0 для ошибок до парсинга или из param_overrides
+  int32 start_column = 4;  // 1-based; 0 для ошибок до парсинга или из param_overrides
+  int32 end_line = 5;      // 1-based; 0 для ошибок до парсинга или из param_overrides
+  int32 end_column = 6;    // 1-based; 0 для ошибок до парсинга или из param_overrides
+  string message = 7;
+  repeated DiagnosticFix fix = 8;
+}
+
+message ParamDecl {
+  string name = 1;
+  double default_value = 2;
+  optional double range_min = 3;
+  optional double range_max = 4;
+  optional string step = 5; // точный десятичный шаг из исходного текста для UC-16
+  bool integer = 6;         // true, если параметр используется в целочисленной позиции (период/смещение)
+}
+
+message CheckStrategyRequest {
+  string source = 1;
+  repeated ParamValue param_overrides = 2;
+}
+
+message CheckStrategyResponse {
+  Level lookahead_level = 1;
+  repeated Diagnostic diagnostics = 2;
+  repeated ParamDecl params = 3;
 }

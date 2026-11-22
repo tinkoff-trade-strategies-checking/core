@@ -74,6 +74,8 @@ struct Order {
   std::optional<Decimal> TrailingPeak, TrailingStopLevel;
   bool Triggered = false; // стоп-лимит сработал
   std::int64_t ClosedStep = -1; // шаг, на котором заявка стала неактивной
+  std::string RuleName;
+  std::string Because;
 };
 
 // Исполнение. price - цена за единицу бумаги, basePrice - цена до спреда и

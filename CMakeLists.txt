@@ -30,6 +30,20 @@ elseif(MSVC)
   target_compile_options(core_warnings INTERFACE /W4 /WX)
 endif()
 
+include(FetchContent)
+set(DSL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(DSL_SOURCE_DIR "" CACHE PATH "Локальный путь к репозиторию dsl для офлайн-сборки")
+if(DSL_SOURCE_DIR)
+  FetchContent_Declare(dsl SOURCE_DIR "${DSL_SOURCE_DIR}")
+else()
+  FetchContent_Declare(
+    dsl
+    GIT_REPOSITORY https://github.com/tinkoff-trade-strategies-checking/dsl.git
+    GIT_TAG        cc0287f5ea002ee8dde1cf2e6532ec972ef52121
+  )
+endif()
+FetchContent_MakeAvailable(dsl)
+
 add_subdirectory(src/core)
 add_subdirectory(src/fixtures)
 add_subdirectory(src/cli)
@@ -42,6 +56,7 @@ if(CORE_BUILD_WORKER)
   find_package(gRPC CONFIG REQUIRED)
   add_subdirectory(proto)
   add_subdirectory(src/worker)
+  target_link_libraries(simulation_worker_lib PRIVATE dsl::dsl)
 endif()
 
 if(CORE_BUILD_TESTS)
@@ -49,4 +64,8 @@ if(CORE_BUILD_TESTS)
   find_package(GTest REQUIRED)
   find_package(rapidcheck CONFIG REQUIRED)
   add_subdirectory(tests)
+  target_link_libraries(core_tests PRIVATE dsl::dsl)
+  if(CORE_BUILD_WORKER)
+    target_link_libraries(worker_tests PRIVATE dsl::dsl)
+  endif()
 endif()

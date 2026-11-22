@@ -39,4 +39,6 @@ grpc::Status handleEstimateOrder(Context &Context,
 grpc::Status handleClassifyPeriods(Context &Context,
                                    const pb::ClassifyPeriodsRequest &Request,
                                    pb::ClassifyPeriodsResponse *Response);
+grpc::Status handleCheckStrategy(const pb::CheckStrategyRequest &Request,
+                                 pb::CheckStrategyResponse *Response);
 } // namespace worker

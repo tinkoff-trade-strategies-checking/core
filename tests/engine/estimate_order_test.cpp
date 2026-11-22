@@ -243,8 +243,11 @@ TEST(EstimateOrder, MatchesSubmissionRejectionReasons) {
     core::SessionEngine Engine(Spec, Tl);
     for (std::int64_t S = 0; S < Step; ++S)
       Engine.advance();
-    const core::CommandResult Res =
-        Engine.apply(core::JournalEntry{0, Step, core::PlaceCmd{Order, {}}});
+    core::JournalEntry Entry;
+    Entry.Seq = 0;
+    Entry.Step = Step;
+    Entry.Command = core::PlaceCmd{Order, std::nullopt};
+    const core::CommandResult Res = Engine.apply(Entry);
     EXPECT_EQ(Est.Check.Ok, Res.Accepted);
     EXPECT_EQ(Est.Check.ReasonCode, Res.ReasonCode);
     EXPECT_EQ(Est.Check.Field, Res.Field);

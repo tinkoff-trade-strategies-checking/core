@@ -38,6 +38,8 @@ struct JournalEntry {
   std::int64_t Step = 0; // шаг, на котором дана команда; не убывает (несколько
                          // заявок на шаге - норма)
   std::variant<PlaceCmd, CancelCmd, ReplaceCmd> Command;
+  std::string RuleName;
+  std::string Because;
 };
 
 // Итог команды. Отклонённая подача и замена оставляют заявки в статусе Rejected

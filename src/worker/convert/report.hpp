@@ -29,9 +29,14 @@ metricsInput(const core::SessionEngine &Engine,
              const std::optional<core::RuoniaSeries> &Ruonia = std::nullopt,
              std::int32_t RuoniaPreviousDayYmd = 0);
 
-// Метрики, издержки, кривая стоимости и итоговая стоимость; необязательные
-// метрики без значения не задаются.
-// Пары FIFO получают ключ бумаги из шкалы времени.
+pb::Level toProto(core::CheckLevel Severity);
+// Обратно к toProto(CheckLevel); неизвестное значение - std::invalid_argument.
+core::CheckLevel checkLevelFromProto(pb::Level Value);
+void toProto(const core::Finding &Item, pb::Finding *Out);
+
+// Метрики, издержки, кривая стоимости, итоговая стоимость и диагностики ФТ-14;
+// необязательные метрики без значения не задаются. Пары FIFO получают ключ
+// бумаги из шкалы времени.
 void toProto(const core::Report &Report, const core::Timeline &Timeline,
              pb::Report *Out);
 

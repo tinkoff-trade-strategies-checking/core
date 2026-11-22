@@ -23,7 +23,9 @@ SessionEngine::SessionEngine(SessionSpec InSpec,
                              std::shared_ptr<const Timeline> Tl)
     : Spec(std::move(InSpec)), TimelineRef(std::move(Tl)),
       Exec(Spec.Instruments, Spec.Costs),
-      PortfolioState(Spec.InitialCash, Spec.Instruments.size()) {
+      PortfolioState(Spec.InitialCash, Spec.Instruments.size()),
+      BarsInPosition(Spec.Instruments.size(), std::nullopt),
+      PositionReopenedOnBar(Spec.Instruments.size(), false) {
   if (!TimelineRef)
     throw std::invalid_argument("SessionEngine: нет шкалы времени");
   if (TimelineRef->totalSteps() < 1)
@@ -75,6 +77,8 @@ void SessionEngine::createOrders(const JournalEntry &Entry, const PlaceCmd &Cmd,
     O.Id = Ids[I];
     O.Spec = *Legs[I];
     O.PlacedStep = Step;
+    O.RuleName = Entry.RuleName;
+    O.Because = Entry.Because;
     if (Verdict.Ok) {
       O.Status = OrderStatus::Active;
       if (Legs.size() == 2)
@@ -179,6 +183,12 @@ CommandResult SessionEngine::apply(const JournalEntry &Entry) {
 void SessionEngine::advance() {
   if (Status != SessionStatus::Running)
     throw std::logic_error("SessionEngine::advance: сессия остановлена");
+  const std::size_t InstrumentCount = Spec.Instruments.size();
+  std::vector<std::int64_t> PosBefore(InstrumentCount);
+  for (std::size_t I = 0; I < InstrumentCount; ++I)
+    PosBefore[I] = PortfolioState.lots(static_cast<int>(I));
+  PositionReopenedOnBar.assign(InstrumentCount, false);
+
   const std::int64_t Next = Step + 1;
   Step = Next;
   FillsBegin = Fills.size();
@@ -188,6 +198,7 @@ void SessionEngine::advance() {
   // делает.
   Exec.processStep(Next, *TimelineRef, Orders, PortfolioState, Fills, Changed);
   checkIntegrity(FillsBegin);
+  updatePositionBars(PosBefore);
   recordStepState();
 
   const bool Bankrupt = Equity.back().Equity.sign() <= 0;
@@ -242,6 +253,40 @@ void SessionEngine::checkIntegrity(std::size_t FromFill) const {
   }
 }
 
+void SessionEngine::updatePositionBars(
+    const std::vector<std::int64_t> &PosBefore) {
+  const std::size_t InstrumentCount = Spec.Instruments.size();
+  for (std::size_t I = 0; I < InstrumentCount; ++I) {
+    const int Instr = static_cast<int>(I);
+    if (TimelineRef->barOf(Instr, Step) == nullptr) {
+      PositionReopenedOnBar[I] = false;
+      continue;
+    }
+    if (PortfolioState.lots(Instr) == 0) {
+      BarsInPosition[I] = std::nullopt;
+      PositionReopenedOnBar[I] = false;
+      continue;
+    }
+    std::int64_t Running = PosBefore[I];
+    bool TouchedZero = false;
+    for (std::size_t FIdx = FillsBegin; FIdx < Fills.size(); ++FIdx) {
+      const Fill &F = Fills[FIdx];
+      if (F.Instrument != Instr)
+        continue;
+      Running += (F.OrderSide == Side::Buy) ? F.Lots : -F.Lots;
+      if (PosBefore[I] > 0 && Running == 0)
+        TouchedZero = true;
+    }
+    if (PosBefore[I] == 0 || TouchedZero) {
+      BarsInPosition[I] = 0;
+      PositionReopenedOnBar[I] = TouchedZero;
+    } else {
+      BarsInPosition[I] = BarsInPosition[I].value_or(0) + 1;
+      PositionReopenedOnBar[I] = false;
+    }
+  }
+}
+
 PortfolioSnapshot SessionEngine::snapshot() const {
   PortfolioSnapshot S;
   S.Cash = PortfolioState.cash();
@@ -253,6 +298,8 @@ PortfolioSnapshot SessionEngine::snapshot() const {
     S.CostBasis.push_back(PortfolioState.costBasis(static_cast<int>(I)));
   }
   S.MarketValue = PositionValues.back();
+  S.BarsInPosition = BarsInPosition;
+  S.PositionReopenedOnBar = PositionReopenedOnBar;
   return S;
 }
 

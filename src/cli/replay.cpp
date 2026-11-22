@@ -453,21 +453,23 @@ int runBuiltInFixture(std::ostream &Out) {
   Spec.Costs = core::CostConfig::defaults();
   Spec.InitialCash = core::Decimal::parse("100000");
 
+  const auto MakeMarketEntry = [](std::int64_t Seq, std::int64_t Step,
+                                  core::Side OrderSide) {
+    core::OrderSpec Order;
+    Order.Instrument = 0;
+    Order.OrderSide = OrderSide;
+    Order.Type = core::OrderType::Market;
+    Order.Lots = 5;
+    Order.Tif = core::TimeInForce::Gtc;
+    core::JournalEntry Entry;
+    Entry.Seq = Seq;
+    Entry.Step = Step;
+    Entry.Command = core::PlaceCmd{Order, std::nullopt};
+    return Entry;
+  };
   std::vector<core::JournalEntry> Journal = {
-      core::JournalEntry{
-          0, 0,
-          core::PlaceCmd{core::OrderSpec{0, core::Side::Buy,
-                                         core::OrderType::Market, 5,
-                                         std::nullopt, std::nullopt,
-                                         std::nullopt, core::TimeInForce::Gtc},
-                         std::nullopt}},
-      core::JournalEntry{
-          1, 3,
-          core::PlaceCmd{core::OrderSpec{0, core::Side::Sell,
-                                         core::OrderType::Market, 5,
-                                         std::nullopt, std::nullopt,
-                                         std::nullopt, core::TimeInForce::Gtc},
-                         std::nullopt}}};
+      MakeMarketEntry(0, 0, core::Side::Buy),
+      MakeMarketEntry(1, 3, core::Side::Sell)};
 
   const std::int64_t UpTo = Tl->totalSteps() - 1;
   const core::ReplayResult Replay =
