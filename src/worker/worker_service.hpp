@@ -33,6 +33,10 @@ public:
   grpc::Status CheckStrategy(grpc::ServerContext *Context,
                              const pb::CheckStrategyRequest *Request,
                              pb::CheckStrategyResponse *Response) override;
+  grpc::Status
+  RunStrategy(grpc::ServerContext *Context,
+              const pb::RunStrategyRequest *Request,
+              grpc::ServerWriter<pb::RunStrategyUpdate> *Writer) override;
 
 private:
   Context HandlerContext;

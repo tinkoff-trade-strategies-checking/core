@@ -603,5 +603,43 @@ rule "выход"
   EXPECT_EQ(BadRep.ReportLevel, CheckLevel::Error);
 }
 
+TEST(StrategyRunner, UpToStepAndOnProgress) {
+  std::vector<SimpleBar> Bars;
+  for (int I = 0; I < 120; ++I) {
+    Bars.push_back(SimpleBar{"100", "102", "99", "101", 10000});
+  }
+  const auto Tl = makeTimeline(Bars);
+  const std::string Source = R"dsl(
+rule "покупка"
+  when position == 0
+  then buy 1 lots market
+  because "вход"
+)dsl";
+
+  std::vector<std::pair<std::int64_t, std::int64_t>> Progress;
+  StrategyRunOptions Opts;
+  Opts.Source = Source;
+  Opts.UpToStep = 75;
+  Opts.OnProgress = [&](std::int64_t Done, std::int64_t Total) {
+    Progress.emplace_back(Done, Total);
+  };
+
+  const StrategyRunResult Res = runStrategy(makeSpec(Tl), Tl, Opts);
+  ASSERT_TRUE(Res.Compiled);
+  EXPECT_FALSE(Res.Invalid);
+  EXPECT_FALSE(Res.Cancelled);
+  ASSERT_TRUE(Res.Engine.has_value());
+  EXPECT_EQ(Res.Engine->currentStep(), 75);
+  EXPECT_EQ(Res.Engine->equity().size(), 76u);
+  ASSERT_EQ(Progress.size(), 2u);
+  EXPECT_EQ(Progress[0], (std::pair<std::int64_t, std::int64_t>{50, 76}));
+  EXPECT_EQ(Progress[1], (std::pair<std::int64_t, std::int64_t>{76, 76}));
+
+  StrategyRunOptions BadOpts;
+  BadOpts.Source = Source;
+  BadOpts.UpToStep = 120;
+  EXPECT_THROW(runStrategy(makeSpec(Tl), Tl, BadOpts), std::invalid_argument);
+}
+
 } // namespace
 } // namespace core

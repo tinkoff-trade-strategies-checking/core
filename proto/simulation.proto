@@ -39,6 +39,8 @@ service SimulationWorker {
   rpc ClassifyPeriods(ClassifyPeriodsRequest) returns (ClassifyPeriodsResponse);
   // Статическая проверка и линтер стратегии на DSL (`dsl.md`).
   rpc CheckStrategy(CheckStrategyRequest) returns (CheckStrategyResponse);
+  // Детерминированный прогон DSL-стратегии на истории с прогрессом (UC-14, UC-18, INV-3, INV-4).
+  rpc RunStrategy(RunStrategyRequest) returns (stream RunStrategyUpdate);
 }
 
 message PingRequest {}
@@ -704,4 +706,49 @@ message CheckStrategyResponse {
   Level lookahead_level = 1;
   repeated Diagnostic diagnostics = 2;
   repeated ParamDecl params = 3;
+}
+
+message StrategySource {
+  string source = 1;
+  repeated ParamValue param_overrides = 2;
+}
+
+enum RunStatus {
+  RUN_STATUS_UNSPECIFIED = 0;
+  COMPLETED = 1;
+  BANKRUPT_STOP = 2;
+  INVALID = 3;
+}
+
+message RunProgress {
+  int64 done_steps = 1;
+  int64 total_steps = 2;
+}
+
+message RunStrategyRequest {
+  MarketSpec market = 1;
+  StrategySource strategy = 2;
+  bool include_history = 3;
+}
+
+message RunResult {
+  RunStatus status = 1;
+  Level level = 2;
+  Report report = 3;
+  repeated Fill fills = 4;
+  repeated Order orders = 5;
+  // тег 6 свободен
+  fixed64 digest = 7;
+  int64 last_step = 8;
+  int64 total_steps = 9;
+  repeated JournalEntry journal = 10;
+  repeated Diagnostic diagnostics = 11;
+  repeated Bar history = 12;
+}
+
+message RunStrategyUpdate {
+  oneof update {
+    RunProgress progress = 1;
+    RunResult result = 2;
+  }
 }
