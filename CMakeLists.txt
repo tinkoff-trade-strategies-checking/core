@@ -39,7 +39,7 @@ else()
   FetchContent_Declare(
     dsl
     GIT_REPOSITORY https://github.com/tinkoff-trade-strategies-checking/dsl.git
-    GIT_TAG        40b9cd9d5f9c6941f4e417db04b0f6eafec7d74d
+    GIT_TAG        fad51febb28cd007a882f3501e7097ae28531c49
   )
 endif()
 FetchContent_MakeAvailable(dsl)
