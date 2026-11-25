@@ -63,6 +63,8 @@ int main(int argc, char **argv) {
   worker::WorkerService Service(
       worker::Context{Bars, Calendar, Ruonia, &Cache});
   grpc::ServerBuilder Builder;
+  Builder.SetMaxSendMessageSize(-1);
+  Builder.SetMaxReceiveMessageSize(64 * 1024 * 1024);
   Builder.AddListeningPort(Address, grpc::InsecureServerCredentials());
   Builder.RegisterService(&Service);
   std::unique_ptr<grpc::Server> Server = Builder.BuildAndStart();
