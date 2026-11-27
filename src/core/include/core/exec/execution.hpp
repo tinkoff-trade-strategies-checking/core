@@ -47,10 +47,12 @@ class ExecutionEngine {
 public:
   // instruments - бумаги сессии в порядке индексов.
   ExecutionEngine(std::vector<Instrument> Instruments, CostConfig Costs,
-                  MarginConfig Margin = MarginConfig::disabled());
+                  MarginConfig Margin = MarginConfig::disabled(),
+                  ExecutionRules Rules = ExecutionRules::defaults());
 
   const CostConfig &costs() const { return Costs; }
   const MarginConfig &margin() const { return Margin; }
+  const ExecutionRules &rules() const { return Rules; }
 
   // Проверка заявки при подаче на шаге step: параметры, затем деньги (по close
   // последнего бара бумаги, с комиссией и сбором, без резерва под другие
@@ -85,6 +87,7 @@ private:
   std::vector<Instrument> Instruments;
   CostConfig Costs;
   MarginConfig Margin;
+  ExecutionRules Rules;
 };
 
 // Снимает активную заявку orderId с причиной reason на шаге step; у заявки OCO

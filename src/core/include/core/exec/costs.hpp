@@ -56,6 +56,28 @@ struct MarginConfig {
 // (std::invalid_argument при нарушении).
 void validateMarginConfig(const MarginConfig &Margin);
 
+// Настройки аукционов открытия и закрытия MOEX (core#84). По умолчанию
+// отключены.
+struct AuctionConfig {
+  bool EnableOpeningAuction = false;
+  bool EnableClosingAuction = false;
+};
+
+// Расширенные правила исполнения заявок (core#84): ценовые планки и аукционы.
+// По умолчанию полностью отключены (обратная совместимость).
+struct ExecutionRules {
+  // Ценовой коридор ±PriceBandPct% от close предыдущего торгового дня
+  // (например, 10 или 40). 0 = отключено.
+  Decimal PriceBandPct;
+  AuctionConfig Auction{};
+
+  static ExecutionRules defaults() { return ExecutionRules{}; }
+  bool hasPriceBand() const { return PriceBandPct.sign() > 0; }
+};
+
+// Проверяет инварианты расширенных правил исполнения (std::invalid_argument).
+void validateExecutionRules(const ExecutionRules &Rules);
+
 // Цена исполнения рыночной заявки: frac = κ·lots/V (9 знаков HALF_UP); покупка
 // m = 1 + s/2 + frac, продажа m = 1 − s/2 − frac; base·m до 9 знаков и до шага
 // цены одним направленным режимом (покупка CEILING, продажа FLOOR), без

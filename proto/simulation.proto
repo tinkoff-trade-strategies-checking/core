@@ -88,6 +88,8 @@ enum TimeInForce {
   TIME_IN_FORCE_UNSPECIFIED = 0;
   DAY = 1;
   GTC = 2;
+  IOC = 3;
+  FOK = 4;
 }
 
 enum OrderStatus {
@@ -119,6 +121,9 @@ enum Reason {
   DAY_EXPIRED = 13;
   INSUFFICIENT_MARGIN = 14;
   MARGIN_CALL_LIQUIDATION = 15;
+  IMMEDIATE_OR_CANCEL = 16;
+  FILL_OR_KILL = 17;
+  PRICE_OUT_OF_BAND = 18;
 }
 
 enum SessionStatus {
@@ -166,6 +171,14 @@ message MarginConfig {
   Decimal maintenance_margin_ratio = 6; // Dmin в [0; Dнач]; 0 -> отключено
 }
 
+// Расширенные правила исполнения заявок: ценовые планки и аукционы (core#84).
+// При отсутствии в MarketSpec отключены (обратная совместимость).
+message ExecutionRules {
+  Decimal price_band_pct = 1;      // планка ±% от close предыдущего дня (0 -> отключено)
+  bool enable_opening_auction = 2; // аукцион открытия на первом баре дня
+  bool enable_closing_auction = 3; // аукцион закрытия на последнем баре дня
+}
+
 message MarketSpec {
   string snapshot_id = 1;               // UUID снапшота ClickHouse
   repeated Instrument instruments = 2;  // порядок = порядок обработки
@@ -181,6 +194,7 @@ message MarketSpec {
   // меньше W баров — берётся сколько есть (фактическое число — warmup_steps в ответах).
   int32 warmup_bars = 10;
   MarginConfig margin = 11;
+  ExecutionRules execution_rules = 12;
   reserved 9;
   reserved "naive";
 }
@@ -217,6 +231,8 @@ message OrderSpec {
   // Журнал (ReplaySession) хранит только рублёвые цены; команда с is_blind_price = true
   // в журнале отклоняется (Rejected, INVALID_PARAMS, поле "isBlindPrice").
   bool is_blind_price = 9;
+  int64 display_lots = 10; // айсберг: видимая часть в лотах на бар; 0 -> обычная заявка (core#84)
+  bool auction_only = 11;  // участие только в аукционах открытия/закрытия (core#84)
 }
 
 message PlaceOrder {

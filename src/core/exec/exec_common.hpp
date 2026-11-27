@@ -20,6 +20,73 @@ struct Quote {
   Amounts Amts;
 };
 
+struct PriceBand {
+  Decimal Lower;
+  Decimal Upper;
+};
+
+// Close последнего бара бумаги предыдущего торгового дня
+// (< tradingDayOf(Step)), с фолбэком на прогрев; nullopt, если его нет.
+inline std::optional<Decimal>
+previousTradingDayClose(const Timeline &Line, int Instrument,
+                        std::int64_t Step) {
+  const std::int32_t Today = Line.tradingDayOf(Step);
+  for (std::int64_t S = Step - 1; S >= 0; --S) {
+    if (Line.tradingDayOf(S) >= Today)
+      continue;
+    const StepBar *B = Line.lastBarOf(Instrument, S);
+    if (B != nullptr)
+      return B->Close;
+    break;
+  }
+  std::optional<Decimal> WarmupClose;
+  for (const StepBar &B : Line.warmupBars()) {
+    if (B.Instrument == Instrument)
+      WarmupClose = B.Close;
+  }
+  return WarmupClose;
+}
+
+// Ценовой коридор [Lower, Upper] для бумаги на шаге Step; nullopt, если планки
+// отключены или нет close предыдущего торгового дня.
+inline std::optional<PriceBand> priceBandAt(const Timeline &Line,
+                                            int Instrument, std::int64_t Step,
+                                            const Decimal &PriceStep,
+                                            const ExecutionRules &Rules) {
+  if (!Rules.hasPriceBand())
+    return std::nullopt;
+  const std::optional<Decimal> PrevClose =
+      previousTradingDayClose(Line, Instrument, Step);
+  if (!PrevClose || PrevClose->sign() <= 0)
+    return std::nullopt;
+  const Decimal Hundred = Decimal::fromUnits(100);
+  const Decimal LowerRaw = PrevClose->mulDiv(
+      Hundred - Rules.PriceBandPct, Hundred, Decimal::kScale,
+      RoundingMode::HalfUp);
+  const Decimal UpperRaw = PrevClose->mulDiv(
+      Hundred + Rules.PriceBandPct, Hundred, Decimal::kScale,
+      RoundingMode::HalfUp);
+  const Decimal Lower = LowerRaw.roundToStep(PriceStep, RoundingMode::CEILING);
+  const Decimal Upper = UpperRaw.roundToStep(PriceStep, RoundingMode::FLOOR);
+  if (Lower > Upper)
+    return PriceBand{Upper, Upper};
+  return PriceBand{Lower, Upper};
+}
+
+// Цена единого сведения аукциона на шаге Step для бара Bar; nullopt, если шаг
+// не является аукционным.
+inline std::optional<Decimal>
+auctionClearingPrice(const Timeline &Line, std::int64_t Step,
+                     const StepBar &Bar, const ExecutionRules &Rules) {
+  const bool IsFirstOfDay =
+      Step == 0 || Line.tradingDayOf(Step) != Line.tradingDayOf(Step - 1);
+  if (Rules.Auction.EnableOpeningAuction && IsFirstOfDay)
+    return Bar.Open;
+  if (Rules.Auction.EnableClosingAuction && Line.isLastStepOfDay(Step))
+    return Bar.Close;
+  return std::nullopt;
+}
+
 // Количество, которое можно исполнить, и причина снятия остатка (None -
 // исполнена вся заявка). Ограничения применяются по очереди: ликвидность,
 // позиция (продажа), деньги (покупка); причина - последнее ограничение, которое

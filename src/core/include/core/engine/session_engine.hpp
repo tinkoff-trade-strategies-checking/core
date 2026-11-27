@@ -51,6 +51,7 @@ struct SessionSpec {
   CostConfig Costs;
   Decimal InitialCash;
   MarginConfig Margin{};
+  ExecutionRules Rules{};
 };
 
 // Нарушена целостность времени: исполнение не на текущем шаге, неизвестной

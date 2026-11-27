@@ -24,7 +24,7 @@ bool isActive(const Order &O) {
 SessionEngine::SessionEngine(SessionSpec InSpec,
                              std::shared_ptr<const Timeline> Tl)
     : Spec(std::move(InSpec)), TimelineRef(std::move(Tl)),
-      Exec(Spec.Instruments, Spec.Costs, Spec.Margin),
+      Exec(Spec.Instruments, Spec.Costs, Spec.Margin, Spec.Rules),
       PortfolioState(Spec.InitialCash, Spec.Instruments.size(),
                      Spec.Margin.AllowShort),
       BarsInPosition(Spec.Instruments.size(), std::nullopt),
@@ -42,6 +42,7 @@ SessionEngine::SessionEngine(SessionSpec InSpec,
         "SessionEngine: начальный капитал должен быть > 0");
   validateCostConfig(Spec.Costs);
   validateMarginConfig(Spec.Margin);
+  validateExecutionRules(Spec.Rules);
   recordStepState();
   // Единственный шаг шкалы - он же последний: сессия сразу закончена.
   if (TimelineRef->totalSteps() == 1)

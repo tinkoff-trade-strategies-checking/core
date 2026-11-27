@@ -113,6 +113,14 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
           core::fromProto(M.maintenance_margin_ratio());
     core::validateMarginConfig(Spec.Margin);
   }
+  if (Market.has_execution_rules()) {
+    const pb::ExecutionRules &R = Market.execution_rules();
+    if (R.has_price_band_pct())
+      Spec.Rules.PriceBandPct = core::fromProto(R.price_band_pct());
+    Spec.Rules.Auction.EnableOpeningAuction = R.enable_opening_auction();
+    Spec.Rules.Auction.EnableClosingAuction = R.enable_closing_auction();
+    core::validateExecutionRules(Spec.Rules);
+  }
   return Spec;
 }
 

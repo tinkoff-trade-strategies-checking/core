@@ -1,6 +1,7 @@
 #include <cstddef>
 
 #include "core/exec/execution.hpp"
+#include "exec_common.hpp"
 
 namespace core {
 
@@ -34,6 +35,8 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
   }
   if (Spec.Lots < 1)
     return invalid("lots");
+  if (Spec.DisplayLots < 0 || Spec.DisplayLots > Spec.Lots)
+    return invalid("displayLots");
 
   const bool Buy = Spec.OrderSide == Side::Buy;
   const OrderType Type = Spec.Type;
@@ -80,6 +83,19 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
   }
   if (Type == OrderType::TakeProfit && !(*Spec.LimitPrice > Close))
     return invalid("limitPrice");
+
+  // Ценовой коридор MOEX (планки ±PriceBandPct% от close предыдущего дня).
+  if (const std::optional<PriceBand> Band =
+          priceBandAt(Timeline, Spec.Instrument, Step, PriceStep, Rules)) {
+    if (NeedsLimit &&
+        (*Spec.LimitPrice < Band->Lower || *Spec.LimitPrice > Band->Upper)) {
+      return Validation{false, Reason::PriceOutOfBand, "limitPrice"};
+    }
+    if (NeedsStop &&
+        (*Spec.StopPrice < Band->Lower || *Spec.StopPrice > Band->Upper)) {
+      return Validation{false, Reason::PriceOutOfBand, "stopPrice"};
+    }
+  }
 
   if (!Margin.isMarginEnabled()) {
     if (Buy) {

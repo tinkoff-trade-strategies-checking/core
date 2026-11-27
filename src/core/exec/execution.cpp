@@ -5,9 +5,10 @@
 namespace core {
 
 ExecutionEngine::ExecutionEngine(std::vector<Instrument> InstrumentList,
-                                 CostConfig CostModel, MarginConfig MarginModel)
+                                 CostConfig CostModel, MarginConfig MarginModel,
+                                 ExecutionRules RulesModel)
     : Instruments(std::move(InstrumentList)), Costs(std::move(CostModel)),
-      Margin(std::move(MarginModel)) {}
+      Margin(std::move(MarginModel)), Rules(std::move(RulesModel)) {}
 
 void ExecutionEngine::processStep(std::int64_t Step, const Timeline &Timeline,
                                   std::vector<Order> &Orders,

@@ -63,6 +63,10 @@ core::TimeInForce tifFromProto(pb::TimeInForce Tif) {
     return core::TimeInForce::Day;
   case pb::GTC:
     return core::TimeInForce::Gtc;
+  case pb::IOC:
+    return core::TimeInForce::Ioc;
+  case pb::FOK:
+    return core::TimeInForce::Fok;
   default:
     throw std::invalid_argument("не указан срок действия заявки");
   }
@@ -83,6 +87,8 @@ core::OrderSpec specFromProto(const pb::OrderSpec &Spec,
     Out.TrailingPercent = core::fromProto(Spec.trailing_percent());
   Out.Tif = tifFromProto(Spec.time_in_force());
   Out.IsBlindPrice = Spec.is_blind_price();
+  Out.DisplayLots = Spec.display_lots();
+  Out.AuctionOnly = Spec.auction_only();
   return Out;
 }
 
@@ -109,6 +115,8 @@ void specToProto(const core::OrderSpec &Spec, const core::Timeline &Timeline,
     core::toProto(*Spec.TrailingPercent, Out->mutable_trailing_percent());
   Out->set_time_in_force(toProto(Spec.Tif));
   Out->set_is_blind_price(Spec.IsBlindPrice);
+  Out->set_display_lots(Spec.DisplayLots);
+  Out->set_auction_only(Spec.AuctionOnly);
 }
 
 } // namespace
@@ -177,7 +185,7 @@ void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
 
 core::Reason reasonFromProto(pb::Reason Reason) {
   for (int I = static_cast<int>(core::Reason::None);
-       I <= static_cast<int>(core::Reason::MarginCallLiquidation); ++I) {
+       I <= static_cast<int>(core::Reason::PriceOutOfBand); ++I) {
     const auto Candidate = static_cast<core::Reason>(I);
     if (toProto(Candidate) == Reason)
       return Candidate;
@@ -316,7 +324,17 @@ pb::OrderType toProto(core::OrderType Type) {
 }
 
 pb::TimeInForce toProto(core::TimeInForce Tif) {
-  return Tif == core::TimeInForce::Day ? pb::DAY : pb::GTC;
+  switch (Tif) {
+  case core::TimeInForce::Day:
+    return pb::DAY;
+  case core::TimeInForce::Gtc:
+    return pb::GTC;
+  case core::TimeInForce::Ioc:
+    return pb::IOC;
+  case core::TimeInForce::Fok:
+    return pb::FOK;
+  }
+  return pb::TIME_IN_FORCE_UNSPECIFIED;
 }
 
 pb::OrderStatus toProto(core::OrderStatus Status) {
@@ -369,6 +387,12 @@ pb::Reason toProto(core::Reason Reason) {
     return pb::INSUFFICIENT_MARGIN;
   case core::Reason::MarginCallLiquidation:
     return pb::MARGIN_CALL_LIQUIDATION;
+  case core::Reason::ImmediateOrCancel:
+    return pb::IMMEDIATE_OR_CANCEL;
+  case core::Reason::FillOrKill:
+    return pb::FILL_OR_KILL;
+  case core::Reason::PriceOutOfBand:
+    return pb::PRICE_OUT_OF_BAND;
   }
   return pb::REASON_UNSPECIFIED;
 }
