@@ -16,6 +16,7 @@
 #include "core/report/derived.hpp"
 #include "core/report/metrics.hpp"
 #include "core/report/metrics_input.hpp"
+#include "core/report/simple_benchmarks.hpp"
 #include "handlers.hpp"
 
 namespace worker {
@@ -114,6 +115,10 @@ void fill(Context &Context, const pb::ReplaySessionRequest &Request,
         metricsInput(Engine, Spec.InitialCash, *Timeline,
                      benchmarkUpTo(Context, Market, *Timeline, Result.LastStep),
                      Ruonia, PreviousDay));
+    core::applySimpleBenchmarks(
+        *CoreReport, core::buildSimpleBenchmarks(*Timeline, Result.LastStep,
+                                                 Spec.InitialCash, Spec.Costs,
+                                                 Ruonia, PreviousDay));
     toProto(*CoreReport, *Timeline, Out->mutable_report());
   }
   if (Request.blind()) {
