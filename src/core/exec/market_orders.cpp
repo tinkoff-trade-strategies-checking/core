@@ -69,11 +69,13 @@ void runMarketOrders(std::int64_t Step,
         Budget.remaining(InstrIdx, *Bar, Costs);
 
     auto QuoteAt = [&](std::int64_t Q) {
-      Decimal Price =
-          AuctionPrice
-              ? *AuctionPrice
-              : fillPrice(O.Spec.OrderSide, Base, Q, Bar->VolumeLots, Costs,
+      Decimal Price;
+      if (AuctionPrice) {
+        Price = *AuctionPrice;
+      } else {
+        Price = fillPrice(O.Spec.OrderSide, Base, Q, Bar->VolumeLots, Costs,
                           Inst.PriceStep);
+      }
       if (Band)
         Price = std::clamp(Price, Band->Lower, Band->Upper);
       return Quote{Price, amounts(Price, Q, Inst.LotSize, Costs)};
@@ -123,10 +125,9 @@ void runMarketOrders(std::int64_t Step,
       O.ClosedStep = Step;
     } else if (IsIoc) {
       O.Status = OrderStatus::Cancelled;
-      O.ReasonCode = (ReasonCode == Reason::None ||
-                      ReasonCode == Reason::LiquidityLimit)
-                         ? Reason::ImmediateOrCancel
-                         : ReasonCode;
+      const bool IsUnfilled =
+          ReasonCode == Reason::None || ReasonCode == Reason::LiquidityLimit;
+      O.ReasonCode = IsUnfilled ? Reason::ImmediateOrCancel : ReasonCode;
       O.ClosedStep = Step;
     } else if (O.Spec.DisplayLots > 0 &&
                (ReasonCode == Reason::None ||

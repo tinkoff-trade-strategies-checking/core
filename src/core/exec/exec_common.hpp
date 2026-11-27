@@ -27,9 +27,9 @@ struct PriceBand {
 
 // Close последнего бара бумаги предыдущего торгового дня
 // (< tradingDayOf(Step)), с фолбэком на прогрев; nullopt, если его нет.
-inline std::optional<Decimal>
-previousTradingDayClose(const Timeline &Line, int Instrument,
-                        std::int64_t Step) {
+inline std::optional<Decimal> previousTradingDayClose(const Timeline &Line,
+                                                      int Instrument,
+                                                      std::int64_t Step) {
   const std::int32_t Today = Line.tradingDayOf(Step);
   for (std::int64_t S = Step - 1; S >= 0; --S) {
     if (Line.tradingDayOf(S) >= Today)
@@ -60,12 +60,12 @@ inline std::optional<PriceBand> priceBandAt(const Timeline &Line,
   if (!PrevClose || PrevClose->sign() <= 0)
     return std::nullopt;
   const Decimal Hundred = Decimal::fromUnits(100);
-  const Decimal LowerRaw = PrevClose->mulDiv(
-      Hundred - Rules.PriceBandPct, Hundred, Decimal::kScale,
-      RoundingMode::HalfUp);
-  const Decimal UpperRaw = PrevClose->mulDiv(
-      Hundred + Rules.PriceBandPct, Hundred, Decimal::kScale,
-      RoundingMode::HalfUp);
+  const Decimal LowMul = Hundred - Rules.PriceBandPct;
+  const Decimal HighMul = Hundred + Rules.PriceBandPct;
+  const Decimal LowerRaw =
+      PrevClose->mulDiv(LowMul, Hundred, Decimal::kScale, RoundingMode::HalfUp);
+  const Decimal UpperRaw = PrevClose->mulDiv(HighMul, Hundred, Decimal::kScale,
+                                             RoundingMode::HalfUp);
   const Decimal Lower = LowerRaw.roundToStep(PriceStep, RoundingMode::CEILING);
   const Decimal Upper = UpperRaw.roundToStep(PriceStep, RoundingMode::FLOOR);
   if (Lower > Upper)

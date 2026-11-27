@@ -129,17 +129,18 @@ Executed execute(Context &C, Order &O, const StepBar &Bar, const Decimal &Base,
   const std::int64_t Remaining = O.Spec.Lots - O.FilledLots;
   const std::int64_t TargetLots =
       MaxLotsOverride > 0 ? std::min(Remaining, MaxLotsOverride) : Remaining;
+  const std::int64_t PosLots = C.Folio.lots(Instrument);
+  const Decimal &Cash = C.Folio.cash();
   std::pair<std::int64_t, Reason> Chosen;
   if (C.Margin.isMarginEnabled()) {
     const auto [OtherVal, OtherGross] =
         otherExposure(C.Folio, C.Instruments, C.Line, C.Step, Instrument);
-    Chosen = chooseMarginQuantity(O.Spec.OrderSide, TargetLots, Cap,
-                                  C.Folio.lots(Instrument), C.Folio.cash(),
-                                  Inst.LotSize, OtherVal, OtherGross, C.Margin,
-                                  QuoteAt);
+    Chosen = chooseMarginQuantity(O.Spec.OrderSide, TargetLots, Cap, PosLots,
+                                  Cash, Inst.LotSize, OtherVal, OtherGross,
+                                  C.Margin, QuoteAt);
   } else {
-    Chosen = chooseQuantity(O.Spec.OrderSide, TargetLots, Cap,
-                            C.Folio.lots(Instrument), C.Folio.cash(), QuoteAt);
+    Chosen = chooseQuantity(O.Spec.OrderSide, TargetLots, Cap, PosLots, Cash,
+                            QuoteAt);
   }
   const std::int64_t Q = Chosen.first;
   if (AllOrNothing && (Q < TargetLots || Chosen.second != Reason::None))
@@ -286,10 +287,12 @@ void runLimits(Context &C) {
     // цене аукциона без спреда и проскальзывания.
     const bool AtOpen =
         AuctionPrice ? true : (Buy ? Bar->Open <= Limit : Bar->Open >= Limit);
-    const bool Crossed =
-        AuctionPrice
-            ? (Buy ? *AuctionPrice <= Limit : *AuctionPrice >= Limit)
-            : (AtOpen || (Buy ? Bar->Low < Limit : Bar->High > Limit));
+    bool Crossed = false;
+    if (AuctionPrice) {
+      Crossed = Buy ? *AuctionPrice <= Limit : *AuctionPrice >= Limit;
+    } else {
+      Crossed = AtOpen || (Buy ? Bar->Low < Limit : Bar->High > Limit);
+    }
     if (!Crossed) {
       if (IsIoc || IsFok) {
         closeOrder(C, O, OrderStatus::Cancelled,
@@ -332,11 +335,10 @@ void runLimits(Context &C) {
     } else if (IsFok) {
       closeOrder(C, O, OrderStatus::Cancelled, Reason::FillOrKill);
     } else if (IsIoc) {
+      const bool IsUnfilled = E.ReasonCode == Reason::None ||
+                              E.ReasonCode == Reason::LiquidityLimit;
       const Reason CancelReason =
-          (E.ReasonCode == Reason::None ||
-           E.ReasonCode == Reason::LiquidityLimit)
-              ? Reason::ImmediateOrCancel
-              : E.ReasonCode;
+          IsUnfilled ? Reason::ImmediateOrCancel : E.ReasonCode;
       closeOrder(C, O, OrderStatus::Cancelled, CancelReason);
     } else if (E.ReasonCode == Reason::LiquidityLimit ||
                (O.Spec.DisplayLots > 0 && E.ReasonCode == Reason::None)) {

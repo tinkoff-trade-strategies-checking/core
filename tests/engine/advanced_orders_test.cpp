@@ -123,9 +123,9 @@ TEST(AdvancedOrders, RulesAndDisplayLotsValidation) {
 
 TEST(AdvancedOrders, IocPartialFillAndNoRest) {
   const std::vector<Bar> Bars = {
-      makeBar(20240110, 10, "100", "100", 40),
-      makeBar(20240111, 10, "100", "100", 40),
-      makeBar(20240112, 10, "100", "100", 40),
+      makeBar(20240110, 10, "100", "100", 400),
+      makeBar(20240111, 10, "100", "100", 400),
+      makeBar(20240112, 10, "100", "100", 400),
   };
   const auto Tl = makeTimeline(Bars, {20240110, 20240111, 20240112});
 
@@ -158,8 +158,8 @@ TEST(AdvancedOrders, IocPartialFillAndNoRest) {
 
 TEST(AdvancedOrders, FokAllOrNothing) {
   const std::vector<Bar> Bars = {
-      makeBar(20240110, 10, "100", "100", 40),
-      makeBar(20240111, 10, "100", "100", 40),
+      makeBar(20240110, 10, "100", "100", 400),
+      makeBar(20240111, 10, "100", "100", 400),
   };
   const auto Tl = makeTimeline(Bars, {20240110, 20240111});
 
