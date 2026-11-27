@@ -1,10 +1,13 @@
 // Юнит-тесты адаптера ClickHouse без сервера: клиент подменён, проверяются SQL,
-// параметры и разбор.
+// параметры, кэш метаданных/баров, пакетная загрузка и потокобезопасность.
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "clickhouse/clickhouse_bar_source.hpp"
@@ -21,51 +24,89 @@ struct Call {
   QueryParams Params;
 };
 
-// Подменный клиент: отвечает по подстроке SQL, запоминает все вызовы.
+// Потокобезопасный подменный клиент: отвечает по подстроке SQL, запоминает все
+// вызовы.
 class FakeClient final : public worker::ClickHouseClient {
 public:
   using HandlerFn =
       std::function<std::string(const std::string &Sql, const QueryParams &)>;
-  FakeClient(std::shared_ptr<std::vector<Call>> CallLog, HandlerFn Handler)
-      : Calls(std::move(CallLog)), Respond(std::move(Handler)) {}
+  FakeClient(std::shared_ptr<std::vector<Call>> CallLog,
+             std::shared_ptr<std::mutex> LogMutex, HandlerFn Handler)
+      : Calls(std::move(CallLog)), Mutex(std::move(LogMutex)),
+        Respond(std::move(Handler)) {}
   std::string query(const std::string &Sql,
                     const QueryParams &Params) override {
-    Calls->push_back({Sql, Params});
+    {
+      std::lock_guard<std::mutex> Lock(*Mutex);
+      Calls->push_back({Sql, Params});
+    }
     return Respond(Sql, Params);
   }
 
 private:
   std::shared_ptr<std::vector<Call>> Calls;
+  std::shared_ptr<std::mutex> Mutex;
   HandlerFn Respond;
 };
 
 struct Fixture {
   std::shared_ptr<std::vector<Call>> Calls =
       std::make_shared<std::vector<Call>>();
+  std::shared_ptr<std::mutex> Mutex = std::make_shared<std::mutex>();
   std::string ReadySnapshots = "1\n";
-  std::string SecurityCount = "1\n";
-  std::string CandleCount = "5\n";
+  std::string SecuritiesRows = "SBER\tФинансы\t1\t0.010000\n"
+                               "GAZP\tЭнергетика\t10\t0.010000\n"
+                               "LKOH\tНефть и газ\t1\t0.500000\n"
+                               "SYNTH\tТест\t1\t0.010000\n";
+  std::string StoredIntervalsRows = "SBER\t60\nSBER\t86400\n"
+                                    "GAZP\t60\nGAZP\t86400\n"
+                                    "LKOH\t60\nLKOH\t86400\n"
+                                    "SYNTH\t60\n";
   std::string Rows;
+  FakeClient::HandlerFn CustomDataHandler;
 
-  worker::ClickHouseBarSource make() {
-    return worker::ClickHouseBarSource(std::make_unique<FakeClient>(
-        Calls,
-        [this](const std::string &Sql, const QueryParams &) -> std::string {
-          if (Sql.find("FROM snapshots_ready") != std::string::npos)
-            return ReadySnapshots;
-          if (Sql.find("SELECT count() FROM securities") != std::string::npos)
-            return SecurityCount;
-          if (Sql.find("SELECT count() FROM candles") != std::string::npos)
-            return CandleCount;
-          return Rows;
-        }));
+  worker::ClickHouseBarSource
+  make(std::size_t MaxCacheEntries =
+           worker::ClickHouseBarSource::kDefaultBarCacheEntries,
+       std::size_t MaxCacheBars =
+           worker::ClickHouseBarSource::kDefaultBarCacheMaxBars) {
+    return worker::ClickHouseBarSource(
+        std::make_unique<FakeClient>(
+            Calls, Mutex,
+            [this](const std::string &Sql,
+                   const QueryParams &Params) -> std::string {
+              if (Sql.find("FROM snapshots_ready") != std::string::npos)
+                return ReadySnapshots;
+              if (Sql.find("FROM securities") != std::string::npos)
+                return SecuritiesRows;
+              if (Sql.find(
+                      "SELECT DISTINCT secid, interval_sec FROM candles") !=
+                  std::string::npos)
+                return StoredIntervalsRows;
+              if (CustomDataHandler)
+                return CustomDataHandler(Sql, Params);
+              return Rows;
+            }),
+        MaxCacheEntries, MaxCacheBars);
   }
+
   bool usedSql(const std::string &Part) const {
+    std::lock_guard<std::mutex> Lock(*Mutex);
     for (const auto &C : *Calls) {
       if (C.Sql.find(Part) != std::string::npos)
         return true;
     }
     return false;
+  }
+
+  std::size_t countSql(const std::string &Part) const {
+    std::lock_guard<std::mutex> Lock(*Mutex);
+    std::size_t Count = 0;
+    for (const auto &C : *Calls) {
+      if (C.Sql.find(Part) != std::string::npos)
+        ++Count;
+    }
+    return Count;
   }
 };
 
@@ -140,7 +181,7 @@ TEST(ClickHouseBarSource, LoadsStoredCandlesWithExactDecimals) {
 
 TEST(ClickHouseBarSource, FallsBackToMinuteAggregationWhenIntervalNotStored) {
   Fixture F;
-  F.CandleCount = "0\n";
+  F.StoredIntervalsRows = "SYNTH\t60\n";
   F.Rows = "1792000000000\t1792000060000\t100.000000\t101.500000\t99."
            "500000\t99.500000\t42\t4224.000000\n";
   auto Source = F.make();
@@ -153,7 +194,7 @@ TEST(ClickHouseBarSource, FallsBackToMinuteAggregationWhenIntervalNotStored) {
 
   // 1 д — группировка по дню МСК
   Fixture FDay;
-  FDay.CandleCount = "0\n";
+  FDay.StoredIntervalsRows = "SYNTH\t60\n";
   FDay.Rows = "1792000000000\t1792000060000\t100.000000\t101.500000\t99."
               "500000\t99.500000\t42\t4224.000000\n";
   auto SourceDay = FDay.make();
@@ -164,8 +205,10 @@ TEST(ClickHouseBarSource, FallsBackToMinuteAggregationWhenIntervalNotStored) {
 
 TEST(ClickHouseBarSource, NoSqlInjectionThroughSecid) {
   Fixture F;
-  auto Source = F.make();
   const std::string Evil = "X' OR 1=1; DROP TABLE candles --";
+  F.SecuritiesRows += Evil + "\tТест\t1\t0.01\n";
+  F.StoredIntervalsRows += Evil + "\t60\n";
+  auto Source = F.make();
   Source.load({kSnap, Evil, 60, 0, 1000});
   for (const auto &Call : *F.Calls) {
     EXPECT_EQ(Call.Sql.find("DROP"), std::string::npos) << Call.Sql;
@@ -179,6 +222,19 @@ TEST(ClickHouseBarSource, NoSqlInjectionThroughSecid) {
     }
   }
   EXPECT_TRUE(PassedAsParam);
+
+  // Пакетный запрос также передаёт secid только через параметр Array(String).
+  Source.loadBatch({kSnap, {"SBER", Evil}, 60, 0, 2000});
+  for (const auto &Call : *F.Calls) {
+    EXPECT_EQ(Call.Sql.find("DROP"), std::string::npos) << Call.Sql;
+    EXPECT_EQ(Call.Sql.find("OR 1=1"), std::string::npos) << Call.Sql;
+  }
+  bool PassedInArrayParam = false;
+  for (const auto &[Name, Value] : F.Calls->back().Params) {
+    if (Name == "secids" && Value.find("\\'") != std::string::npos)
+      PassedInArrayParam = true;
+  }
+  EXPECT_TRUE(PassedInArrayParam);
 }
 
 TEST(ClickHouseBarSource, RangeAndIntervalGoAsParameters) {
@@ -220,7 +276,6 @@ TEST(ClickHouseBarSource, MalformedSnapshotIdNeverReachesServer) {
 
 TEST(ClickHouseBarSource, UnknownSecurity) {
   Fixture F;
-  F.SecurityCount = "0\n";
   auto Source = F.make();
   EXPECT_THROW(Source.load({kSnap, "NOPE", 60, 0, 1000}),
                core::SecurityNotFound);
@@ -236,7 +291,7 @@ TEST(ClickHouseBarSource, EmptyRangeIsEmptyNotError) {
 
 TEST(ClickHouseBarSource, InvalidIntervalRejections) {
   Fixture F;
-  F.CandleCount = "0\n";
+  F.StoredIntervalsRows = "";
   auto Source = F.make();
   EXPECT_THROW(Source.load({kSnap, "SBER", 604800, 0, 1000}),
                worker::IntervalUnavailable);
@@ -266,7 +321,7 @@ TEST(ClickHouseBarSource, AmbiguousSecurityIsAnError) {
   // Один secid на двух площадках в версии данных: выбор «первой» записи
   // недетерминирован (INV-4).
   Fixture F;
-  F.SecurityCount = "2\n";
+  F.SecuritiesRows = "SBER\tФинансы\t1\t0.01\nSBER\tФинансы\t1\t0.01\n";
   auto Source = F.make();
   EXPECT_THROW(Source.security(kSnap, "SBER"), core::MarketDataError);
 }
@@ -275,7 +330,7 @@ TEST(ClickHouseBarSource, AmbiguousSecurityInLoadIsAnError) {
   // Неоднозначный инструмент в load() должен отклоняться так же, как и в
   // security() (INV-4).
   Fixture F;
-  F.SecurityCount = "2\n";
+  F.SecuritiesRows = "SBER\tФинансы\t1\t0.01\nSBER\tФинансы\t1\t0.01\n";
   auto Source = F.make();
   EXPECT_THROW(Source.load({kSnap, "SBER", 60, 0, 1000}),
                core::MarketDataError);
@@ -305,14 +360,13 @@ TEST(ClickHouseBarSource, OnlyBarsAvailableByToMs) {
   // Защита на стороне клиента: сервер вернул бар, который к toMs ещё не
   // известен, либо available_at < ts_open.
   F.Rows = "100\t999\t1\t1\t1\t1\t1\t1\n";
-  EXPECT_THROW(Source.load({kSnap, "SBER", 60, 0, 456}), core::MarketDataError);
+  EXPECT_THROW(Source.load({kSnap, "SBER", 60, 1, 456}), core::MarketDataError);
   F.Rows = "100\t50\t1\t1\t1\t1\t1\t1\n";
-  EXPECT_THROW(Source.load({kSnap, "SBER", 60, 0, 456}), core::MarketDataError);
+  EXPECT_THROW(Source.load({kSnap, "SBER", 60, 2, 456}), core::MarketDataError);
 }
 
 TEST(ClickHouseBarSource, ParsesSecurity) {
   Fixture F;
-  F.Rows = "LKOH\tНефть и газ\t1\t0.500000\n";
   auto Source = F.make();
   const auto Sec = Source.security(kSnap, "LKOH");
   EXPECT_EQ(Sec.Secid, "LKOH");
@@ -323,7 +377,7 @@ TEST(ClickHouseBarSource, ParsesSecurity) {
 
 TEST(ClickHouseBarSource, AggregationParsesOhlcv) {
   Fixture F;
-  F.CandleCount = "0\n";
+  F.StoredIntervalsRows = "SBER\t60\n";
   F.Rows = "1792000000000\t1792000300000\t100.000000\t105.500000\t99."
            "500000\t103.000000\t150\t15300.000000\n";
   auto Source = F.make();
@@ -343,7 +397,7 @@ TEST(ClickHouseBarSource, AggregationParsesOhlcv) {
 
 TEST(ClickHouseBarSource, AggregationParametersPassedCorrectly) {
   Fixture F;
-  F.CandleCount = "0\n";
+  F.StoredIntervalsRows = "GAZP\t60\n";
   auto Source = F.make();
   Source.load({kSnap, "GAZP", 900, 1000000, 2000000});
   const Call &Last = F.Calls->back();
@@ -373,7 +427,7 @@ TEST(ClickHouseBarSource, AggregationParametersPassedCorrectly) {
 
 TEST(ClickHouseBarSource, DailyAggregationParametersAndSql) {
   Fixture F;
-  F.CandleCount = "0\n";
+  F.StoredIntervalsRows = "GAZP\t60\n";
   auto Source = F.make();
   Source.load({kSnap, "GAZP", 86400, 1000000, 2000000});
   const Call &Last = F.Calls->back();
@@ -399,6 +453,186 @@ TEST(ClickHouseBarSource, DailyAggregationParametersAndSql) {
   EXPECT_NE(Last.Sql.find("ts_open < fromUnixTimestamp64Milli({to_ms:Int64} + "
                           "{interval_ms:Int64}, 'UTC')"),
             std::string::npos);
+}
+
+TEST(ClickHouseBarSource, CachesImmutableSnapshotMetadata) {
+  Fixture F;
+  F.Rows = "100\t160\t10.0\t11.0\t9.0\t10.5\t100\t1050.0\n";
+  auto Source = F.make();
+
+  // Многократные вызовы security() и load() для одного снапшота (INV-5).
+  EXPECT_EQ(Source.security(kSnap, "SBER").LotSize, 1);
+  EXPECT_EQ(Source.security(kSnap, "GAZP").LotSize, 10);
+  EXPECT_EQ(Source.security(kSnap, "LKOH").PriceStep, Decimal::parse("0.5"));
+  EXPECT_EQ(Source.load({kSnap, "SBER", 60, 0, 1000}).size(), 1u);
+  EXPECT_EQ(Source.load({kSnap, "GAZP", 60, 0, 1000}).size(), 1u);
+  EXPECT_EQ(Source.load({kSnap, "LKOH", 60, 0, 2000}).size(), 1u);
+
+  EXPECT_EQ(F.countSql("FROM snapshots_ready"), 1u);
+  EXPECT_EQ(F.countSql("FROM securities"), 1u);
+  EXPECT_EQ(F.countSql("SELECT DISTINCT secid, interval_sec FROM candles"), 1u);
+}
+
+TEST(ClickHouseBarSource, BarCacheHitsAndLruEviction) {
+  Fixture F;
+  F.Rows = "100\t160\t10.0\t11.0\t9.0\t10.5\t100\t1050.0\n";
+  // Ёмкость 2 записи: проверяем попадание и вытеснение LRU.
+  auto Source = F.make(/*MaxCacheEntries=*/2, /*MaxCacheBars=*/100);
+
+  const auto A1 = Source.load({kSnap, "SBER", 60, 0, 1000});
+  const auto B1 = Source.load({kSnap, "GAZP", 60, 0, 1000});
+  EXPECT_EQ(F.countSql("ORDER BY ts_open ASC"), 2u);
+
+  // Попадание по A перемещает A в MRU (B становится LRU).
+  const auto A2 = Source.load({kSnap, "SBER", 60, 0, 1000});
+  EXPECT_EQ(A1, A2);
+  EXPECT_EQ(F.countSql("ORDER BY ts_open ASC"), 2u);
+
+  // Загрузка C вытесняет B, но сохраняет A.
+  (void)Source.load({kSnap, "LKOH", 60, 0, 1000});
+  EXPECT_EQ(F.countSql("ORDER BY ts_open ASC"), 3u);
+
+  // A всё ещё в кэше.
+  EXPECT_EQ(Source.load({kSnap, "SBER", 60, 0, 1000}), A1);
+  EXPECT_EQ(F.countSql("ORDER BY ts_open ASC"), 3u);
+
+  // B был вытеснен — повторный запрос к ClickHouse.
+  EXPECT_EQ(Source.load({kSnap, "GAZP", 60, 0, 1000}), B1);
+  EXPECT_EQ(F.countSql("ORDER BY ts_open ASC"), 4u);
+
+  // Ограничение по числу баров: серия длиннее MaxCacheBars не кэшируется.
+  Fixture FMax;
+  FMax.Rows = "100\t160\t10\t11\t9\t10\t10\t100\n"
+              "200\t260\t10\t11\t9\t10\t10\t100\n"
+              "300\t360\t10\t11\t9\t10\t10\t100\n";
+  auto Small = FMax.make(/*MaxCacheEntries=*/16, /*MaxCacheBars=*/2);
+  EXPECT_EQ(Small.load({kSnap, "SBER", 60, 0, 1000}).size(), 3u);
+  EXPECT_EQ(Small.load({kSnap, "SBER", 60, 0, 1000}).size(), 3u);
+  EXPECT_EQ(FMax.countSql("ORDER BY ts_open ASC"), 2u);
+}
+
+TEST(ClickHouseBarSource, LoadBatchSingleQueryAndParityWithSingleLoad) {
+  const std::string SberRow =
+      "1000\t1060\t298.210000\t298.940000\t298.210000\t298.580000\t100\t29858."
+      "000000\n";
+  const std::string GazpRow =
+      "1000\t1060\t150.000000\t151.000000\t149.500000\t150.500000\t200\t30100."
+      "000000\n"
+      "2000\t2060\t150.500000\t152.000000\t150.000000\t151.800000\t300\t45540."
+      "000000\n";
+
+  auto MakeDataHandler = [&](const std::string &Sql,
+                             const QueryParams &Params) -> std::string {
+    if (Sql.find("secid IN {secids:Array(String)}") != std::string::npos) {
+      std::string Out;
+      for (const auto &[Name, Value] : Params) {
+        if (Name == "secids") {
+          if (Value.find("'GAZP'") != std::string::npos) {
+            Out += "GAZP\t1000\t1060\t150.000000\t151.000000\t149.500000\t"
+                   "150.500000\t200\t30100.000000\n"
+                   "GAZP\t2000\t2060\t150.500000\t152.000000\t150.000000\t"
+                   "151.800000\t300\t45540.000000\n";
+          }
+          if (Value.find("'SBER'") != std::string::npos) {
+            Out += "SBER\t" + SberRow;
+          }
+        }
+      }
+      return Out;
+    }
+    for (const auto &[Name, Value] : Params) {
+      if (Name == "secid") {
+        if (Value == "SBER")
+          return SberRow;
+        if (Value == "GAZP")
+          return GazpRow;
+      }
+    }
+    return "";
+  };
+
+  Fixture FSingle;
+  FSingle.CustomDataHandler = MakeDataHandler;
+  auto SingleSource = FSingle.make(0, 0);
+
+  Fixture FBatch;
+  FBatch.CustomDataHandler = MakeDataHandler;
+  auto BatchSource = FBatch.make();
+
+  // Хранимые свечи: 3 бумаги (у LKOH нет баров в окне) — ровно 1 пакетный
+  // запрос.
+  const auto BatchBars =
+      BatchSource.loadBatch({kSnap, {"SBER", "GAZP", "LKOH"}, 60, 0, 5000});
+  ASSERT_EQ(BatchBars.size(), 3u);
+  EXPECT_EQ(BatchBars[0], SingleSource.load({kSnap, "SBER", 60, 0, 5000}));
+  EXPECT_EQ(BatchBars[1], SingleSource.load({kSnap, "GAZP", 60, 0, 5000}));
+  EXPECT_EQ(BatchBars[2], SingleSource.load({kSnap, "LKOH", 60, 0, 5000}));
+  EXPECT_EQ(FBatch.countSql("secid IN {secids:Array(String)}"), 1u);
+
+  // Повторный вызов loadBatch полностью обслуживается из LRU-кэша (0 новых
+  // запросов).
+  const std::size_t CallsBefore = FBatch.Calls->size();
+  const auto CachedBatch =
+      BatchSource.loadBatch({kSnap, {"LKOH", "SBER", "GAZP"}, 60, 0, 5000});
+  EXPECT_EQ(FBatch.Calls->size(), CallsBefore);
+  EXPECT_EQ(CachedBatch[0], BatchBars[2]);
+  EXPECT_EQ(CachedBatch[1], BatchBars[0]);
+  EXPECT_EQ(CachedBatch[2], BatchBars[1]);
+
+  // Пакетная агрегация (300 с — нет в StoredIntervalsRows): GROUP BY secid,
+  // bar_ts_open.
+  const auto AggBatch =
+      BatchSource.loadBatch({kSnap, {"SBER", "GAZP"}, 300, 0, 5000});
+  ASSERT_EQ(AggBatch.size(), 2u);
+  EXPECT_EQ(AggBatch[0], SingleSource.load({kSnap, "SBER", 300, 0, 5000}));
+  EXPECT_EQ(AggBatch[1], SingleSource.load({kSnap, "GAZP", 300, 0, 5000}));
+  EXPECT_EQ(FBatch.countSql("GROUP BY secid, bar_ts_open"), 1u);
+}
+
+TEST(ClickHouseBarSource, ThreadSafeConcurrentAccess) {
+  Fixture F;
+  F.CustomDataHandler = [](const std::string &Sql,
+                           const QueryParams &Params) -> std::string {
+    if (Sql.find("secid IN {secids:Array(String)}") != std::string::npos) {
+      return "GAZP\t1000\t1060\t150\t151\t149\t150\t20\t3000\n"
+             "SBER\t1000\t1060\t298\t299\t297\t298\t10\t2980\n";
+    }
+    for (const auto &[Name, Value] : Params) {
+      if (Name == "secid" && Value == "GAZP")
+        return "1000\t1060\t150\t151\t149\t150\t20\t3000\n";
+      if (Name == "secid" && Value == "SBER")
+        return "1000\t1060\t298\t299\t297\t298\t10\t2980\n";
+    }
+    return "";
+  };
+  auto Source = F.make();
+
+  std::atomic<int> Failures{0};
+  std::vector<std::thread> Threads;
+  for (int T = 0; T < 8; ++T) {
+    Threads.emplace_back([&, T]() {
+      try {
+        for (int I = 0; I < 20; ++I) {
+          const auto Sec = Source.security(kSnap, T % 2 == 0 ? "SBER" : "GAZP");
+          if (Sec.Secid.empty())
+            ++Failures;
+          const auto Single = Source.load({kSnap, "SBER", 60, 0, 2000});
+          const auto Batch =
+              Source.loadBatch({kSnap, {"SBER", "GAZP"}, 60, 0, 2000});
+          if (Single.size() != 1u || Batch.size() != 2u || Batch[0] != Single ||
+              Batch[1].size() != 1u) {
+            ++Failures;
+          }
+        }
+      } catch (...) {
+        ++Failures;
+      }
+    });
+  }
+  for (auto &Th : Threads)
+    Th.join();
+
+  EXPECT_EQ(Failures.load(), 0);
 }
 
 } // namespace

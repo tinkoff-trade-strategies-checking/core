@@ -31,6 +31,15 @@ public:
   using MarketDataError::MarketDataError;
 };
 
+// Пакетный запрос серий баров сразу для нескольких бумаг в одном окне.
+struct BarBatchRequest {
+  std::string SnapshotId;
+  std::vector<std::string> Secids;
+  std::int32_t IntervalSec = 0;
+  std::int64_t FromMs = 0;
+  std::int64_t ToMs = 0;
+};
+
 // Источник рыночных данных. Реализации детерминированы (INV-4): один и тот же
 // запрос к той же (неизменяемой, INV-5) версии данных даёт тот же результат в
 // том же порядке. Источник отдаёт серию целиком; видимость баров по ходу
@@ -44,6 +53,25 @@ public:
   // SnapshotNotFound, если версия не найдена или не готова; SecurityNotFound,
   // если нет инструмента.
   virtual std::vector<Bar> load(const BarRequest &Request) = 0;
+
+  // Пакетная загрузка баров для списка бумаг в порядке Request.Secids.
+  // Каждая серия побитово совпадает с одиночным load() (INV-4).
+  // По умолчанию вызывает load() последовательно.
+  virtual std::vector<std::vector<Bar>>
+  loadBatch(const BarBatchRequest &Request) {
+    std::vector<std::vector<Bar>> Out;
+    Out.reserve(Request.Secids.size());
+    BarRequest Single;
+    Single.SnapshotId = Request.SnapshotId;
+    Single.IntervalSec = Request.IntervalSec;
+    Single.FromMs = Request.FromMs;
+    Single.ToMs = Request.ToMs;
+    for (const std::string &Secid : Request.Secids) {
+      Single.Secid = Secid;
+      Out.push_back(load(Single));
+    }
+    return Out;
+  }
 
   // Справочные данные инструмента. Исключения - как у load.
   virtual Security security(const std::string &SnapshotId,

@@ -141,19 +141,18 @@ Timeline Timeline::load(BarSource &BarSource, CalendarSource &CalendarSource,
     throw std::invalid_argument("Timeline::load: неверный диапазон дат");
   }
   const std::int32_t Interval = intervalSeconds(Timeframe);
-  BarRequest Request;
+  BarBatchRequest Request;
   Request.SnapshotId = SnapshotId;
   Request.IntervalSec = Interval;
   Request.FromMs = moscowDayStartMs(FromYmd);
   const std::int32_t NextYmd = civilFromDays(
       daysFromCivil(ToYmd / 10000, ToYmd / 100 % 100, ToYmd % 100) + 1);
   Request.ToMs = moscowDayStartMs(NextYmd); // начало суток после toYmd
-  std::vector<std::vector<Bar>> Bars;
-  Bars.reserve(Instruments.size());
+  Request.Secids.reserve(Instruments.size());
   for (const Instrument &Instrument : Instruments) {
-    Request.Secid = Instrument.Ticker;
-    Bars.push_back(BarSource.load(Request));
+    Request.Secids.push_back(Instrument.Ticker);
   }
+  const std::vector<std::vector<Bar>> Bars = BarSource.loadBatch(Request);
   const std::vector<TradingDay> Calendar =
       CalendarSource.tradingDays(SnapshotId, FromYmd, ToYmd);
   return buildWithInterval(std::move(Instruments), Bars, Calendar,
