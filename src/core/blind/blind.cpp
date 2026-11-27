@@ -330,8 +330,7 @@ BlindReport toBlindReport(const Report &Report, const Decimal &InitialCash,
     Trip.Lots = T.Lots;
     Trip.EntryPrice = scaleBlindPrice(T.EntryPrice, *Scale.P0);
     Trip.ExitPrice = scaleBlindPrice(T.ExitPrice, *Scale.P0);
-    Trip.GrossPnlPct =
-        toPercentOfCapital(T.ExitValue - T.EntryValue, InitialCash);
+    Trip.GrossPnlPct = toPercentOfCapital(T.grossPnl(), InitialCash);
     Trip.CostsPct = toPercentOfCapital(T.Costs, InitialCash);
     Trip.NetPnlPct = toPercentOfCapital(T.NetPnl, InitialCash);
     Out.RoundTrips.push_back(std::move(Trip));

@@ -28,6 +28,34 @@ struct CostConfig {
 // LiquidityShare в (0; 1] (std::invalid_argument при нарушении).
 void validateCostConfig(const CostConfig &Costs);
 
+// Настройки маржинальной торговли и коротких позиций (core#82, core#83).
+// По умолчанию полностью отключены: AllowShort = false, MaxLeverage = 1,
+// все ставки и пороги = 0 (полная обратная совместимость).
+struct MarginConfig {
+  bool AllowShort = false;
+  Decimal MaxLeverage = Decimal::one();
+  // Годовая ставка переноса короткой позиции овернайт, % годовых (Actual/365).
+  Decimal ShortBorrowAnnualPct;
+  // Годовая ставка маржинального займа по отрицательным деньгам, % годовых.
+  Decimal MarginLoanAnnualPct;
+  // Начальная маржа Dнач в (0; 1]; 0 означает 1 / MaxLeverage.
+  Decimal InitialMarginRatio;
+  // Минимальная маржа Dmin в [0; Dнач]; 0 отключает принудительное закрытие.
+  Decimal MaintenanceMarginRatio;
+
+  static MarginConfig disabled() { return MarginConfig{}; }
+
+  // Эффективная ставка Dнач: явная InitialMarginRatio, иначе 1 / MaxLeverage.
+  Decimal effectiveInitialMarginRatio() const;
+
+  // Включён ли маржинальный/шортовый контур.
+  bool isMarginEnabled() const;
+};
+
+// Проверяет инварианты параметров маржинальной торговли
+// (std::invalid_argument при нарушении).
+void validateMarginConfig(const MarginConfig &Margin);
+
 // Цена исполнения рыночной заявки: frac = κ·lots/V (9 знаков HALF_UP); покупка
 // m = 1 + s/2 + frac, продажа m = 1 − s/2 − frac; base·m до 9 знаков и до шага
 // цены одним направленным режимом (покупка CEILING, продажа FLOOR), без

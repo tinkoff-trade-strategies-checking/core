@@ -45,6 +45,7 @@ struct Context {
   std::int64_t Step;
   const std::vector<Instrument> &Instruments;
   const CostConfig &Costs;
+  const MarginConfig &Margin;
   const Timeline &Line;
   LiquidityBudget &Budget;
   std::vector<Order> &Orders;
@@ -123,9 +124,18 @@ Executed execute(Context &C, Order &O, const StepBar &Bar, const Decimal &Base,
   };
   const std::optional<std::int64_t> Cap =
       C.Budget.remaining(Instrument, Bar, C.Costs);
-  const std::pair<std::int64_t, Reason> Chosen =
-      chooseQuantity(O.Spec.OrderSide, O.Spec.Lots - O.FilledLots, Cap,
-                     C.Folio.lots(Instrument), C.Folio.cash(), QuoteAt);
+  std::pair<std::int64_t, Reason> Chosen;
+  if (C.Margin.isMarginEnabled()) {
+    const auto [OtherVal, OtherGross] =
+        otherExposure(C.Folio, C.Instruments, C.Line, C.Step, Instrument);
+    Chosen = chooseMarginQuantity(O.Spec.OrderSide, O.Spec.Lots - O.FilledLots,
+                                  Cap, C.Folio.lots(Instrument), C.Folio.cash(),
+                                  Inst.LotSize, OtherVal, OtherGross, C.Margin,
+                                  QuoteAt);
+  } else {
+    Chosen = chooseQuantity(O.Spec.OrderSide, O.Spec.Lots - O.FilledLots, Cap,
+                            C.Folio.lots(Instrument), C.Folio.cash(), QuoteAt);
+  }
   const std::int64_t Q = Chosen.first;
   if (Q > 0) {
     const Quote X = QuoteAt(Q);
@@ -232,7 +242,8 @@ void runStops(Context &C) {
     } else {
       closeOrder(C, O, OrderStatus::Cancelled, E.ReasonCode);
     }
-    if (!Buy && E.Lots > 0 && C.Folio.lots(O.Spec.Instrument) == 0) {
+    if (!C.Margin.AllowShort && !Buy && E.Lots > 0 &&
+        C.Folio.lots(O.Spec.Instrument) == 0) {
       cancelSellOrdersOnPositionClosed(C.Orders, O.Spec.Instrument, C.Step,
                                        C.Changed, C.ChangedFrom);
     }
@@ -292,7 +303,8 @@ void runLimits(Context &C) {
       closeOrder(C, O, OrderStatus::Cancelled,
                  E.ReasonCode); // не хватило денег или позиции
     }
-    if (!Buy && E.Lots > 0 && C.Folio.lots(O.Spec.Instrument) == 0) {
+    if (!C.Margin.AllowShort && !Buy && E.Lots > 0 &&
+        C.Folio.lots(O.Spec.Instrument) == 0) {
       cancelSellOrdersOnPositionClosed(C.Orders, O.Spec.Instrument, C.Step,
                                        C.Changed, C.ChangedFrom);
     }
@@ -321,8 +333,21 @@ void ExecutionEngine::processConditional(
     std::int64_t Step, const Timeline &Timeline, LiquidityBudget &Budget,
     std::vector<Order> &Orders, Portfolio &Portfolio, std::vector<Fill> &Fills,
     std::vector<std::int64_t> &Changed) const {
-  Context C{Step,      Instruments, Costs,   Timeline,       Budget, Orders,
-            Portfolio, Fills,       Changed, Changed.size(), {},     {}};
+  Context C{
+      .Step = Step,
+      .Instruments = Instruments,
+      .Costs = Costs,
+      .Margin = Margin,
+      .Line = Timeline,
+      .Budget = Budget,
+      .Orders = Orders,
+      .Folio = Portfolio,
+      .Fills = Fills,
+      .Changed = Changed,
+      .ChangedFrom = Changed.size(),
+      .ById = {},
+      .TriggeredNow = {},
+  };
   C.ById.resize(Orders.size());
   std::iota(C.ById.begin(), C.ById.end(), std::size_t{0});
   std::stable_sort(C.ById.begin(), C.ById.end(),

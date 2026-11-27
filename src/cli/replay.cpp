@@ -252,6 +252,10 @@ std::string reasonToString(core::Reason ReasonCode) {
     return "CANCELLED_BY_USER";
   case core::Reason::DayExpired:
     return "DAY_EXPIRED";
+  case core::Reason::InsufficientMargin:
+    return "INSUFFICIENT_MARGIN";
+  case core::Reason::MarginCallLiquidation:
+    return "MARGIN_CALL_LIQUIDATION";
   }
   return "UNKNOWN";
 }
@@ -327,7 +331,7 @@ JsonValue buildReportJson(const core::ReplayResult &Replay,
     Item["lots"] = Trip.Lots;
     Item["entry_price"] = Trip.EntryPrice.toString();
     Item["exit_price"] = Trip.ExitPrice.toString();
-    Item["gross_pnl"] = (Trip.ExitValue - Trip.EntryValue).toString();
+    Item["gross_pnl"] = Trip.grossPnl().toString();
     Item["costs"] = Trip.Costs.toString();
     Item["net_pnl"] = Trip.NetPnl.toString();
     TripsArr.emplace_back(std::move(Item));

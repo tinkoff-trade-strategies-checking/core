@@ -117,6 +117,8 @@ enum Reason {
   reserved 12;
   reserved "RULE_REPLACED";
   DAY_EXPIRED = 13;
+  INSUFFICIENT_MARGIN = 14;
+  MARGIN_CALL_LIQUIDATION = 15;
 }
 
 enum SessionStatus {
@@ -153,6 +155,17 @@ message CostConfig {
   Decimal liquidity_share = 5;
 }
 
+// Настройки коротких позиций и маржинальной торговли (core#82, core#83).
+// При отсутствии в MarketSpec все возможности отключены (обратная совместимость).
+message MarginConfig {
+  bool allow_short = 1;
+  Decimal max_leverage = 2;             // >= 1; пусто или 0 -> 1
+  Decimal short_borrow_annual_pct = 3;  // % годовых, Actual/365
+  Decimal margin_loan_annual_pct = 4;   // % годовых, Actual/365
+  Decimal initial_margin_ratio = 5;     // Dнач в (0; 1]; 0 -> 1 / max_leverage
+  Decimal maintenance_margin_ratio = 6; // Dmin в [0; Dнач]; 0 -> отключено
+}
+
 message MarketSpec {
   string snapshot_id = 1;               // UUID снапшота ClickHouse
   repeated Instrument instruments = 2;  // порядок = порядок обработки
@@ -167,6 +180,7 @@ message MarketSpec {
   // Шаги прогрева — отрицательные (-W…-1), торговые дни — <= 0. Историю ищут не дальше ~20 лет до from_date; найдено
   // меньше W баров — берётся сколько есть (фактическое число — warmup_steps в ответах).
   int32 warmup_bars = 10;
+  MarginConfig margin = 11;
   reserved 9;
   reserved "naive";
 }
@@ -278,6 +292,7 @@ message Fill {
   Decimal cost = 15;       // издержки сделки: commission + exchange_fee + spread_cost + slippage_cost, ₽
   Decimal cost_pct = 16;   // cost в % начального капитала, 2 знака HALF_UP (от рублёвой суммы, не от округлённых процентов)
   Decimal amount_pct = 17; // value в % начального капитала, 2 знака HALF_UP
+  bool is_liquidation = 18; // true для принудительного закрытия по Dmin (core#83)
 }
 
 message Position {
@@ -356,7 +371,8 @@ message CostTotals {
   Decimal exchange_fee = 2;
   Decimal spread = 3;
   Decimal slippage = 4;
-  Decimal total = 5;   // сумма четырёх видов, ₽ (core#54); все суммы до копейки, спред и проскальзывание — HALF_UP от точной суммы (core#58)
+  Decimal total = 5;   // сумма всех видов издержек, ₽ (core#54, core#82); все суммы до копейки, спред и проскальзывание — HALF_UP от точной суммы (core#58)
+  Decimal overnight_fee = 6; // плата за перенос овернайт (шорт + маржинальный заём), ₽ (core#82, core#83)
 }
 
 message EquityPoint {

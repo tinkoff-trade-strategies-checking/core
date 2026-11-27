@@ -44,6 +44,9 @@ struct MetricsInput {
   // Число календарных дней Delta_d на каждый торговый день для Actual/365
   // (core#26). Если пусто - считается Delta_d = 1 для всех дней.
   std::vector<std::int32_t> CalendarDays;
+  // Накопленная плата за перенос овернайт (шорт + маржинальный заём, core#82,
+  // core#83).
+  Decimal OvernightFees;
 };
 
 struct Metrics {
@@ -73,8 +76,8 @@ struct Metrics {
 // на копейки: у каждой стороны сделки свои округления (`decisions.md`, «Деньги
 // и округление»).
 struct CostTotals {
-  Decimal Commission, Fee, Spread, Slippage;
-  Decimal Total; // сумма четырёх видов (core#54)
+  Decimal Commission, Fee, Spread, Slippage, OvernightFee;
+  Decimal Total; // сумма всех видов издержек (core#54, core#82)
 };
 
 // Точка кривой просадки (underwater): глубина просадки от пика в процентах

@@ -15,9 +15,10 @@ namespace {
 // издержками и бюджетом ликвидности.
 void runMarketOrders(std::int64_t Step,
                      const std::vector<Instrument> &Instruments,
-                     const CostConfig &Costs, const Timeline &Timeline,
-                     LiquidityBudget &Budget, std::vector<Order> &Orders,
-                     Portfolio &Portfolio, std::vector<Fill> &Fills,
+                     const CostConfig &Costs, const MarginConfig &Margin,
+                     const Timeline &Timeline, LiquidityBudget &Budget,
+                     std::vector<Order> &Orders, Portfolio &Portfolio,
+                     std::vector<Fill> &Fills,
                      std::vector<std::int64_t> &Changed) {
   const std::size_t ChangedFrom = Changed.size();
   // Заявки - по возрастанию id.
@@ -57,27 +58,39 @@ void runMarketOrders(std::int64_t Step,
       return Quote{Price, amounts(Price, Q, Inst.LotSize, Costs)};
     };
     const std::int64_t Remaining = O.Spec.Lots - O.FilledLots;
-    const auto [q, reason] =
-        chooseQuantity(O.Spec.OrderSide, Remaining, Cap,
-                       Portfolio.lots(InstrIdx), Portfolio.cash(), QuoteAt);
+    const std::int64_t PosLots = Portfolio.lots(InstrIdx);
+    const Decimal &Cash = Portfolio.cash();
+    std::pair<std::int64_t, Reason> Chosen;
+    if (Margin.isMarginEnabled()) {
+      const auto [OtherVal, OtherGross] =
+          otherExposure(Portfolio, Instruments, Timeline, Step, InstrIdx);
+      Chosen = chooseMarginQuantity(O.Spec.OrderSide, Remaining, Cap, PosLots,
+                                    Cash, Inst.LotSize, OtherVal, OtherGross,
+                                    Margin, QuoteAt);
+    } else {
+      Chosen = chooseQuantity(O.Spec.OrderSide, Remaining, Cap, PosLots, Cash,
+                              QuoteAt);
+    }
+    const std::int64_t Q = Chosen.first;
+    const Reason ReasonCode = Chosen.second;
 
-    if (q > 0) {
-      const Quote X = QuoteAt(q);
-      recordFill(Portfolio, Fills, O, Step, q, X, Base, Inst, Costs);
-      O.FilledLots += q;
-      Budget.consume(InstrIdx, q);
+    if (Q > 0) {
+      const Quote X = QuoteAt(Q);
+      recordFill(Portfolio, Fills, O, Step, Q, X, Base, Inst, Costs);
+      O.FilledLots += Q;
+      Budget.consume(InstrIdx, Q);
     }
     // Остаток рыночной заявки не переносится: заявка исполнена целиком или
     // снята с причиной.
-    if (reason == Reason::None) {
+    if (ReasonCode == Reason::None) {
       O.Status = OrderStatus::Filled;
     } else {
       O.Status = OrderStatus::Cancelled;
-      O.ReasonCode = reason;
+      O.ReasonCode = ReasonCode;
     }
     O.ClosedStep = Step;
     markChanged(Changed, ChangedFrom, O.Id);
-    if (O.Spec.OrderSide == Side::Sell && q > 0 &&
+    if (!Margin.AllowShort && O.Spec.OrderSide == Side::Sell && Q > 0 &&
         Portfolio.lots(InstrIdx) == 0) {
       cancelSellOrdersOnPositionClosed(Orders, InstrIdx, Step, Changed,
                                        ChangedFrom);
@@ -93,8 +106,8 @@ void ExecutionEngine::processMarket(std::int64_t Step, const Timeline &Timeline,
                                     Portfolio &Portfolio,
                                     std::vector<Fill> &Fills,
                                     std::vector<std::int64_t> &Changed) const {
-  runMarketOrders(Step, Instruments, Costs, Timeline, Budget, Orders, Portfolio,
-                  Fills, Changed);
+  runMarketOrders(Step, Instruments, Costs, Margin, Timeline, Budget, Orders,
+                  Portfolio, Fills, Changed);
 }
 
 } // namespace core

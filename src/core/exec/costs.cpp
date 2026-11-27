@@ -37,6 +37,44 @@ void validateCostConfig(const CostConfig &Costs) {
   }
 }
 
+Decimal MarginConfig::effectiveInitialMarginRatio() const {
+  if (InitialMarginRatio.sign() > 0)
+    return InitialMarginRatio;
+  if (MaxLeverage <= Decimal::one())
+    return Decimal::one();
+  return Decimal::one().div(MaxLeverage, Decimal::kScale, RoundingMode::HalfUp);
+}
+
+bool MarginConfig::isMarginEnabled() const {
+  return AllowShort || MaxLeverage > Decimal::one() ||
+         InitialMarginRatio.sign() > 0 || MaintenanceMarginRatio.sign() > 0 ||
+         ShortBorrowAnnualPct.sign() > 0 || MarginLoanAnnualPct.sign() > 0;
+}
+
+void validateMarginConfig(const MarginConfig &Margin) {
+  if (Margin.MaxLeverage < Decimal::one())
+    throw std::invalid_argument(
+        "MarginConfig: кредитное плечо должно быть >= 1");
+  if (Margin.ShortBorrowAnnualPct.sign() < 0)
+    throw std::invalid_argument(
+        "MarginConfig: ставка переноса шорта не может быть отрицательной");
+  if (Margin.MarginLoanAnnualPct.sign() < 0)
+    throw std::invalid_argument(
+        "MarginConfig: ставка маржинального займа не может быть отрицательной");
+  if (Margin.InitialMarginRatio.sign() < 0 ||
+      Margin.InitialMarginRatio > Decimal::one()) {
+    throw std::invalid_argument("MarginConfig: Dнач должна быть в [0; 1]");
+  }
+  if (Margin.MaintenanceMarginRatio.sign() < 0 ||
+      Margin.MaintenanceMarginRatio > Decimal::one()) {
+    throw std::invalid_argument("MarginConfig: Dmin должна быть в [0; 1]");
+  }
+  if (Margin.MaintenanceMarginRatio.sign() > 0 &&
+      Margin.MaintenanceMarginRatio > Margin.effectiveInitialMarginRatio()) {
+    throw std::invalid_argument("MarginConfig: Dmin не может превышать Dнач");
+  }
+}
+
 namespace {
 
 Decimal halfSpread(const CostConfig &Costs) {

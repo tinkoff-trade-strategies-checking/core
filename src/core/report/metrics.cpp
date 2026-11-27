@@ -172,11 +172,13 @@ Report computeReport(const MetricsInput &In) {
       ++Report.Stats.StopTakeSameBar;
   }
   // Спред и проскальзывание копятся с 9 знаками; в отчёте - до копейки HALF_UP,
-  // один раз от точной суммы. Всего - сумма четырёх округлённых видов.
+  // один раз от точной суммы. Всего - сумма всех округлённых видов.
   Report.Costs.Spread = Report.Costs.Spread.round(2, RoundingMode::HalfUp);
   Report.Costs.Slippage = Report.Costs.Slippage.round(2, RoundingMode::HalfUp);
+  Report.Costs.OvernightFee = In.OvernightFees.round(2, RoundingMode::HalfUp);
   Report.Costs.Total = Report.Costs.Commission + Report.Costs.Fee +
-                       Report.Costs.Spread + Report.Costs.Slippage;
+                       Report.Costs.Spread + Report.Costs.Slippage +
+                       Report.Costs.OvernightFee;
 
   const double E0 = In.InitialCash.toDouble();
   M.TotalReturn = Report.FinalEquity.toDouble() / E0 - 1.0;
@@ -262,16 +264,17 @@ Report computeReport(const MetricsInput &In) {
           In.PositionValuesByStep[static_cast<std::size_t>(P.Step)];
       Decimal Total, Largest;
       for (const Decimal &V : Values) {
-        Total += V;
-        if (V > Largest)
-          Largest = V;
+        const Decimal AbsV = V.abs();
+        Total += AbsV;
+        if (AbsV > Largest)
+          Largest = AbsV;
       }
       if (Total <= Decimal::zero())
         continue;
       const double TotalD = Total.toDouble();
       double Hhi = 0;
       for (const Decimal &V : Values) {
-        const double W = V.toDouble() / TotalD;
+        const double W = V.abs().toDouble() / TotalD;
         Hhi += W * W;
       }
       HhiSum += Hhi;

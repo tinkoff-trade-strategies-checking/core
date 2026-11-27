@@ -81,23 +81,73 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
   if (Type == OrderType::TakeProfit && !(*Spec.LimitPrice > Close))
     return invalid("limitPrice");
 
-  if (Buy) {
-    const Instrument &Inst =
-        Instruments[static_cast<std::size_t>(Spec.Instrument)];
-    try {
-      // Округление вверх: проверка не пропускает заявку, на которую не хватает
-      // копейки.
-      const Decimal Need =
-          requiredCashForOrder(Close, Spec.Lots, Inst.LotSize, Costs);
-      if (Need > Portfolio.cash())
-        return Validation{false, Reason::InsufficientCash, ""};
-    } catch (const DecimalOverflow &) {
-      return Validation{
-          false, Reason::InsufficientCash,
-          ""}; // сумма не помещается в Decimal - денег точно не хватает
+  if (!Margin.isMarginEnabled()) {
+    if (Buy) {
+      const Instrument &Inst =
+          Instruments[static_cast<std::size_t>(Spec.Instrument)];
+      try {
+        // Округление вверх: проверка не пропускает заявку, на которую не
+        // хватает копейки.
+        const Decimal Need =
+            requiredCashForOrder(Close, Spec.Lots, Inst.LotSize, Costs);
+        if (Need > Portfolio.cash())
+          return Validation{false, Reason::InsufficientCash, ""};
+      } catch (const DecimalOverflow &) {
+        return Validation{
+            false, Reason::InsufficientCash,
+            ""}; // сумма не помещается в Decimal - денег точно не хватает
+      }
+    } else if (Spec.Lots > Portfolio.lots(Spec.Instrument)) {
+      return Validation{false, Reason::InsufficientPosition, ""};
     }
-  } else if (Spec.Lots > Portfolio.lots(Spec.Instrument)) {
+    return Validation{};
+  }
+
+  // Маржинальный / шортовый режим (core#82, core#83).
+  const std::int64_t CurrentLots = Portfolio.lots(Spec.Instrument);
+  const std::int64_t NewLots =
+      Buy ? (CurrentLots + Spec.Lots) : (CurrentLots - Spec.Lots);
+  if (!Buy && NewLots < 0 && !Margin.AllowShort)
     return Validation{false, Reason::InsufficientPosition, ""};
+
+  // Заявка, исключительно сокращающая текущую позицию без переворота, всегда
+  // допустима (улучшает обеспечение).
+  const bool ReducesShort = Buy && CurrentLots < 0 && Spec.Lots <= -CurrentLots;
+  const bool ReducesLong = !Buy && CurrentLots > 0 && Spec.Lots <= CurrentLots;
+  if (ReducesShort || ReducesLong)
+    return Validation{};
+
+  const Instrument &Inst =
+      Instruments[static_cast<std::size_t>(Spec.Instrument)];
+  try {
+    Decimal CurrentEquity = Portfolio.cash();
+    Decimal OtherGross;
+    for (std::size_t I = 0; I < Instruments.size(); ++I) {
+      const std::int64_t LotsI = Portfolio.lots(static_cast<int>(I));
+      if (LotsI == 0)
+        continue;
+      const StepBar *BarI = Timeline.lastBarOf(static_cast<int>(I), Step);
+      if (BarI == nullptr)
+        return Validation{false, Reason::InsufficientMargin, ""};
+      const Decimal ValI =
+          Portfolio::positionValue(LotsI, Instruments[I].LotSize, BarI->Close);
+      CurrentEquity += ValI;
+      if (static_cast<int>(I) != Spec.Instrument)
+        OtherGross += ValI.abs();
+    }
+    const Amounts Est = amounts(Close, Spec.Lots, Inst.LotSize, Costs);
+    const Decimal ProjectedEquity = CurrentEquity - Est.Commission - Est.Fee;
+    const std::int64_t AbsNewLots = NewLots >= 0 ? NewLots : -NewLots;
+    const Decimal NewInstrGross =
+        Portfolio::positionValue(AbsNewLots, Inst.LotSize, Close);
+    const Decimal ProjectedGross = OtherGross + NewInstrGross;
+    const Decimal DInit = Margin.effectiveInitialMarginRatio();
+    const Decimal RequiredMargin =
+        ProjectedGross.mul(DInit, 2, RoundingMode::CEILING);
+    if (ProjectedEquity.sign() <= 0 || ProjectedEquity < RequiredMargin)
+      return Validation{false, Reason::InsufficientMargin, ""};
+  } catch (const DecimalOverflow &) {
+    return Validation{false, Reason::InsufficientMargin, ""};
   }
   return Validation{};
 }

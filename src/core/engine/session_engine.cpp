@@ -8,6 +8,8 @@
 #include <utility>
 #include <variant>
 
+#include "core/market/date_utils.hpp"
+
 namespace core {
 
 namespace {
@@ -22,8 +24,9 @@ bool isActive(const Order &O) {
 SessionEngine::SessionEngine(SessionSpec InSpec,
                              std::shared_ptr<const Timeline> Tl)
     : Spec(std::move(InSpec)), TimelineRef(std::move(Tl)),
-      Exec(Spec.Instruments, Spec.Costs),
-      PortfolioState(Spec.InitialCash, Spec.Instruments.size()),
+      Exec(Spec.Instruments, Spec.Costs, Spec.Margin),
+      PortfolioState(Spec.InitialCash, Spec.Instruments.size(),
+                     Spec.Margin.AllowShort),
       BarsInPosition(Spec.Instruments.size(), std::nullopt),
       PositionReopenedOnBar(Spec.Instruments.size(), false) {
   if (!TimelineRef)
@@ -38,6 +41,7 @@ SessionEngine::SessionEngine(SessionSpec InSpec,
     throw std::invalid_argument(
         "SessionEngine: начальный капитал должен быть > 0");
   validateCostConfig(Spec.Costs);
+  validateMarginConfig(Spec.Margin);
   recordStepState();
   // Единственный шаг шкалы - он же последний: сессия сразу закончена.
   if (TimelineRef->totalSteps() == 1)
@@ -190,15 +194,20 @@ void SessionEngine::advance() {
     PosBefore[I] = PortfolioState.lots(static_cast<int>(I));
   PositionReopenedOnBar.assign(InstrumentCount, false);
 
+  const std::int64_t PrevStep = Step;
   const std::int64_t Next = Step + 1;
   Step = Next;
   FillsBegin = Fills.size();
   Changed.clear();
 
+  if (TimelineRef->tradingDayOf(Next) != TimelineRef->tradingDayOf(PrevStep))
+    chargeOvernightCarry(PrevStep, Next);
+
   // Дневные заявки снимает processStep (задача 14), движок своего снятия не
   // делает.
   Exec.processStep(Next, *TimelineRef, Orders, PortfolioState, Fills, Changed);
   checkIntegrity(FillsBegin);
+  checkMaintenanceMargin();
   updatePositionBars(PosBefore);
   recordStepState();
 
@@ -214,6 +223,121 @@ void SessionEngine::advance() {
     cancelActive(Reason::SessionEnd);
 }
 
+void SessionEngine::chargeOvernightCarry(std::int64_t PrevStep,
+                                         std::int64_t NextStep) {
+  const bool HasShortFee = Spec.Margin.ShortBorrowAnnualPct.sign() > 0;
+  const bool HasLoanFee = Spec.Margin.MarginLoanAnnualPct.sign() > 0;
+  if (!HasShortFee && !HasLoanFee)
+    return;
+
+  const std::int64_t PrevDays = ymdToDays(TimelineRef->yyyymmddOf(PrevStep));
+  const std::int64_t NextDays = ymdToDays(TimelineRef->yyyymmddOf(NextStep));
+  const std::int64_t CalDays = std::max<std::int64_t>(1, NextDays - PrevDays);
+  const Decimal YearPctDenom = Decimal::fromUnits(36500);
+
+  Decimal TotalCharge;
+  // Плата за перенос маржинального займа считается от кэша на конец
+  // предыдущего торгового дня (до списания платы за перенос шорта).
+  if (HasLoanFee && PortfolioState.cash().sign() < 0) {
+    const Decimal Borrowed = -PortfolioState.cash();
+    const Decimal RateDays = Spec.Margin.MarginLoanAnnualPct.times(CalDays);
+    TotalCharge +=
+        Borrowed.mulDiv(RateDays, YearPctDenom, 2, RoundingMode::HalfUp);
+  }
+  if (HasShortFee) {
+    const Decimal RateDays = Spec.Margin.ShortBorrowAnnualPct.times(CalDays);
+    for (std::size_t I = 0; I < Spec.Instruments.size(); ++I) {
+      const std::int64_t LotsI = PortfolioState.lots(static_cast<int>(I));
+      if (LotsI >= 0)
+        continue;
+      const StepBar *Bar =
+          TimelineRef->lastBarOf(static_cast<int>(I), PrevStep);
+      if (Bar == nullptr)
+        continue;
+      const Decimal ShortVal = Portfolio::positionValue(
+          -LotsI, Spec.Instruments[I].LotSize, Bar->Close);
+      TotalCharge +=
+          ShortVal.mulDiv(RateDays, YearPctDenom, 2, RoundingMode::HalfUp);
+    }
+  }
+  if (TotalCharge.sign() > 0) {
+    PortfolioState.chargeFee(TotalCharge);
+    OvernightFees += TotalCharge;
+  }
+}
+
+void SessionEngine::checkMaintenanceMargin() {
+  if (Spec.Margin.MaintenanceMarginRatio.sign() <= 0)
+    return;
+
+  const std::size_t N = Spec.Instruments.size();
+  Decimal CurrentEquity = PortfolioState.cash();
+  Decimal GrossExposure;
+  for (std::size_t I = 0; I < N; ++I) {
+    const std::int64_t LotsI = PortfolioState.lots(static_cast<int>(I));
+    if (LotsI == 0)
+      continue;
+    const StepBar *Bar = TimelineRef->lastBarOf(static_cast<int>(I), Step);
+    if (Bar == nullptr)
+      continue;
+    const std::int64_t LotSize = Spec.Instruments[I].LotSize;
+    const Decimal Val = Portfolio::positionValue(LotsI, LotSize, Bar->Close);
+    CurrentEquity += Val;
+    GrossExposure += Val.abs();
+  }
+  if (GrossExposure.sign() <= 0)
+    return;
+
+  const Decimal MinMargin = GrossExposure.mul(
+      Spec.Margin.MaintenanceMarginRatio, 2, RoundingMode::CEILING);
+  if (CurrentEquity >= MinMargin)
+    return;
+
+  // Пробой Dmin: маржин-колл и детерминированное принудительное закрытие всех
+  // открытых позиций по текущим ценам бара (core#83).
+  ++MarginCalls;
+  cancelActive(Reason::MarginCallLiquidation);
+
+  for (std::size_t I = 0; I < N; ++I) {
+    const int InstrIdx = static_cast<int>(I);
+    const std::int64_t PosLots = PortfolioState.lots(InstrIdx);
+    if (PosLots == 0)
+      continue;
+    const StepBar *Bar = TimelineRef->lastBarOf(InstrIdx, Step);
+    if (Bar == nullptr)
+      continue;
+    const Side CloseSide = PosLots > 0 ? Side::Sell : Side::Buy;
+    const std::int64_t CloseLots = PosLots > 0 ? PosLots : -PosLots;
+    const Instrument &Inst = Spec.Instruments[I];
+    const Decimal Base = Bar->Close;
+    const Decimal Price = fillPrice(CloseSide, Base, CloseLots, Bar->VolumeLots,
+                                    Spec.Costs, Inst.PriceStep);
+    const Amounts Amts = amounts(Price, CloseLots, Inst.LotSize, Spec.Costs);
+    const CostSplit Split =
+        costSplit(Base, Price, CloseLots, Inst.LotSize, Spec.Costs);
+
+    PortfolioState.applyFill(InstrIdx, CloseSide, CloseLots, Price, Amts.Value,
+                             Amts.Commission, Amts.Fee, Step, -1);
+    Fill F;
+    F.OrderId = -1;
+    F.Step = Step;
+    F.Instrument = InstrIdx;
+    F.OrderSide = CloseSide;
+    F.Lots = CloseLots;
+    F.Price = Price;
+    F.BasePrice = Base;
+    F.Value = Amts.Value;
+    F.Commission = Amts.Commission;
+    F.Fee = Amts.Fee;
+    F.SpreadCost = Split.SpreadCost;
+    F.SlippageCost = Split.SlippageCost;
+    F.IsLiquidation = true;
+    F.Seq = static_cast<std::int64_t>(Fills.size());
+    Fills.push_back(F);
+    ++Liquidations;
+  }
+}
+
 // Состояние шага: переоценка по последним close, точка кривой стоимости и
 // стоимости позиций.
 void SessionEngine::recordStepState() {
@@ -227,7 +351,7 @@ void SessionEngine::recordStepState() {
     if (Bar != nullptr)
       LastClose[I] = Bar->Close;
     const std::int64_t Lots = PortfolioState.lots(static_cast<int>(I));
-    if (Lots > 0 && Bar != nullptr)
+    if (Lots != 0 && Bar != nullptr)
       Values[I] = Portfolio::positionValue(Lots, LotSizes[I], Bar->Close);
   }
   EquityPoint Point{Step, PortfolioState.equity(LastClose, LotSizes)};
@@ -274,8 +398,11 @@ void SessionEngine::updatePositionBars(
       const Fill &F = Fills[FIdx];
       if (F.Instrument != Instr)
         continue;
+      const std::int64_t Prev = Running;
       Running += (F.OrderSide == Side::Buy) ? F.Lots : -F.Lots;
-      if (PosBefore[I] > 0 && Running == 0)
+      const bool CrossedZero = Running == 0 || (Prev > 0 && Running < 0) ||
+                               (Prev < 0 && Running > 0);
+      if (PosBefore[I] != 0 && CrossedZero)
         TouchedZero = true;
     }
     if (PosBefore[I] == 0 || TouchedZero) {
