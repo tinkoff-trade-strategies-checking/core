@@ -113,6 +113,20 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
     Point->set_step(P.Step);
     core::toProto(P.Equity, Point->mutable_equity());
   }
+  for (const core::EquityPoint &P : Report.BuyHoldEquity) {
+    pb::EquityPoint *Point = Out->add_buy_hold_equity();
+    Point->set_step(P.Step);
+    core::toProto(P.Equity, Point->mutable_equity());
+  }
+  for (const core::EquityPoint &P : Report.RuoniaEquity) {
+    pb::EquityPoint *Point = Out->add_ruonia_equity();
+    Point->set_step(P.Step);
+    core::toProto(P.Equity, Point->mutable_equity());
+  }
+  if (Report.BuyHoldReturnPct)
+    core::toProto(*Report.BuyHoldReturnPct, Out->mutable_buy_hold_return_pct());
+  if (Report.RuoniaReturnPct)
+    core::toProto(*Report.RuoniaReturnPct, Out->mutable_ruonia_return_pct());
   std::int64_t TripSeq = 0;
   for (const core::RoundTrip &T : Report.RoundTrips) {
     pb::RoundTrip *Trip = Out->add_round_trips();

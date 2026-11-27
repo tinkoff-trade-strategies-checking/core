@@ -108,6 +108,10 @@ struct Report {
   std::vector<EquityPoint> BenchmarkEquity; // из MetricsInput::benchmarkEquity
   std::vector<RoundTrip> RoundTrips; // пары FIFO как во входе
   std::vector<UnderwaterPoint> Underwater; // кривая просадки по шагам
+  // Бенчмарки «Купил и держал» и «Надёжный вклад» (core#81), заполняются
+  // applySimpleBenchmarks; по умолчанию пусты.
+  std::vector<EquityPoint> BuyHoldEquity, RuoniaEquity;
+  std::optional<Decimal> BuyHoldReturnPct, RuoniaReturnPct; // %, 2 знака
   CheckLevel ReportLevel = CheckLevel::Ok;
   std::vector<Finding> Findings;
 };

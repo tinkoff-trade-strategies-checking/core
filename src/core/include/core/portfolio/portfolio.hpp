@@ -22,6 +22,8 @@ enum class Side { Buy, Sell };
 struct EquityPoint {
   std::int64_t Step;
   Decimal Equity;
+
+  friend bool operator==(const EquityPoint &, const EquityPoint &) = default;
 };
 
 // Закрытая (полностью или частично) часть покупки: покупка и продажа

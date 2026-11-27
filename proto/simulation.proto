@@ -432,6 +432,15 @@ message Report {
   repeated RoundTrip round_trips = 8;
   // Кривая просадки (underwater, core#54): по точке на каждую точку `equity`.
   repeated UnderwaterPoint underwater = 9;
+  // Бенчмарки для новичков (core#81). Кривые в рублях того же капитала, точка на последнем шаге каждого
+  // полностью пройденного торгового дня, до копейки HALF_UP; пусто — бенчмарк не рассчитан.
+  // «Просто купил и держал»: равновзвешенная покупка бумаг сессии по open первого бара с теми же издержками.
+  repeated EquityPoint buy_hold_equity = 10;
+  // «Надёжный вклад»: капитал под RUONIA_{d-1}, Actual/365, сложный процент.
+  repeated EquityPoint ruonia_equity = 11;
+  // Доходность по последней точке кривой в процентах (уже ×100), 2 знака HALF_UP; не задано — нет кривой.
+  Decimal buy_hold_return_pct = 12;
+  Decimal ruonia_return_pct = 13;
 }
 
 // Глубина просадки от пика, в процентах (уже ×100): (пик - equity) / пик * 100, >= 0, 2 знака HALF_UP; 0 в пике.
