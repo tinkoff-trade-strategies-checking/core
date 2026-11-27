@@ -862,3 +862,27 @@ message DivergenceResponse {
   repeated ConsensusItem consensus = 3;
   repeated AlgorithmPortfolio algorithm_portfolios = 4;
 }
+
+// ---------------------------------------------------------------------------
+// Биржевой стакан (Level 2) и лента сделок (Time & Sales) (core#85)
+// ---------------------------------------------------------------------------
+
+message OrderBookLevel {
+  Decimal price = 1;
+  int64 lots = 2;
+}
+
+message OrderBookSnapshot {
+  int64 time_unix_ms = 1;
+  Decimal mid_price = 2;
+  Decimal spread_bps = 3;
+  repeated OrderBookLevel bids = 4;
+  repeated OrderBookLevel asks = 5;
+}
+
+message TapePrint {
+  int64 time_unix_ms = 1;
+  Decimal price = 2;
+  int64 lots = 3;
+  Side aggressor_side = 4;
+}
