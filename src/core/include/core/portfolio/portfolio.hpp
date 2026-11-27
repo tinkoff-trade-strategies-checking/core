@@ -30,32 +30,44 @@ struct EquityPoint {
 struct RoundTrip {
   int Instrument;
   std::int64_t EntryStep, ExitStep, EntryOrderId, Lots;
-  Decimal EntryPrice, ExitPrice; // цена за единицу бумаги покупки и продажи
+  Decimal EntryPrice, ExitPrice; // цена за единицу бумаги входа и выхода
   Decimal EntryValue, ExitValue, Costs, NetPnl;
+  bool IsShort = false; // true для пары «шорт (продажа) -> выкуп (покупка)»
+
+  Decimal grossPnl() const {
+    return IsShort ? (EntryValue - ExitValue) : (ExitValue - EntryValue);
+  }
 };
 
 class Portfolio {
 public:
-  Portfolio(Decimal InitialCash, std::size_t InstrumentCount);
+  Portfolio(Decimal InitialCash, std::size_t InstrumentCount,
+            bool AllowShort = false);
 
   const Decimal &cash() const { return Cash; }
+  bool allowShort() const { return AllowShort; }
   std::int64_t lots(int Instrument) const;
-  // Средневзвешенная цена покупки открытой позиции, 9 знаков HALF_UP; 0, если
+  // Средневзвешенная цена входа открытой позиции, 9 знаков HALF_UP; 0, если
   // позиции нет.
   Decimal avgPrice(int Instrument) const;
-  // Себестоимость открытой позиции: точная сумма покупок непогашенных лотов
+  // Себестоимость открытой позиции: точная сумма входа непогашенных лотов
   // (без комиссии и сбора), по лотам FIFO пропорционально остатку до копейки
-  // HALF_UP, как EntryValue пар; 0 без позиции.
+  // HALF_UP, как EntryValue пар; для короткой позиции - со знаком минус; 0 без
+  // позиции.
   Decimal costBasis(int Instrument) const;
 
   // Учитывает исполнение. `value` - сумма сделки (до копейки), `price` - цена
   // за единицу бумаги. Покупка: cash -= value + commission + fee; продажа: cash
-  // += value - commission - fee. Продажа больше позиции - std::logic_error,
-  // состояние не меняется.
+  // += value - commission - fee. При AllowShort == false продажа больше позиции
+  // - std::logic_error, состояние не меняется.
   void applyFill(int Instrument, Side Side, std::int64_t Lots,
                  const Decimal &Price, const Decimal &Value,
                  const Decimal &Commission, const Decimal &Fee,
                  std::int64_t Step, std::int64_t OrderId);
+
+  // Списывает комиссию/плату за перенос овернайт (short borrow / margin loan)
+  // из денежных средств. Amount < 0 - std::invalid_argument.
+  void chargeFee(const Decimal &Amount);
 
   // close * lots * lotSize до копейки HALF_UP (`decisions.md`, «Деньги и
   // округление», п. 6).
@@ -90,6 +102,7 @@ private:
   const Position &position(int Instrument) const;
 
   Decimal Cash;
+  bool AllowShort = false;
   std::vector<Position> Positions;
   std::vector<RoundTrip> RoundTrips;
 };

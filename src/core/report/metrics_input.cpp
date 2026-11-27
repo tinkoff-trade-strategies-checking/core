@@ -69,6 +69,7 @@ MetricsInput buildMetricsInput(const SessionEngine &Engine,
   In.TradingDayOfStep = tradingDays(Timeline, LastStep);
   In.Fills = Engine.fills();
   In.RoundTrips = Engine.portfolio().roundTrips();
+  In.OvernightFees = Engine.overnightFees();
   countOrders(Engine.orders(), &In);
   In.PositionValuesByStep = Engine.positionValues();
   setBenchmark(Benchmark, Timeline, &In);

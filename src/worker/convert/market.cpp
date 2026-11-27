@@ -91,6 +91,28 @@ core::SessionSpec toSessionSpec(const pb::MarketSpec &Market) {
   }
   Spec.InitialCash =
       requirePositive(Market.initial_cash(), "начальный капитал");
+  if (Market.has_margin()) {
+    const pb::MarginConfig &M = Market.margin();
+    Spec.Margin.AllowShort = M.allow_short();
+    if (M.has_max_leverage()) {
+      const core::Decimal Lev = core::fromProto(M.max_leverage());
+      if (!Lev.isZero())
+        Spec.Margin.MaxLeverage = Lev;
+    }
+    if (M.has_short_borrow_annual_pct())
+      Spec.Margin.ShortBorrowAnnualPct =
+          core::fromProto(M.short_borrow_annual_pct());
+    if (M.has_margin_loan_annual_pct())
+      Spec.Margin.MarginLoanAnnualPct =
+          core::fromProto(M.margin_loan_annual_pct());
+    if (M.has_initial_margin_ratio())
+      Spec.Margin.InitialMarginRatio =
+          core::fromProto(M.initial_margin_ratio());
+    if (M.has_maintenance_margin_ratio())
+      Spec.Margin.MaintenanceMarginRatio =
+          core::fromProto(M.maintenance_margin_ratio());
+    core::validateMarginConfig(Spec.Margin);
+  }
   return Spec;
 }
 

@@ -50,6 +50,7 @@ struct SessionSpec {
   std::vector<Instrument> Instruments;
   CostConfig Costs;
   Decimal InitialCash;
+  MarginConfig Margin{};
 };
 
 // Нарушена целостность времени: исполнение не на текущем шаге, неизвестной
@@ -80,6 +81,9 @@ public:
   const Portfolio &portfolio() const { return PortfolioState; }
   const std::vector<Order> &orders() const { return Orders; }
   const std::vector<Fill> &fills() const { return Fills; }
+  const Decimal &overnightFees() const { return OvernightFees; }
+  std::int64_t marginCallCount() const { return MarginCalls; }
+  std::int64_t liquidationCount() const { return Liquidations; }
   // По точке на каждый пройденный шаг, с 0: equity().size() == currentStep()
   // + 1.
   const std::vector<EquityPoint> &equity() const { return Equity; }
@@ -98,6 +102,8 @@ private:
   Order *findOrder(std::int64_t Id);
   void closeOrder(Order &Order, OrderStatus Status, Reason Reason);
   void cancelActive(Reason Reason);
+  void chargeOvernightCarry(std::int64_t PrevStep, std::int64_t NextStep);
+  void checkMaintenanceMargin();
   void updatePositionBars(const std::vector<std::int64_t> &PosBefore);
   void recordStepState();
   void checkIntegrity(std::size_t FromFill) const;
@@ -113,6 +119,9 @@ private:
   std::vector<std::int64_t> Changed; // id заявок, изменившихся на текущем шаге
   std::vector<std::optional<std::int64_t>> BarsInPosition;
   std::vector<bool> PositionReopenedOnBar;
+  Decimal OvernightFees;
+  std::int64_t MarginCalls = 0;
+  std::int64_t Liquidations = 0;
   std::size_t FillsBegin = 0; // начало исполнений текущего шага в fills_
   std::int64_t Step = 0;
   std::int64_t LastSeq = -1;

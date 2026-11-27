@@ -177,7 +177,7 @@ void toProto(const core::JournalEntry &Entry, const core::Timeline &Timeline,
 
 core::Reason reasonFromProto(pb::Reason Reason) {
   for (int I = static_cast<int>(core::Reason::None);
-       I <= static_cast<int>(core::Reason::DayExpired); ++I) {
+       I <= static_cast<int>(core::Reason::MarginCallLiquidation); ++I) {
     const auto Candidate = static_cast<core::Reason>(I);
     if (toProto(Candidate) == Reason)
       return Candidate;
@@ -224,6 +224,7 @@ void toProto(const core::Fill &Fill, const core::Timeline &Timeline,
                 Out->mutable_cost_pct());
   core::toProto(core::toPercentOfCapital(Fill.Value, InitialCash),
                 Out->mutable_amount_pct());
+  Out->set_is_liquidation(Fill.IsLiquidation);
 }
 
 void toProto(const core::PortfolioSnapshot &Snapshot,
@@ -364,6 +365,10 @@ pb::Reason toProto(core::Reason Reason) {
     return pb::CANCELLED_BY_USER;
   case core::Reason::DayExpired:
     return pb::DAY_EXPIRED;
+  case core::Reason::InsufficientMargin:
+    return pb::INSUFFICIENT_MARGIN;
+  case core::Reason::MarginCallLiquidation:
+    return pb::MARGIN_CALL_LIQUIDATION;
   }
   return pb::REASON_UNSPECIFIED;
 }

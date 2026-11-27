@@ -69,6 +69,94 @@ chooseQuantity(Side Side, std::int64_t Remaining,
   return {Q, Reason};
 }
 
+// Суммарная рыночная стоимость (со знаком) и валовая экспозиция (по модулю)
+// всех позиций портфеля, кроме SkipInstr, по последним close <= Step.
+inline std::pair<Decimal, Decimal>
+otherExposure(const Portfolio &Folio,
+              const std::vector<Instrument> &Instruments, const Timeline &Line,
+              std::int64_t Step, int SkipInstr) {
+  Decimal ValueSum;
+  Decimal GrossSum;
+  for (std::size_t I = 0; I < Instruments.size(); ++I) {
+    if (static_cast<int>(I) == SkipInstr)
+      continue;
+    const std::int64_t LotsI = Folio.lots(static_cast<int>(I));
+    if (LotsI == 0)
+      continue;
+    const StepBar *BarI = Line.lastBarOf(static_cast<int>(I), Step);
+    if (BarI == nullptr)
+      continue;
+    const Decimal ValI =
+        Portfolio::positionValue(LotsI, Instruments[I].LotSize, BarI->Close);
+    ValueSum += ValI;
+    GrossSum += ValI.abs();
+  }
+  return {ValueSum, GrossSum};
+}
+
+// Выбор исполняемого количества лотов в маржинальном / шортовом режиме
+// (core#82, core#83): проверяет ликвидность, разрешение шорта и требование
+// начальной маржи Dнач.
+template <class QuoteFn>
+inline std::pair<std::int64_t, Reason> chooseMarginQuantity(
+    Side OrderSide, std::int64_t Remaining,
+    const std::optional<std::int64_t> &LiquidityCap, std::int64_t Position,
+    const Decimal &Cash, std::int64_t LotSize, const Decimal &OtherValue,
+    const Decimal &OtherGross, const MarginConfig &Margin, QuoteFn &&QuoteOf) {
+  std::int64_t Q = Remaining;
+  Reason ReasonCode = Reason::None;
+  if (LiquidityCap && *LiquidityCap < Q) {
+    Q = *LiquidityCap;
+    ReasonCode = Reason::LiquidityLimit;
+  }
+  if (OrderSide == Side::Sell && !Margin.AllowShort) {
+    const std::int64_t MaxSell = Position > 0 ? Position : 0;
+    if (MaxSell < Q) {
+      Q = MaxSell;
+      ReasonCode = Reason::InsufficientPosition;
+    }
+  }
+  const Decimal DInit = Margin.effectiveInitialMarginRatio();
+  auto Fits = [&](std::int64_t N) {
+    const bool PurelyReducing =
+        (OrderSide == Side::Buy && Position < 0 && N <= -Position) ||
+        (OrderSide == Side::Sell && Position > 0 && N <= Position);
+    if (PurelyReducing)
+      return true;
+    try {
+      const Quote X = QuoteOf(N);
+      const Decimal NewCash =
+          (OrderSide == Side::Buy)
+              ? (Cash - X.Amts.Value - X.Amts.Commission - X.Amts.Fee)
+              : (Cash + X.Amts.Value - X.Amts.Commission - X.Amts.Fee);
+      const std::int64_t NewLots =
+          (OrderSide == Side::Buy) ? (Position + N) : (Position - N);
+      const Decimal NewInstrVal =
+          Portfolio::positionValue(NewLots, LotSize, X.Price);
+      const Decimal NewEquity = NewCash + OtherValue + NewInstrVal;
+      const Decimal NewGross = OtherGross + NewInstrVal.abs();
+      const Decimal Req = NewGross.mul(DInit, 2, RoundingMode::CEILING);
+      return NewEquity.sign() > 0 && NewEquity >= Req;
+    } catch (const DecimalOverflow &) {
+      return false;
+    }
+  };
+  if (Q > 0 && !Fits(Q)) {
+    std::int64_t Lo = 0, Hi = Q - 1;
+    while (Lo < Hi) {
+      const std::int64_t Mid = Lo + (Hi - Lo + 1) / 2;
+      if (Fits(Mid)) {
+        Lo = Mid;
+      } else {
+        Hi = Mid - 1;
+      }
+    }
+    Q = Lo;
+    ReasonCode = Reason::InsufficientMargin;
+  }
+  return {Q, ReasonCode};
+}
+
 // Проводит исполнение q лотов через портфель и дописывает сделку; возвращает её
 // (ссылка действует до следующей записи).
 inline Fill &recordFill(Portfolio &Portfolio, std::vector<Fill> &Fills,

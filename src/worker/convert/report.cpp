@@ -92,6 +92,7 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
   core::toProto(Report.Costs.Fee, Costs->mutable_exchange_fee());
   core::toProto(Report.Costs.Spread, Costs->mutable_spread());
   core::toProto(Report.Costs.Slippage, Costs->mutable_slippage());
+  core::toProto(Report.Costs.OvernightFee, Costs->mutable_overnight_fee());
   core::toProto(Report.Costs.Total, Costs->mutable_total());
   for (const core::UnderwaterPoint &P : Report.Underwater) {
     pb::UnderwaterPoint *Point = Out->add_underwater();
@@ -122,7 +123,7 @@ void toProto(const core::Report &Report, const core::Timeline &Timeline,
     Trip->set_lots(T.Lots);
     core::toProto(T.EntryPrice, Trip->mutable_entry_price());
     core::toProto(T.ExitPrice, Trip->mutable_exit_price());
-    core::toProto(T.ExitValue - T.EntryValue, Trip->mutable_gross_pnl());
+    core::toProto(T.grossPnl(), Trip->mutable_gross_pnl());
     core::toProto(T.Costs, Trip->mutable_costs());
     core::toProto(T.NetPnl, Trip->mutable_net_pnl());
   }

@@ -36,7 +36,7 @@ OrderEstimate estimateOrder(const SessionSpec &Spec,
   if (Order.IsBlindPrice)
     Out.ResolvedOrder = ResolvedOrder;
 
-  const ExecutionEngine Exec(Spec.Instruments, Spec.Costs);
+  const ExecutionEngine Exec(Spec.Instruments, Spec.Costs, Spec.Margin);
   Out.Check = Exec.validate(ResolvedOrder, Result.Engine.portfolio(),
                             *TimelineRef, Result.LastStep);
 
