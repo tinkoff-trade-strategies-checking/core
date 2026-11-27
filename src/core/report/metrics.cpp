@@ -175,8 +175,7 @@ Report computeReport(const MetricsInput &In) {
   // один раз от точной суммы. Всего - сумма всех округлённых видов.
   Report.Costs.Spread = Report.Costs.Spread.round(2, RoundingMode::HalfUp);
   Report.Costs.Slippage = Report.Costs.Slippage.round(2, RoundingMode::HalfUp);
-  Report.Costs.OvernightFee =
-      In.OvernightFees.round(2, RoundingMode::HalfUp);
+  Report.Costs.OvernightFee = In.OvernightFees.round(2, RoundingMode::HalfUp);
   Report.Costs.Total = Report.Costs.Commission + Report.Costs.Fee +
                        Report.Costs.Spread + Report.Costs.Slippage +
                        Report.Costs.OvernightFee;

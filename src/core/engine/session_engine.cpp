@@ -240,11 +240,12 @@ void SessionEngine::chargeOvernightCarry(std::int64_t PrevStep,
   // предыдущего торгового дня (до списания платы за перенос шорта).
   if (HasLoanFee && PortfolioState.cash().sign() < 0) {
     const Decimal Borrowed = -PortfolioState.cash();
-    TotalCharge += Borrowed.mulDiv(
-        Spec.Margin.MarginLoanAnnualPct.times(CalDays), YearPctDenom, 2,
-        RoundingMode::HalfUp);
+    const Decimal RateDays = Spec.Margin.MarginLoanAnnualPct.times(CalDays);
+    TotalCharge +=
+        Borrowed.mulDiv(RateDays, YearPctDenom, 2, RoundingMode::HalfUp);
   }
   if (HasShortFee) {
+    const Decimal RateDays = Spec.Margin.ShortBorrowAnnualPct.times(CalDays);
     for (std::size_t I = 0; I < Spec.Instruments.size(); ++I) {
       const std::int64_t LotsI = PortfolioState.lots(static_cast<int>(I));
       if (LotsI >= 0)
@@ -255,9 +256,8 @@ void SessionEngine::chargeOvernightCarry(std::int64_t PrevStep,
         continue;
       const Decimal ShortVal = Portfolio::positionValue(
           -LotsI, Spec.Instruments[I].LotSize, Bar->Close);
-      TotalCharge += ShortVal.mulDiv(
-          Spec.Margin.ShortBorrowAnnualPct.times(CalDays), YearPctDenom, 2,
-          RoundingMode::HalfUp);
+      TotalCharge +=
+          ShortVal.mulDiv(RateDays, YearPctDenom, 2, RoundingMode::HalfUp);
     }
   }
   if (TotalCharge.sign() > 0) {
@@ -280,8 +280,8 @@ void SessionEngine::checkMaintenanceMargin() {
     const StepBar *Bar = TimelineRef->lastBarOf(static_cast<int>(I), Step);
     if (Bar == nullptr)
       continue;
-    const Decimal Val =
-        Portfolio::positionValue(LotsI, Spec.Instruments[I].LotSize, Bar->Close);
+    const std::int64_t LotSize = Spec.Instruments[I].LotSize;
+    const Decimal Val = Portfolio::positionValue(LotsI, LotSize, Bar->Close);
     CurrentEquity += Val;
     GrossExposure += Val.abs();
   }
@@ -400,9 +400,9 @@ void SessionEngine::updatePositionBars(
         continue;
       const std::int64_t Prev = Running;
       Running += (F.OrderSide == Side::Buy) ? F.Lots : -F.Lots;
-      if (PosBefore[I] != 0 &&
-          (Running == 0 || (Prev > 0 && Running < 0) ||
-           (Prev < 0 && Running > 0)))
+      const bool CrossedZero = Running == 0 || (Prev > 0 && Running < 0) ||
+                               (Prev < 0 && Running > 0);
+      if (PosBefore[I] != 0 && CrossedZero)
         TouchedZero = true;
     }
     if (PosBefore[I] == 0 || TouchedZero) {

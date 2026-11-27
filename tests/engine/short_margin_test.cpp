@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -51,7 +52,7 @@ Bar makeBar(std::int32_t Ymd, const char *Open, const char *Close,
   B.High = std::max(B.Open, d(Close));
   B.Low = std::min(B.Open, d(Close));
   B.Close = d(Close);
-  B.VolumeLots = Volume;
+  B.Volume = Volume;
   return B;
 }
 
@@ -85,9 +86,13 @@ JournalEntry placeAt(std::int64_t Seq, std::int64_t Step, OrderSpec Spec) {
 }
 
 TEST(ShortMargin, DefaultConfigUnchanged) {
-  const auto Tl = makeTimeline(
-      {makeBar(20240110, "100", "100"), makeBar(20240111, "100", "100")},
-      {20240110, 20240111});
+  const std::vector<Bar> Bars = {
+      makeBar(20240110, "100", "100"),
+      makeBar(20240111, "100", "100"),
+  };
+  const std::vector<std::int32_t> Dates = {20240110, 20240111};
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();
@@ -134,24 +139,29 @@ TEST(ShortMargin, MarginConfigValidation) {
 }
 
 TEST(ShortMargin, ShortOpenProfitAndLossFifo) {
-  const auto Tl = makeTimeline({makeBar(20240110, "100", "100"),
-                                makeBar(20240111, "100", "90"),
-                                makeBar(20240112, "80", "80"),
-                                makeBar(20240115, "80", "100"),
-                                makeBar(20240116, "120", "120")},
-                               {20240110, 20240111, 20240112, 20240115,
-                                20240116});
+  const std::vector<Bar> Bars = {
+      makeBar(20240110, "100", "100"),
+      makeBar(20240111, "100", "90"),
+      makeBar(20240112, "80", "80"),
+      makeBar(20240115, "80", "100"),
+      makeBar(20240116, "120", "120"),
+  };
+  const std::vector<std::int32_t> Dates = {
+      20240110, 20240111, 20240112, 20240115, 20240116,
+  };
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();
   Spec.InitialCash = d("100000");
   Spec.Margin.AllowShort = true;
 
-  // Шаг 0: шорт 10 лотов (исполняется на шаге 1 по open 100 -> -10 лотов,
+  // Шаг 0: шорт 10 лотов (исполнится на шаге 1 по open 100 -> -10 лотов,
   // Cash = 110000, на close 90 Equity = 101000).
-  // Шаг 1: выкуп 10 лотов (исполняется на шаге 2 по open 80 -> +2000 прибыли).
-  // Шаг 2: шорт 10 лотов (исполняется на шаге 3 по open 80).
-  // Шаг 3: выкуп 10 лотов (исполняется на шаге 4 по open 120 -> -4000 убытка).
+  // Шаг 1: выкуп 10 лотов (исполнится на шаге 2 по open 80 -> +2000 прибыли).
+  // Шаг 2: шорт 10 лотов (исполнится на шаге 3 по open 80).
+  // Шаг 3: выкуп 10 лотов (исполнится на шаге 4 по open 120 -> -4000 убытка).
   const std::vector<JournalEntry> Journal = {
       placeAt(0, 0, marketOrder(Side::Sell, 10)),
       placeAt(1, 1, marketOrder(Side::Buy, 10)),
@@ -181,21 +191,28 @@ TEST(ShortMargin, ShortOpenProfitAndLossFifo) {
 }
 
 TEST(ShortMargin, PositionFlipAndPartialCover) {
-  const auto Tl = makeTimeline({makeBar(20240110, "100", "100"),
-                                makeBar(20240111, "100", "100"),
-                                makeBar(20240112, "110", "110"),
-                                makeBar(20240115, "90", "90")},
-                               {20240110, 20240111, 20240112, 20240115});
+  const std::vector<Bar> Bars = {
+      makeBar(20240110, "100", "100"),
+      makeBar(20240111, "100", "100"),
+      makeBar(20240112, "110", "110"),
+      makeBar(20240115, "90", "90"),
+  };
+  const std::vector<std::int32_t> Dates = {20240110, 20240111, 20240112,
+                                           20240115};
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();
   Spec.InitialCash = d("100000");
   Spec.Margin.AllowShort = true;
 
+  // Переворот: покупка 5, затем продажа 15 (закрыть 5 + открыть 10 шорт),
+  // затем частичное покрытие 4 из 10 шорта.
   const std::vector<JournalEntry> Journal = {
       placeAt(0, 0, marketOrder(Side::Buy, 5)),
-      placeAt(1, 1, marketOrder(Side::Sell, 15)), // закрыть 5 лонг + открыть 10 шорт
-      placeAt(2, 2, marketOrder(Side::Buy, 4)),   // частично покрыть 4 из 10 шорта
+      placeAt(1, 1, marketOrder(Side::Sell, 15)),
+      placeAt(2, 2, marketOrder(Side::Buy, 4)),
   };
   const ReplayResult Res = core::replaySession(Spec, Tl, Journal, 3, 0);
   EXPECT_EQ(Res.Engine.portfolio().lots(0), -6);
@@ -214,10 +231,14 @@ TEST(ShortMargin, PositionFlipAndPartialCover) {
 
 TEST(ShortMargin, OvernightShortBorrowFeeAcrossWeekend) {
   // 2024-01-12 (пятница) -> 2024-01-15 (понедельник) = 3 календарных дня.
-  const auto Tl = makeTimeline({makeBar(20240111, "100", "100"),
-                                makeBar(20240112, "100", "100"),
-                                makeBar(20240115, "100", "100")},
-                               {20240111, 20240112, 20240115});
+  const std::vector<Bar> Bars = {
+      makeBar(20240111, "100", "100"),
+      makeBar(20240112, "100", "100"),
+      makeBar(20240115, "100", "100"),
+  };
+  const std::vector<std::int32_t> Dates = {20240111, 20240112, 20240115};
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();
@@ -227,7 +248,7 @@ TEST(ShortMargin, OvernightShortBorrowFeeAcrossWeekend) {
   Spec.Margin.ShortBorrowAnnualPct = d("36.5");
 
   const std::vector<JournalEntry> Journal = {
-      placeAt(0, 0, marketOrder(Side::Sell, 10)), // шорт 10000 ₽ на шаге 1 (пт)
+      placeAt(0, 0, marketOrder(Side::Sell, 10)),
   };
   const ReplayResult Res = core::replaySession(Spec, Tl, Journal, 2, 0);
   // 10000 * 36.5 * 3 / 36500 = 30.00 ₽
@@ -244,16 +265,21 @@ TEST(ShortMargin, OvernightShortBorrowFeeAcrossWeekend) {
 }
 
 TEST(ShortMargin, LeverageBuyingPowerAndMarginLoanInterest) {
-  const auto Tl = makeTimeline({makeBar(20240110, "100", "100"),
-                                makeBar(20240111, "100", "100"),
-                                makeBar(20240112, "100", "100")},
-                               {20240110, 20240111, 20240112});
+  const std::vector<Bar> Bars = {
+      makeBar(20240110, "100", "100"),
+      makeBar(20240111, "100", "100"),
+      makeBar(20240112, "100", "100"),
+  };
+  const std::vector<std::int32_t> Dates = {20240110, 20240111, 20240112};
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();
   Spec.InitialCash = d("100000");
-  Spec.Margin.MaxLeverage = d("2"); // Dнач = 0.5 -> покупательная способность 200000
-  Spec.Margin.MarginLoanAnnualPct = d("36.5"); // 0.1% в календарный день
+  // Dнач = 0.5 -> покупательная способность 200000; 0.1% в календарный день.
+  Spec.Margin.MaxLeverage = d("2");
+  Spec.Margin.MarginLoanAnnualPct = d("36.5");
 
   // 250 лотов = 250000 > 200000 -> отказ InsufficientMargin.
   // 180 лотов = 180000 <= 200000 -> принято; Cash = -80000.
@@ -267,18 +293,23 @@ TEST(ShortMargin, LeverageBuyingPowerAndMarginLoanInterest) {
   EXPECT_EQ(Res.CommandResults[0].ReasonCode, Reason::InsufficientMargin);
   EXPECT_TRUE(Res.CommandResults[1].Accepted);
   EXPECT_EQ(Res.Engine.portfolio().lots(0), 180);
-  // За 1 календарный день (11 -> 12 янв) на заём 80000: 80000 * 0.001 = 80.00 ₽
+  // За 1 календарный день (11 -> 12 янв) на заём 80000: 80000 * 0.001 = 80.00
   EXPECT_EQ(Res.Engine.overnightFees(), d("80.00"));
   EXPECT_EQ(Res.Engine.portfolio().cash(), d("-80080.00"));
   EXPECT_EQ(Res.Engine.equity()[2].Equity, d("99920.00"));
 }
 
 TEST(ShortMargin, MaintenanceMarginLiquidationAndDeterminism) {
-  const auto Tl = makeTimeline({makeBar(20240110, "100", "100"),
-                                makeBar(20240111, "100", "100"),
-                                makeBar(20240112, "60", "60"),
-                                makeBar(20240115, "55", "55")},
-                               {20240110, 20240111, 20240112, 20240115});
+  const std::vector<Bar> Bars = {
+      makeBar(20240110, "100", "100"),
+      makeBar(20240111, "100", "100"),
+      makeBar(20240112, "60", "60"),
+      makeBar(20240115, "55", "55"),
+  };
+  const std::vector<std::int32_t> Dates = {20240110, 20240111, 20240112,
+                                           20240115};
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();
@@ -297,8 +328,8 @@ TEST(ShortMargin, MaintenanceMarginLiquidationAndDeterminism) {
 
   // Шаг 0: покупка 180 лотов (исполнится на шаге 1 по 100 -> Cash = -80000).
   // Шаг 1: активная GTC лимитка (должна сняться при принудительном закрытии).
-  // Шаг 2: close = 60 -> Gross = 108000, Equity = 28000 >= Dmin (27000) -> без ликвидации.
-  // Шаг 3: close = 55 -> Gross = 99000, Equity = 19000 < Dmin (24750) -> ликвидация!
+  // Шаг 2: close = 60 -> Gross = 108000, Equity = 28000 >= Dmin (27000).
+  // Шаг 3: close = 55 -> Gross = 99000, Equity = 19000 < Dmin (24750).
   const std::vector<JournalEntry> Journal = {
       placeAt(0, 0, marketOrder(Side::Buy, 180)),
       placeAt(1, 1, Lim),
@@ -331,10 +362,14 @@ TEST(ShortMargin, MaintenanceMarginLiquidationAndDeterminism) {
 }
 
 TEST(ShortMargin, LiquidationIntoBankruptcy) {
-  const auto Tl = makeTimeline({makeBar(20240110, "100", "100"),
-                                makeBar(20240111, "100", "100"),
-                                makeBar(20240112, "40", "40")},
-                               {20240110, 20240111, 20240112});
+  const std::vector<Bar> Bars = {
+      makeBar(20240110, "100", "100"),
+      makeBar(20240111, "100", "100"),
+      makeBar(20240112, "40", "40"),
+  };
+  const std::vector<std::int32_t> Dates = {20240110, 20240111, 20240112};
+  const auto Tl = makeTimeline(Bars, Dates);
+
   SessionSpec Spec;
   Spec.Instruments = Tl->instruments();
   Spec.Costs = CostConfig::zero();

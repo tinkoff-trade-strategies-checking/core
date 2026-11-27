@@ -112,11 +112,9 @@ Validation ExecutionEngine::validate(const OrderSpec &Spec,
 
   // Заявка, исключительно сокращающая текущую позицию без переворота, всегда
   // допустима (улучшает обеспечение).
-  const bool PurelyReducing = (Buy && CurrentLots < 0 &&
-                               Spec.Lots <= -CurrentLots) ||
-                              (!Buy && CurrentLots > 0 &&
-                               Spec.Lots <= CurrentLots);
-  if (PurelyReducing)
+  const bool ReducesShort = Buy && CurrentLots < 0 && Spec.Lots <= -CurrentLots;
+  const bool ReducesLong = !Buy && CurrentLots > 0 && Spec.Lots <= CurrentLots;
+  if (ReducesShort || ReducesLong)
     return Validation{};
 
   const Instrument &Inst =

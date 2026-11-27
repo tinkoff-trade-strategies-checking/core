@@ -333,9 +333,21 @@ void ExecutionEngine::processConditional(
     std::int64_t Step, const Timeline &Timeline, LiquidityBudget &Budget,
     std::vector<Order> &Orders, Portfolio &Portfolio, std::vector<Fill> &Fills,
     std::vector<std::int64_t> &Changed) const {
-  Context C{Step,   Instruments, Costs,   Margin,   Timeline,
-            Budget, Orders,      Portfolio, Fills,  Changed,
-            Changed.size(),      {},        {}};
+  Context C{
+      .Step = Step,
+      .Instruments = Instruments,
+      .Costs = Costs,
+      .Margin = Margin,
+      .Line = Timeline,
+      .Budget = Budget,
+      .Orders = Orders,
+      .Folio = Portfolio,
+      .Fills = Fills,
+      .Changed = Changed,
+      .ChangedFrom = Changed.size(),
+      .ById = {},
+      .TriggeredNow = {},
+  };
   C.ById.resize(Orders.size());
   std::iota(C.ById.begin(), C.ById.end(), std::size_t{0});
   std::stable_sort(C.ById.begin(), C.ById.end(),

@@ -89,7 +89,8 @@ struct Fill {
   std::int64_t Lots = 0;
   Decimal Price, BasePrice, Value, Commission, Fee, SpreadCost, SlippageCost;
   bool StopAndTakeSameBar = false; // ФТ-9
-  bool IsLiquidation = false;      // принудительное закрытие по Dmin (core#83)
+  // Принудительное закрытие по Dmin (core#83).
+  bool IsLiquidation = false;
   // Порядковый номер сделки в журнале сессии (с 0, по порядку исполнения).
   std::int64_t Seq = 0;
 

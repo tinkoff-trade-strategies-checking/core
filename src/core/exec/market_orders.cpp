@@ -58,17 +58,17 @@ void runMarketOrders(std::int64_t Step,
       return Quote{Price, amounts(Price, Q, Inst.LotSize, Costs)};
     };
     const std::int64_t Remaining = O.Spec.Lots - O.FilledLots;
+    const std::int64_t PosLots = Portfolio.lots(InstrIdx);
+    const Decimal &Cash = Portfolio.cash();
     std::pair<std::int64_t, Reason> Chosen;
     if (Margin.isMarginEnabled()) {
       const auto [OtherVal, OtherGross] =
           otherExposure(Portfolio, Instruments, Timeline, Step, InstrIdx);
-      Chosen = chooseMarginQuantity(
-          O.Spec.OrderSide, Remaining, Cap, Portfolio.lots(InstrIdx),
-          Portfolio.cash(), Inst.LotSize, OtherVal, OtherGross, Margin,
-          QuoteAt);
+      Chosen = chooseMarginQuantity(O.Spec.OrderSide, Remaining, Cap, PosLots,
+                                    Cash, Inst.LotSize, OtherVal, OtherGross,
+                                    Margin, QuoteAt);
     } else {
-      Chosen = chooseQuantity(O.Spec.OrderSide, Remaining, Cap,
-                              Portfolio.lots(InstrIdx), Portfolio.cash(),
+      Chosen = chooseQuantity(O.Spec.OrderSide, Remaining, Cap, PosLots, Cash,
                               QuoteAt);
     }
     const std::int64_t Q = Chosen.first;

@@ -5,8 +5,7 @@
 namespace core {
 
 ExecutionEngine::ExecutionEngine(std::vector<Instrument> InstrumentList,
-                                 CostConfig CostModel,
-                                 MarginConfig MarginModel)
+                                 CostConfig CostModel, MarginConfig MarginModel)
     : Instruments(std::move(InstrumentList)), Costs(std::move(CostModel)),
       Margin(std::move(MarginModel)) {}
 
