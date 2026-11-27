@@ -54,10 +54,11 @@ struct Fixture {
             return ReadySnapshots;
           if (Sql.find("FROM trading_calendar") != std::string::npos)
             return CalendarRows;
-          if (Sql.find("SELECT count() FROM securities") != std::string::npos)
-            return "1\n";
-          if (Sql.find("SELECT count() FROM candles") != std::string::npos)
-            return CandleCount;
+          if (Sql.find("FROM securities") != std::string::npos)
+            return "SBER\tФинансы\t1\t0.01\n";
+          if (Sql.find("SELECT DISTINCT secid, interval_sec FROM candles") !=
+              std::string::npos)
+            return CandleCount == "0\n" ? "" : "SBER\t300\n";
           return BarRows;
         });
   }

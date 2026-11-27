@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -57,10 +58,14 @@ public:
 class CurlClickHouseClient final : public ClickHouseClient {
 public:
   explicit CurlClickHouseClient(ClickHouseConfig Config);
+  ~CurlClickHouseClient() override;
   std::string query(const std::string &Sql, const QueryParams &Params) override;
 
 private:
+  struct HandlePool;
+
   ClickHouseConfig Config;
+  std::unique_ptr<HandlePool> Pool;
 };
 
 // Разбор ответа FORMAT TabSeparated: строки разделены \n, поля - \t,

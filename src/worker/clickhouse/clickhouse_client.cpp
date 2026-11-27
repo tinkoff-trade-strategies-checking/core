@@ -45,6 +45,8 @@ struct SlistDeleter {
   void operator()(curl_slist *L) const { curl_slist_free_all(L); }
 };
 
+constexpr std::size_t kMaxPooledHandles = 32;
+
 std::string escapeUrl(CURL *Handle, const std::string &Text) {
   char *Escaped =
       curl_easy_escape(Handle, Text.c_str(), static_cast<int>(Text.size()));
@@ -100,37 +102,73 @@ ClickHouseConfig ClickHouseConfig::fromUrl(const std::string &Url) {
   return Config;
 }
 
+struct CurlClickHouseClient::HandlePool {
+  std::mutex Mutex;
+  std::vector<std::unique_ptr<CURL, CurlDeleter>> Handles;
+
+  std::unique_ptr<CURL, CurlDeleter> acquire() {
+    {
+      std::lock_guard<std::mutex> Lock(Mutex);
+      if (!Handles.empty()) {
+        auto Handle = std::move(Handles.back());
+        Handles.pop_back();
+        return Handle;
+      }
+    }
+    std::unique_ptr<CURL, CurlDeleter> Handle(curl_easy_init());
+    if (!Handle)
+      throw ClickHouseError("curl_easy_init не удался");
+    return Handle;
+  }
+
+  void release(std::unique_ptr<CURL, CurlDeleter> Handle) {
+    if (!Handle)
+      return;
+    curl_easy_reset(Handle.get());
+    std::lock_guard<std::mutex> Lock(Mutex);
+    if (Handles.size() < kMaxPooledHandles) {
+      Handles.push_back(std::move(Handle));
+    }
+  }
+};
+
 CurlClickHouseClient::CurlClickHouseClient(ClickHouseConfig Settings)
-    : Config(std::move(Settings)) {
+    : Config(std::move(Settings)), Pool(std::make_unique<HandlePool>()) {
   ensureCurlGlobalInit();
 }
 
+CurlClickHouseClient::~CurlClickHouseClient() = default;
+
 std::string CurlClickHouseClient::query(const std::string &Sql,
                                         const QueryParams &Params) {
-  std::unique_ptr<CURL, CurlDeleter> Handle(curl_easy_init());
-  if (!Handle)
-    throw ClickHouseError("curl_easy_init не удался");
+  std::unique_ptr<CURL, CurlDeleter> Handle = Pool->acquire();
 
   std::string Url = Config.BaseUrl +
                     "/?readonly=1&wait_end_of_query=1&database=" +
                     escapeUrl(Handle.get(), Config.Database);
-  for (const auto &[name, value] : Params) {
-    Url += "&param_" + escapeUrl(Handle.get(), name) + "=" +
-           escapeUrl(Handle.get(), value);
+  for (const auto &[Name, Value] : Params) {
+    Url += "&param_" + escapeUrl(Handle.get(), Name) + "=" +
+           escapeUrl(Handle.get(), Value);
   }
 
   std::string Response;
   std::unique_ptr<curl_slist, SlistDeleter> Headers;
-  if (!Config.User.empty()) {
-    curl_slist *List = nullptr;
-    for (const std::string &Line : {"X-ClickHouse-User: " + Config.User,
-                                    "X-ClickHouse-Key: " + Config.Password}) {
-      curl_slist *Extended = curl_slist_append(List, Line.c_str());
-      if (Extended == nullptr) {
-        curl_slist_free_all(List);
-        throw ClickHouseError("curl_slist_append: нехватка памяти");
+  {
+    // Отключаем заголовок Expect: 100-continue, чтобы крупные POST-запросы
+    // (например, batch secid IN (...)) не ждали 1 с ответа сервера.
+    curl_slist *List = curl_slist_append(nullptr, "Expect:");
+    if (List == nullptr)
+      throw ClickHouseError("curl_slist_append: нехватка памяти");
+    if (!Config.User.empty()) {
+      for (const std::string &Line : {"X-ClickHouse-User: " + Config.User,
+                                      "X-ClickHouse-Key: " + Config.Password}) {
+        curl_slist *Extended = curl_slist_append(List, Line.c_str());
+        if (Extended == nullptr) {
+          curl_slist_free_all(List);
+          throw ClickHouseError("curl_slist_append: нехватка памяти");
+        }
+        List = Extended;
       }
-      List = Extended;
     }
     Headers.reset(List);
   }
@@ -146,16 +184,22 @@ std::string CurlClickHouseClient::query(const std::string &Sql,
   curl_easy_setopt(H, CURLOPT_CONNECTTIMEOUT, 5L);
   curl_easy_setopt(H, CURLOPT_TIMEOUT, Config.TimeoutSec);
   curl_easy_setopt(H, CURLOPT_NOSIGNAL, 1L);
-  if (Headers)
-    curl_easy_setopt(H, CURLOPT_HTTPHEADER, Headers.get());
+  curl_easy_setopt(H, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+  curl_easy_setopt(H, CURLOPT_TCP_KEEPALIVE, 1L);
+  curl_easy_setopt(H, CURLOPT_TCP_KEEPIDLE, 60L);
+  curl_easy_setopt(H, CURLOPT_TCP_KEEPINTVL, 30L);
+  curl_easy_setopt(H, CURLOPT_HTTPHEADER, Headers.get());
 
   const CURLcode Rc = curl_easy_perform(H);
   if (Rc != CURLE_OK) {
+    // При транспортной ошибке не возвращаем потенциально повреждённое
+    // соединение в пул.
     throw ClickHouseError(std::string("ClickHouse недоступен: ") +
                           curl_easy_strerror(Rc));
   }
   long Status = 0;
   curl_easy_getinfo(H, CURLINFO_RESPONSE_CODE, &Status);
+  Pool->release(std::move(Handle));
   if (Status != 200) {
     throw ClickHouseError("ClickHouse вернул HTTP " + std::to_string(Status) +
                           ": " + trimmed(Response));

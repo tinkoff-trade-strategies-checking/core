@@ -322,4 +322,41 @@ TEST_F(ClickHouseIntegration, EmptyRangeIsNotAnError) {
           .empty());
 }
 
+TEST_F(ClickHouseIntegration, BatchLoadMatchesSingleLoadBitForBit) {
+  const auto Config =
+      worker::ClickHouseConfig::fromUrl(std::getenv("CLICKHOUSE_URL"));
+  // Отдельный источник без кэша для эталонной одиночной загрузки (INV-4).
+  worker::ClickHouseBarSource Single(Config, 0, 0);
+  worker::ClickHouseBarSource Batch(Config);
+
+  // 1. Хранимые минутные свечи (SBER, GAZP).
+  const std::int64_t MFrom = utcMs(2026, 10, 28, 3, 59);
+  const std::int64_t MTo = utcMs(2026, 10, 28, 8, 0);
+  const auto MinuteBatch =
+      Batch.loadBatch({kFixture, {"SBER", "GAZP"}, 60, MFrom, MTo});
+  ASSERT_EQ(MinuteBatch.size(), 2u);
+  EXPECT_EQ(MinuteBatch[0], Single.load({kFixture, "SBER", 60, MFrom, MTo}));
+  EXPECT_EQ(MinuteBatch[1], Single.load({kFixture, "GAZP", 60, MFrom, MTo}));
+  EXPECT_FALSE(MinuteBatch[0].empty());
+  EXPECT_FALSE(MinuteBatch[1].empty());
+
+  // 2. Агрегированные 5-минутные свечи (SBER, GAZP — обе из минутных).
+  const auto FiveMinBatch =
+      Batch.loadBatch({kFixture, {"SBER", "GAZP"}, 300, MFrom, MTo});
+  ASSERT_EQ(FiveMinBatch.size(), 2u);
+  EXPECT_EQ(FiveMinBatch[0], Single.load({kFixture, "SBER", 300, MFrom, MTo}));
+  EXPECT_EQ(FiveMinBatch[1], Single.load({kFixture, "GAZP", 300, MFrom, MTo}));
+
+  // 3. Смешанный пакет: SBER (хранимые 1d) + DAYT (агрегированные 1d из 1m).
+  const std::int64_t DFrom = utcMs(2026, 10, 18, 21);
+  const std::int64_t DTo = utcMs(2026, 10, 30, 21);
+  const auto DailyBatch =
+      Batch.loadBatch({kFixture, {"SBER", "DAYT"}, 86400, DFrom, DTo});
+  ASSERT_EQ(DailyBatch.size(), 2u);
+  EXPECT_EQ(DailyBatch[0], Single.load({kFixture, "SBER", 86400, DFrom, DTo}));
+  EXPECT_EQ(DailyBatch[1], Single.load({kFixture, "DAYT", 86400, DFrom, DTo}));
+  EXPECT_EQ(DailyBatch[0].size(), 10u);
+  EXPECT_EQ(DailyBatch[1].size(), 3u);
+}
+
 } // namespace
