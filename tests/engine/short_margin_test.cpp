@@ -139,13 +139,12 @@ TEST(ShortMargin, MarginConfigValidation) {
 }
 
 TEST(ShortMargin, ShortOpenProfitAndLossFifo) {
-  const std::vector<Bar> Bars = {
-      makeBar(20240110, "100", "100"),
-      makeBar(20240111, "100", "90"),
-      makeBar(20240112, "80", "80"),
-      makeBar(20240115, "80", "100"),
-      makeBar(20240116, "120", "120"),
-  };
+  std::vector<Bar> Bars;
+  Bars.push_back(makeBar(20240110, "100", "100"));
+  Bars.push_back(makeBar(20240111, "100", "90"));
+  Bars.push_back(makeBar(20240112, "80", "80"));
+  Bars.push_back(makeBar(20240115, "80", "100"));
+  Bars.push_back(makeBar(20240116, "120", "120"));
   const std::vector<std::int32_t> Dates = {
       20240110, 20240111, 20240112, 20240115, 20240116,
   };
