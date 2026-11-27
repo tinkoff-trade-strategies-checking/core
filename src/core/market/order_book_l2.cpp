@@ -107,9 +107,8 @@ OrderBookSnapshot buildOrderBook(const Bar &SourceBar,
     TotalWeight += levelWeight(I);
   }
 
-  const std::int64_t BaseVolume =
-      std::max<std::int64_t>(static_cast<std::int64_t>(Cfg.Depth) * 2,
-                             SourceBar.Volume);
+  const std::int64_t MinVolume = static_cast<std::int64_t>(Cfg.Depth) * 2;
+  const std::int64_t BaseVolume = std::max(MinVolume, SourceBar.Volume);
   std::int64_t BidPct = 50;
   if (SourceBar.Close > SourceBar.Open) {
     BidPct = 55;
@@ -125,10 +124,11 @@ OrderBookSnapshot buildOrderBook(const Bar &SourceBar,
   Snapshot.TimeUnixMs = SourceBar.AvailableAtMs > 0 ? SourceBar.AvailableAtMs
                                                     : SourceBar.TsOpenMs;
   Snapshot.MidPrice = (BestBid + BestAsk).div(Two, RoundingMode::HalfUp);
+  const Decimal Spread = BestAsk - BestBid;
+  const Decimal Bps = Decimal::fromUnits(10000);
+  const Decimal Mid = Snapshot.MidPrice;
   Snapshot.SpreadBps =
-      (BestAsk - BestBid)
-          .mulDiv(Decimal::fromUnits(10000), Snapshot.MidPrice, Decimal::kScale,
-                  RoundingMode::HalfUp);
+      Spread.mulDiv(Bps, Mid, Decimal::kScale, RoundingMode::HalfUp);
 
   Snapshot.Bids.reserve(static_cast<std::size_t>(Cfg.Depth));
   Snapshot.Asks.reserve(static_cast<std::size_t>(Cfg.Depth));

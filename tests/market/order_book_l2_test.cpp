@@ -37,7 +37,8 @@ Bar makeSampleBar(const char *Open, const char *High, const char *Low,
 }
 
 TEST(OrderBookL2, BuildsOrderedQuantizedLevelsWithPositiveLots) {
-  const Bar Sample = makeSampleBar("250.00", "252.50", "249.10", "251.20", 5000);
+  const Bar Sample =
+      makeSampleBar("250.00", "252.50", "249.10", "251.20", 5000);
   OrderBookConfig Cfg;
   Cfg.Depth = 10;
   Cfg.SpreadPct = Decimal::parse("0.001"); // 10 bps
@@ -53,27 +54,28 @@ TEST(OrderBookL2, BuildsOrderedQuantizedLevelsWithPositiveLots) {
   EXPECT_LT(Book.MidPrice, Book.Asks.front().Price);
   EXPECT_GT(Book.SpreadBps, Decimal::zero());
 
+  const Decimal Step = Cfg.PriceStep;
   for (std::size_t I = 0; I < Book.Bids.size(); ++I) {
     EXPECT_GT(Book.Bids[I].Price, Decimal::zero());
     EXPECT_GT(Book.Bids[I].Lots, 0);
-    EXPECT_EQ(Book.Bids[I].Price,
-              Book.Bids[I].Price.roundToStep(Cfg.PriceStep,
-                                             RoundingMode::HalfUp));
+    const Decimal Quantized =
+        Book.Bids[I].Price.roundToStep(Step, RoundingMode::HalfUp);
+    EXPECT_EQ(Book.Bids[I].Price, Quantized);
     if (I > 0) {
       EXPECT_LT(Book.Bids[I].Price, Book.Bids[I - 1].Price);
-      EXPECT_EQ(Book.Bids[I - 1].Price - Book.Bids[I].Price, Cfg.PriceStep);
+      EXPECT_EQ(Book.Bids[I - 1].Price - Book.Bids[I].Price, Step);
     }
   }
 
   for (std::size_t I = 0; I < Book.Asks.size(); ++I) {
     EXPECT_GT(Book.Asks[I].Price, Decimal::zero());
     EXPECT_GT(Book.Asks[I].Lots, 0);
-    EXPECT_EQ(Book.Asks[I].Price,
-              Book.Asks[I].Price.roundToStep(Cfg.PriceStep,
-                                             RoundingMode::HalfUp));
+    const Decimal Quantized =
+        Book.Asks[I].Price.roundToStep(Step, RoundingMode::HalfUp);
+    EXPECT_EQ(Book.Asks[I].Price, Quantized);
     if (I > 0) {
       EXPECT_GT(Book.Asks[I].Price, Book.Asks[I - 1].Price);
-      EXPECT_EQ(Book.Asks[I].Price - Book.Asks[I - 1].Price, Cfg.PriceStep);
+      EXPECT_EQ(Book.Asks[I].Price - Book.Asks[I - 1].Price, Step);
     }
   }
 }
@@ -194,9 +196,10 @@ TEST(OrderBookL2, WalkBookFillBuyExactVwapAndPartialFill) {
   EXPECT_EQ(PartialFill.FilledLots, 60);
   EXPECT_EQ(PartialFill.RemainingLots, 40);
   EXPECT_EQ(PartialFill.TotalValue, Decimal::parse("6080.00"));
-  EXPECT_EQ(PartialFill.AvgPrice,
-            Decimal::parse("6080").div(Decimal::fromUnits(60),
-                                       RoundingMode::HalfUp));
+  const Decimal Sixty = Decimal::fromUnits(60);
+  const Decimal ExpectedAvg =
+      Decimal::parse("6080").div(Sixty, RoundingMode::HalfUp);
+  EXPECT_EQ(PartialFill.AvgPrice, ExpectedAvg);
   EXPECT_GT(PartialFill.PriceImpactBps, Decimal::fromUnits(133));
 }
 
