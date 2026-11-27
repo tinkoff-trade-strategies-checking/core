@@ -20,7 +20,7 @@ enum class OrderType {
   TakeProfit,
   TrailingStop
 };
-enum class TimeInForce { Day, Gtc };
+enum class TimeInForce { Day, Gtc, Ioc, Fok };
 enum class OrderStatus {
   Active,
   PartiallyFilled,
@@ -44,7 +44,10 @@ enum class Reason {
   CancelledByUser,
   DayExpired,
   InsufficientMargin,
-  MarginCallLiquidation
+  MarginCallLiquidation,
+  ImmediateOrCancel,
+  FillOrKill,
+  PriceOutOfBand
 };
 
 // Параметры заявки при подаче. instrument - индекс в списке бумаг сессии.
@@ -58,6 +61,10 @@ struct OrderSpec {
   std::optional<Decimal> LimitPrice, StopPrice, TrailingPercent;
   TimeInForce Tif = TimeInForce::Gtc;
   bool IsBlindPrice = false;
+  // Айсберг-заявка: видимая часть в лотах на бар; 0 - обычная заявка (core#84).
+  std::int64_t DisplayLots = 0;
+  // Заявка только для аукционов открытия/закрытия (core#84).
+  bool AuctionOnly = false;
 
   friend bool operator==(const OrderSpec &, const OrderSpec &) = default;
 };

@@ -106,6 +106,10 @@ core::TimeInForce parseTif(std::string_view Str) {
     return core::TimeInForce::Day;
   if (Upper == "GTC")
     return core::TimeInForce::Gtc;
+  if (Upper == "IOC")
+    return core::TimeInForce::Ioc;
+  if (Upper == "FOK")
+    return core::TimeInForce::Fok;
   throw std::runtime_error("Неизвестный time_in_force: " + std::string(Str));
 }
 
@@ -256,6 +260,12 @@ std::string reasonToString(core::Reason ReasonCode) {
     return "INSUFFICIENT_MARGIN";
   case core::Reason::MarginCallLiquidation:
     return "MARGIN_CALL_LIQUIDATION";
+  case core::Reason::ImmediateOrCancel:
+    return "IMMEDIATE_OR_CANCEL";
+  case core::Reason::FillOrKill:
+    return "FILL_OR_KILL";
+  case core::Reason::PriceOutOfBand:
+    return "PRICE_OUT_OF_BAND";
   }
   return "UNKNOWN";
 }

@@ -75,6 +75,14 @@ void validateMarginConfig(const MarginConfig &Margin) {
   }
 }
 
+void validateExecutionRules(const ExecutionRules &Rules) {
+  if (Rules.PriceBandPct.sign() < 0 ||
+      Rules.PriceBandPct >= Decimal::fromUnits(100)) {
+    throw std::invalid_argument(
+        "ExecutionRules: ценовой коридор должен быть в [0; 100)");
+  }
+}
+
 namespace {
 
 Decimal halfSpread(const CostConfig &Costs) {

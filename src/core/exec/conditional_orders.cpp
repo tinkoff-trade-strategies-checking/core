@@ -46,6 +46,7 @@ struct Context {
   const std::vector<Instrument> &Instruments;
   const CostConfig &Costs;
   const MarginConfig &Margin;
+  const ExecutionRules &Rules;
   const Timeline &Line;
   LiquidityBudget &Budget;
   std::vector<Order> &Orders;
@@ -115,7 +116,8 @@ struct Executed {
 // снимает вторую ногу OCO; статус заявки не меняет.
 template <class PriceFn>
 Executed execute(Context &C, Order &O, const StepBar &Bar, const Decimal &Base,
-                 PriceFn &&PriceOf, Fill **FillOut) {
+                 PriceFn &&PriceOf, Fill **FillOut,
+                 std::int64_t MaxLotsOverride = -1, bool AllOrNothing = false) {
   const Instrument &Inst = C.instrumentOf(O);
   const int Instrument = O.Spec.Instrument;
   auto QuoteAt = [&](std::int64_t Q) {
@@ -124,19 +126,25 @@ Executed execute(Context &C, Order &O, const StepBar &Bar, const Decimal &Base,
   };
   const std::optional<std::int64_t> Cap =
       C.Budget.remaining(Instrument, Bar, C.Costs);
+  const std::int64_t Remaining = O.Spec.Lots - O.FilledLots;
+  const std::int64_t TargetLots =
+      MaxLotsOverride > 0 ? std::min(Remaining, MaxLotsOverride) : Remaining;
+  const std::int64_t PosLots = C.Folio.lots(Instrument);
+  const Decimal &Cash = C.Folio.cash();
   std::pair<std::int64_t, Reason> Chosen;
   if (C.Margin.isMarginEnabled()) {
     const auto [OtherVal, OtherGross] =
         otherExposure(C.Folio, C.Instruments, C.Line, C.Step, Instrument);
-    Chosen = chooseMarginQuantity(O.Spec.OrderSide, O.Spec.Lots - O.FilledLots,
-                                  Cap, C.Folio.lots(Instrument), C.Folio.cash(),
-                                  Inst.LotSize, OtherVal, OtherGross, C.Margin,
-                                  QuoteAt);
+    Chosen = chooseMarginQuantity(O.Spec.OrderSide, TargetLots, Cap, PosLots,
+                                  Cash, Inst.LotSize, OtherVal, OtherGross,
+                                  C.Margin, QuoteAt);
   } else {
-    Chosen = chooseQuantity(O.Spec.OrderSide, O.Spec.Lots - O.FilledLots, Cap,
-                            C.Folio.lots(Instrument), C.Folio.cash(), QuoteAt);
+    Chosen = chooseQuantity(O.Spec.OrderSide, TargetLots, Cap, PosLots, Cash,
+                            QuoteAt);
   }
   const std::int64_t Q = Chosen.first;
+  if (AllOrNothing && (Q < TargetLots || Chosen.second != Reason::None))
+    return Executed{0, Reason::FillOrKill};
   if (Q > 0) {
     const Quote X = QuoteAt(Q);
     Fill &F =
@@ -262,29 +270,58 @@ void runLimits(Context &C) {
 
     const Decimal &Limit = *O.Spec.LimitPrice;
     const bool Buy = O.Spec.OrderSide == Side::Buy;
-    // Открытие лучше или равно лимиту - исполнение от open; иначе бар должен
-    // пройти уровень (касание не исполняет).
-    const bool AtOpen = Buy ? Bar->Open <= Limit : Bar->Open >= Limit;
-    const bool Crossed = AtOpen || (Buy ? Bar->Low < Limit : Bar->High > Limit);
-    if (!Crossed)
+    const bool IsIoc = O.Spec.Tif == TimeInForce::Ioc;
+    const bool IsFok = O.Spec.Tif == TimeInForce::Fok;
+    const std::optional<Decimal> AuctionPrice =
+        auctionClearingPrice(C.Line, C.Step, *Bar, C.Rules);
+    if (O.Spec.AuctionOnly && !AuctionPrice) {
+      if (IsIoc || IsFok) {
+        closeOrder(C, O, OrderStatus::Cancelled,
+                   IsFok ? Reason::FillOrKill : Reason::ImmediateOrCancel);
+      }
       continue;
+    }
+
+    // Открытие лучше или равно лимиту - исполнение от open; иначе бар должен
+    // пройти уровень (касание не исполняет). На аукционе - сведение по единой
+    // цене аукциона без спреда и проскальзывания.
+    const bool AtOpen =
+        AuctionPrice ? true : (Buy ? Bar->Open <= Limit : Bar->Open >= Limit);
+    bool Crossed = false;
+    if (AuctionPrice) {
+      Crossed = Buy ? *AuctionPrice <= Limit : *AuctionPrice >= Limit;
+    } else {
+      Crossed = AtOpen || (Buy ? Bar->Low < Limit : Bar->High > Limit);
+    }
+    if (!Crossed) {
+      if (IsIoc || IsFok) {
+        closeOrder(C, O, OrderStatus::Cancelled,
+                   IsFok ? Reason::FillOrKill : Reason::ImmediateOrCancel);
+      }
+      continue;
+    }
 
     const Instrument &Inst = C.instrumentOf(O);
-    const Decimal Base = AtOpen ? Bar->Open : Limit;
+    const Decimal Base =
+        AuctionPrice ? *AuctionPrice : (AtOpen ? Bar->Open : Limit);
+    const std::int64_t MaxLots =
+        (O.Spec.DisplayLots > 0 && !IsFok) ? O.Spec.DisplayLots : -1;
     Fill *Fill = nullptr;
     const Executed E = execute(
         C, O, *Bar, Base,
         [&](std::int64_t Q) {
+          if (AuctionPrice)
+            return *AuctionPrice;
           if (!AtOpen)
             return Limit;
           const Decimal P = fillPrice(O.Spec.OrderSide, Bar->Open, Q,
                                       Bar->VolumeLots, C.Costs, Inst.PriceStep);
           return Buy ? std::min(Limit, P) : std::max(Limit, P);
         },
-        &Fill);
-    // Исполнение по уровню лимита идёт без спреда и проскальзывания: в отчёте о
-    // сделке их стоимость нулевая.
-    if (Fill != nullptr && !AtOpen) {
+        &Fill, MaxLots, IsFok);
+    // Исполнение по уровню лимита или на аукционе идёт без спреда и
+    // проскальзывания: в отчёте о сделке их стоимость нулевая.
+    if (Fill != nullptr && (AuctionPrice || !AtOpen)) {
       Fill->SpreadCost = Fill->SlippageCost = Decimal::zero();
     } else if (Fill != nullptr && Fill->SlippageCost.sign() < 0) {
       // Цена от open упёрлась в лимит: вся разница с базовой ценой - спред,
@@ -295,7 +332,16 @@ void runLimits(Context &C) {
 
     if (O.FilledLots >= O.Spec.Lots) {
       closeOrder(C, O, OrderStatus::Filled, Reason::None);
-    } else if (E.ReasonCode == Reason::LiquidityLimit) {
+    } else if (IsFok) {
+      closeOrder(C, O, OrderStatus::Cancelled, Reason::FillOrKill);
+    } else if (IsIoc) {
+      const bool IsUnfilled = E.ReasonCode == Reason::None ||
+                              E.ReasonCode == Reason::LiquidityLimit;
+      const Reason CancelReason =
+          IsUnfilled ? Reason::ImmediateOrCancel : E.ReasonCode;
+      closeOrder(C, O, OrderStatus::Cancelled, CancelReason);
+    } else if (E.ReasonCode == Reason::LiquidityLimit ||
+               (O.Spec.DisplayLots > 0 && E.ReasonCode == Reason::None)) {
       // Остаток остаётся активным до конца срока (`decisions.md`, «Заявки»).
       if (E.Lots > 0)
         O.Status = OrderStatus::PartiallyFilled;
@@ -338,6 +384,7 @@ void ExecutionEngine::processConditional(
       .Instruments = Instruments,
       .Costs = Costs,
       .Margin = Margin,
+      .Rules = Rules,
       .Line = Timeline,
       .Budget = Budget,
       .Orders = Orders,

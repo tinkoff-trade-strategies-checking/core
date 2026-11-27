@@ -120,7 +120,7 @@ TEST(ConvertJournal, ReplaceWithTrailing) {
 
 TEST(ConvertJournal, EveryReasonMapsBack) {
   for (int I = static_cast<int>(core::Reason::None);
-       I <= static_cast<int>(core::Reason::MarginCallLiquidation); ++I) {
+       I <= static_cast<int>(core::Reason::PriceOutOfBand); ++I) {
     const auto Reason = static_cast<core::Reason>(I);
     EXPECT_EQ(worker::reasonFromProto(worker::toProto(Reason)), Reason) << I;
   }
